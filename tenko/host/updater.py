@@ -71,7 +71,6 @@ __all__ = [
     "Release",
     "ReleasePointer",
     "RollbackResult",
-    "SubprocessLauncher",
     "UpdateChannel",
     "UpdatePolicy",
     "UpdateRelation",
@@ -520,8 +519,16 @@ class UrllibHttpClient:
             raise ArtifactAcquisitionError(f"无法下载 {url}: {exc}") from exc
 
 
+_GIT_TIMEOUT = 120
+_GIT_CLONE_TIMEOUT = 600
+
+
 def _run_git(
-    executable: str, arguments: Sequence[str], *, cwd: Path | None = None
+    executable: str,
+    arguments: Sequence[str],
+    *,
+    cwd: Path | None = None,
+    timeout: float = _GIT_TIMEOUT,
 ) -> str:
     try:
         completed = subprocess.run(
@@ -530,7 +537,13 @@ def _run_git(
             check=True,
             capture_output=True,
             text=True,
+            timeout=timeout,
+            # 挂起的凭据/ssh 提示会一直占用升级操作锁，所以禁止交互。
+            stdin=subprocess.DEVNULL,
+            env={**os.environ, "GIT_TERMINAL_PROMPT": "0"},
         )
+    except subprocess.TimeoutExpired as exc:
+        raise UpdateSourceError(f"Git 命令超时（{timeout:g} 秒）") from exc
     except FileNotFoundError as exc:
         raise UpdateSourceError(f"找不到 Git 可执行文件: {executable}") from exc
     except OSError as exc:
@@ -684,6 +697,7 @@ class GitTagSource:
                     self.repository,
                     str(destination),
                 ],
+                timeout=_GIT_CLONE_TIMEOUT,
             )
             actual_sha = await asyncio.to_thread(
                 _run_git,
@@ -1441,81 +1455,11 @@ class DefaultHealthChecker:
         candidate: Path,
         *,
         phase: str,
-        process: Any | None = None,
     ) -> HealthCheckResult:
-        if process is not None:
-            poll = getattr(process, "poll", None)
-            if not callable(poll) or poll() is not None:
-                return HealthCheckResult(False, f"{phase} 检查发现新进程已退出")
         result = await asyncio.to_thread(self._check_sync, candidate)
         if not result.ok:
             return HealthCheckResult(False, f"{phase}: {result.reason}")
         return result
-
-
-class ProcessLauncher(Protocol):
-    async def start(self, candidate: Path) -> Any:
-        """启动候选版本并返回可查询 ``poll`` 的进程句柄。"""
-
-
-class SubprocessLauncher:
-    """配置化外部进程启动器，不使用 shell。"""
-
-    def __init__(
-        self,
-        command: Sequence[str] = (),
-        *,
-        config_path: Path | None = None,
-        data_dir: Path | None = None,
-        upgrade_root: Path | None = None,
-        stable_root: Path | None = None,
-    ) -> None:
-        self.command = tuple(command)
-        self.config_path = config_path
-        self.data_dir = data_dir
-        self.upgrade_root = upgrade_root
-        self.stable_root = (
-            Path(Path.cwd() if stable_root is None else stable_root)
-            .expanduser()
-            .resolve()
-        )
-
-    async def start(self, candidate: Path) -> subprocess.Popen[bytes] | None:
-        if not self.command:
-            return None
-        replacements = {
-            "{python}": sys.executable,
-            "{release_root}": str(candidate),
-            "{config_path}": str(self.config_path) if self.config_path else "",
-            "{data_dir}": str(self.data_dir) if self.data_dir else "",
-        }
-        command = [
-            next(
-                (
-                    replacement
-                    for key, replacement in replacements.items()
-                    if item == key
-                ),
-                item,
-            )
-            for item in self.command
-        ]
-        command = _candidate_python_command(command, candidate, sys.executable)
-        environment = _candidate_environment(
-            candidate,
-            config_path=self.config_path,
-            data_dir=self.data_dir,
-            upgrade_root=self.upgrade_root,
-        )
-        try:
-            return await asyncio.to_thread(
-                subprocess.Popen,
-                command,
-                cwd=self.stable_root,
-                env=environment,
-            )
-        except OSError as exc:
-            raise HealthCheckFailed(f"无法启动候选版本: {exc}") from exc
 
 
 def _atomic_write_json(path: Path, payload: Mapping[str, Any]) -> None:
@@ -1607,18 +1551,16 @@ class UpgradeLayout:
         self.ensure()
         return Path(tempfile.mkdtemp(prefix="stage-", dir=self.staging_dir))
 
-    def new_version_path(self, version: Version, commit_sha: str | None = None) -> Path:
-        suffix = commit_sha[:12] if commit_sha else uuid.uuid4().hex[:12]
-        return self.versions_dir / f"{version}-{suffix}"
+    def new_version_path(self, version: Version, label: str = "") -> Path:
+        # 目录名只需唯一；同一 tag 重复准备不能撞目录。
+        return self.versions_dir / f"{version}-{label}{uuid.uuid4().hex[:12]}"
 
-    def promote(
-        self, staged: Path, version: Version, commit_sha: str | None = None
-    ) -> Path:
+    def promote(self, staged: Path, version: Version) -> Path:
         self.ensure()
         staged = staged.resolve()
         if not staged.is_dir() or not staged.is_relative_to(self.staging_dir.resolve()):
             raise UpgradeConfigError("只能提升升级状态目录下的 staging 制品")
-        target = self.new_version_path(version, commit_sha)
+        target = self.new_version_path(version)
         os.replace(staged, target)
         return target
 
@@ -2093,7 +2035,6 @@ class UpgradeManager:
         database_backup_enabled: bool = True,
         compatibility_checker: ConfigCompatibilityChecker | None = None,
         health_checker: Any | None = None,
-        launcher: ProcessLauncher | None = None,
         audit: AuditLogger | None = None,
         shutdown_callback: Callable[[], bool] | None = None,
     ) -> None:
@@ -2138,7 +2079,6 @@ class UpgradeManager:
             upgrade_root=self.layout.root,
             stable_root=self.project_root,
         )
-        self.launcher = launcher
         self.audit = audit or AuditLogger(self.layout.audit_file)
         self._shutdown_callback = shutdown_callback
         self._operation_lock = asyncio.Lock()
@@ -2278,8 +2218,24 @@ class UpgradeManager:
                 )
             if self.channel is UpdateChannel.STABLE and release.version.is_prerelease:
                 raise NoUpdateAvailable("stable 通道不允许安装预发布版本")
-            if self.layout.read_pending() is not None:
-                raise UpgradeConfigError("已有待安装版本，请先完成或清理现有 handoff")
+            if (pending := self.layout.read_pending()) is not None:
+                # 同一版本已准备好（预下载或 request_install 失败后重试）时直接复用。
+                if parse_version(pending["version"]) != release.version:
+                    raise UpgradeConfigError(
+                        "已有待安装版本，请先完成或清理现有 handoff"
+                    )
+                recorded = pending.get("compatibility") or {}
+                required = recorded.get("required")
+                return PrepareResult(
+                    release,
+                    Path(str(pending["path"])).resolve(),
+                    CompatibilityResult(
+                        self.current_version,
+                        parse_version(required) if required else None,
+                        True,
+                        "沿用已准备的待安装版本",
+                    ),
+                )
             stage_root = self.layout.new_staging_dir()
             candidate_path = stage_root / "release"
             final_path: Path | None = None
@@ -2311,9 +2267,7 @@ class UpgradeManager:
                 )
                 if not _health_ok(health):
                     raise HealthCheckFailed(_health_reason(health))
-                final_path = self.layout.promote(
-                    acquired, release.version, release.commit_sha
-                )
+                final_path = self.layout.promote(acquired, release.version)
                 pending = {
                     # 指针字段保存可稳定解析的规范版本；原始 tag 保存在
                     # release 记录中，供审计和外部展示使用。
@@ -2486,7 +2440,7 @@ class UpgradeManager:
             )
             return HandoffResult("activate", version, target)
 
-    async def rollback(self, *, defer: bool = True) -> RollbackResult:
+    async def rollback(self) -> RollbackResult:
         async with self._operation_lock:
             previous = self.layout.read_previous()
             if previous is None:
@@ -2507,41 +2461,37 @@ class UpgradeManager:
                     error="回滚前缺少 active 指针",
                 )
                 raise UpgradeConfigError("回滚前缺少 active 指针")
-            if defer:
-                self.layout.write_handoff(
-                    {
-                        "action": "rollback",
-                        "version": str(previous.version),
-                        "path": str(previous.path),
-                        "from_version": str(current.version),
-                        "from_path": str(current.path),
-                        "created_at": datetime.now(UTC).isoformat(),
-                    }
-                )
-                self.audit.record(
-                    "rollback",
-                    current_version=self.current_version,
-                    target_version=previous.version,
-                    result="requested",
-                    handoff_path=str(self.layout.handoff_file),
-                    restart_required=True,
-                )
-                return RollbackResult(
-                    True,
-                    previous.version,
-                    previous.path,
-                    False,
-                    "已生成外部重启回滚记录",
-                )
-            return await self._apply_rollback_unlocked(start_process=True)
+            self.layout.write_handoff(
+                {
+                    "action": "rollback",
+                    "version": str(previous.version),
+                    "path": str(previous.path),
+                    "from_version": str(current.version),
+                    "from_path": str(current.path),
+                    "created_at": datetime.now(UTC).isoformat(),
+                }
+            )
+            self.audit.record(
+                "rollback",
+                current_version=self.current_version,
+                target_version=previous.version,
+                result="requested",
+                handoff_path=str(self.layout.handoff_file),
+                restart_required=True,
+            )
+            return RollbackResult(
+                True,
+                previous.version,
+                previous.path,
+                False,
+                "已生成外部重启回滚记录",
+            )
 
     def _snapshot_current(self) -> ReleasePointer:
         if not self.project_root.is_dir():
             raise UpgradeConfigError(f"当前项目目录不存在: {self.project_root}")
         self.layout.ensure()
-        baseline = self.layout.new_version_path(
-            self.current_version, f"baseline-{uuid.uuid4().hex[:12]}"
-        )
+        baseline = self.layout.new_version_path(self.current_version, "baseline-")
         excluded = {
             ".git",
             ".venv",
@@ -2570,12 +2520,8 @@ class UpgradeManager:
             raise
         return ReleasePointer(self.current_version, baseline)
 
-    async def _health(
-        self, candidate: Path, *, phase: str, process: Any = None
-    ) -> bool:
-        result = await self.health_checker.check(
-            candidate, phase=phase, process=process
-        )
+    async def _health(self, candidate: Path, *, phase: str) -> bool:
+        result = await self.health_checker.check(candidate, phase=phase)
         return _health_ok(result)
 
     @staticmethod
@@ -2770,7 +2716,7 @@ class UpgradeManager:
         )
         return self._failed_handoff_result(safe_reason)
 
-    async def activate_pending(self, *, start_process: bool = True) -> InstallResult:
+    async def activate_pending(self) -> InstallResult:
         """由外部启动器在旧进程退出后调用，原子激活 pending 制品。"""
 
         async with self._operation_lock:
@@ -2816,19 +2762,13 @@ class UpgradeManager:
                 target_path=str(target_path),
                 target_tag=target_tag,
             )
-            process = None
             try:
                 # active.json 的替换是唯一切换点；应用根目录从不被覆盖。
                 if not already_active:
                     self.layout.write_pointer(target_path, target_version)
-                if start_process and self.launcher is not None:
-                    process = await self.launcher.start(target_path)
-                if not await self._health(
-                    target_path, phase="post-switch", process=process
-                ):
+                if not await self._health(target_path, phase="post-switch"):
                     raise HealthCheckFailed("切换后的健康检查未通过")
             except Exception as exc:
-                _terminate_process(process)
                 self.layout.write_pointer(source.path, source.version)
                 if previous_before is None:
                     self.layout.clear_previous()
@@ -2882,7 +2822,6 @@ class UpgradeManager:
         self,
         *,
         handoff: Mapping[str, Any] | None = None,
-        start_process: bool = True,
     ) -> RollbackResult:
         previous = self.layout.read_previous()
         current = self.layout.read_active()
@@ -2896,16 +2835,12 @@ class UpgradeManager:
             handoff = self._rollback_handoff(None, previous, source)
         else:
             handoff = self._rollback_handoff(handoff, previous, source)
-        process = None
         try:
             if not already_active:
                 self.layout.write_pointer(previous.path, previous.version)
-            if start_process and self.launcher is not None:
-                process = await self.launcher.start(previous.path)
-            if not await self._health(previous.path, phase="rollback", process=process):
+            if not await self._health(previous.path, phase="rollback"):
                 raise HealthCheckFailed("回滚后的健康检查未通过")
         except Exception as exc:
-            _terminate_process(process)
             self.layout.write_pointer(source.path, source.version)
             failed_handoff, quarantine_error = self._discard_live_handoff(isolate=True)
             reason = str(exc) or exc.__class__.__name__
@@ -2959,9 +2894,7 @@ class UpgradeManager:
             True, previous.version, previous.path, True, "已回滚到上一版本"
         )
 
-    async def apply_handoff(
-        self, *, start_process: bool = True
-    ) -> InstallResult | RollbackResult:
+    async def apply_handoff(self) -> InstallResult | RollbackResult:
         """应用外部启动器写入的 activate/rollback 记录。"""
 
         try:
@@ -2985,7 +2918,7 @@ class UpgradeManager:
                     str(exc), action=action, clear_pending=True
                 )
             try:
-                return await self.activate_pending(start_process=start_process)
+                return await self.activate_pending()
             except UpdaterError as exc:
                 return self._quarantine_handoff(
                     str(exc), action=action, clear_pending=True
@@ -3001,10 +2934,7 @@ class UpgradeManager:
                 return self._quarantine_handoff(str(exc), action=action)
             try:
                 async with self._operation_lock:
-                    return await self._apply_rollback_unlocked(
-                        handoff=handoff,
-                        start_process=start_process,
-                    )
+                    return await self._apply_rollback_unlocked(handoff=handoff)
             except UpdaterError as exc:
                 return self._quarantine_handoff(str(exc), action=action)
         return self._quarantine_handoff(
@@ -3032,7 +2962,7 @@ class UpgradeManager:
     ) -> UpgradeManager:
         """从 ``tenko.config.UpgradeConfig`` 构造真实运行时实例。
 
-        ``data_dir`` 仅供自定义健康/启动命令使用，是外部业务目录；它与
+        ``data_dir`` 仅供自定义健康检查命令使用，是外部业务目录；它与
         Tenko 应用自身位于 ``.tenko/`` 下的持久化数据无关。
         """
 
@@ -3071,31 +3001,34 @@ class UpgradeManager:
             current = (
                 config.current_version or stable_version or read_project_version(root)
             )
-        source_name = config.source.strip().lower().replace("-", "_")
-        if source_name in {"git", "git_tag", "tag"}:
-            source: VersionSource = GitTagSource(
-                _normalize_git_repository(config.repository, root),
-                tag_prefix=config.tag_prefix,
-            )
-        elif source_name in {"github", "github_release", "release"}:
-            repository = config.github_repository or config.repository
-            if repository in {"", "."}:
-                raise UpgradeConfigError("github_release 需要 github_repository")
-            source = GitHubReleaseSource(
-                repository,
-                token=config.github_token,
-                asset_name=config.asset_name,
-                tag_prefix=config.tag_prefix,
-            )
-        elif source_name in {"manifest", "url_manifest", "url"}:
-            if not config.manifest_url:
-                raise UpgradeConfigError("manifest 源需要 manifest_url")
-            source = UrlManifestSource(
-                config.manifest_url,
-                tag_prefix=config.tag_prefix,
-            )
-        else:
-            raise UpgradeConfigError(f"未知升级 source: {config.source!r}")
+        # 停用时不构造版本源，避免源配置错误（如非 Git 部署的 origin）阻断启动。
+        source: VersionSource | None = None
+        if config.enabled:
+            source_name = config.source.strip().lower().replace("-", "_")
+            if source_name in {"git", "git_tag", "tag"}:
+                source = GitTagSource(
+                    _normalize_git_repository(config.repository, root),
+                    tag_prefix=config.tag_prefix,
+                )
+            elif source_name in {"github", "github_release", "release"}:
+                repository = config.github_repository or config.repository
+                if repository in {"", "."}:
+                    raise UpgradeConfigError("github_release 需要 github_repository")
+                source = GitHubReleaseSource(
+                    repository,
+                    token=config.github_token,
+                    asset_name=config.asset_name,
+                    tag_prefix=config.tag_prefix,
+                )
+            elif source_name in {"manifest", "url_manifest", "url"}:
+                if not config.manifest_url:
+                    raise UpgradeConfigError("manifest 源需要 manifest_url")
+                source = UrlManifestSource(
+                    config.manifest_url,
+                    tag_prefix=config.tag_prefix,
+                )
+            else:
+                raise UpgradeConfigError(f"未知升级 source: {config.source!r}")
 
         configured_config_path = (
             os.environ.get("TENKO_CONFIG_PATH") or config.config_path
@@ -3110,13 +3043,6 @@ class UpgradeManager:
         health_checker = DefaultHealthChecker(
             config.health_command,
             timeout=config.health_timeout,
-            config_path=config_path.resolve(),
-            data_dir=data_dir.resolve(),
-            upgrade_root=layout.root,
-            stable_root=root,
-        )
-        launcher = SubprocessLauncher(
-            config.launch_command,
             config_path=config_path.resolve(),
             data_dir=data_dir.resolve(),
             upgrade_root=layout.root,
@@ -3138,7 +3064,6 @@ class UpgradeManager:
             database_path=database_path,
             database_backup_enabled=database_backup_enabled,
             health_checker=health_checker,
-            launcher=launcher,
         )
 
 
@@ -3573,15 +3498,6 @@ def _health_reason(value: HealthCheckResult | bool) -> str:
     if isinstance(value, bool):
         return "健康检查返回 False"
     return value.reason
-
-
-def _terminate_process(process: Any) -> None:
-    if process is None:
-        return
-    poll = getattr(process, "poll", None)
-    terminate = getattr(process, "terminate", None)
-    if callable(poll) and callable(terminate) and poll() is None:
-        terminate()
 
 
 def _default_manager() -> UpgradeManager:

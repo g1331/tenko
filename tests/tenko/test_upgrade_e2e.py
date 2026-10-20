@@ -20,7 +20,6 @@ from tenko.host.updater import (
     DefaultHealthChecker,
     GitTagSource,
     Release,
-    SubprocessLauncher,
     UpgradeLayout,
     UpgradeManager,
     Version,
@@ -399,7 +398,6 @@ def _make_manager(
     fixture: E2EFixture,
     *,
     source=None,
-    launch_command=(),
 ) -> UpgradeManager:
     config = TenkoConfig.load(fixture.config_path)
     checker = DefaultHealthChecker(
@@ -410,15 +408,6 @@ def _make_manager(
         upgrade_root=fixture.upgrade_root,
         stable_root=fixture.stable_root,
     )
-    launcher = None
-    if launch_command:
-        launcher = SubprocessLauncher(
-            launch_command,
-            config_path=fixture.config_path,
-            data_dir=fixture.data_dir,
-            upgrade_root=fixture.upgrade_root,
-            stable_root=fixture.stable_root,
-        )
     return UpgradeManager(
         Version("1.0.0"),
         source or E2ECandidateSource(fixture.stable_root),
@@ -428,7 +417,6 @@ def _make_manager(
         data_dir=fixture.data_dir,
         config_version=config.upgrade.config_version,
         health_checker=checker,
-        launcher=launcher,
     )
 
 
@@ -642,32 +630,6 @@ async def test_failed_candidate_health_check_rolls_back_and_next_start_is_stable
     recovered = layout.read_active()
     assert recovered is not None and recovered.version == Version("1.0.0")
     assert _read_observation(fixture)["source"] == STABLE_MARKER
-    assert not layout.handoff_file.exists()
-
-
-@pytest.mark.asyncio
-async def test_subprocess_launcher_terminates_candidate_after_health_failure(
-    tmp_path: Path,
-) -> None:
-    fixture = _make_fixture(tmp_path)
-    manager = _make_manager(
-        fixture,
-        launch_command=("{python}", "-m", "tenko", "--e2e-server"),
-    )
-    await manager.prepare(E2E_RELEASE)
-    await manager.request_install()
-    fixture.fail_health.touch()
-    fixture.server_expected.touch()
-
-    result = await manager.activate_pending(start_process=True)
-
-    assert not result.success
-    assert result.rolled_back
-    _wait_for(fixture.stable_root / "candidate-server-exited")
-    layout = UpgradeLayout(fixture.upgrade_root)
-    active = layout.read_active()
-    assert active is not None and active.version == Version("1.0.0")
-    assert not layout.pending_file.exists()
     assert not layout.handoff_file.exists()
 
 

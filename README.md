@@ -314,9 +314,8 @@ control 使用的 `local_data` 状态文件（包括全局插件/函数控制）
 | config_version | 配置兼容版本，默认 1.0.0 |
 | install_root | 版本和升级状态目录，默认 .tenko/upgrades |
 | config_path | 外部配置路径，默认 config/tenko.toml |
-| data_dir | 仅传给自定义健康检查/启动命令的外部目录，默认 data；Tenko 自身持久化数据仍在 .tenko |
+| data_dir | 仅传给自定义健康检查命令的外部目录，默认 data；Tenko 自身持久化数据仍在 .tenko |
 | health_command | 可选健康检查命令参数列表 |
-| launch_command | 可选外部启动命令参数列表 |
 | health_timeout | 健康检查超时时间，默认 30 秒 |
 | check_interval_hours | 定时检查间隔，默认 24 小时 |
 | superuser_ids | 可执行升级命令的用户 ID；省略时继承 basic.superusers |
@@ -450,7 +449,7 @@ Tenko 自身 `.tenko` 应用数据的落点。
 | `.tenko/upgrades/` | `active.json`、`previous.json`、`pending.json`、`handoff.json`、`recovery-notice.json`、`audit.jsonl` 和版本目录 | 稳定 `cwd` |
 | `.tenko/upgrades/versions/<version>/` | 候选代码 | 升级状态目录下，作为代码源 |
 
-`[upgrade].data_dir` 是只传给自定义健康检查/启动命令的外部目录，不是 Tenko
+`[upgrade].data_dir` 是只传给自定义健康检查命令的外部目录，不是 Tenko
 自身应用数据根目录。升级切换后，数据库、JSON 状态、异常取证和配置仍指向稳定
 根目录下的原有物理路径；候选版本不会在自己的目录中生成新的 `.tenko/` 或
 `config/`。

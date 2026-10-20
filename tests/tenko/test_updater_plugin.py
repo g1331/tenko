@@ -19,6 +19,7 @@ from satori import (
 )
 from satori.model import Event, Member
 
+from test_updater import make_manager
 from tenko.host.perm import Permission, PermissionChecker, PermissionRegistry
 from tenko.host.updater import (
     CheckResult,
@@ -216,6 +217,23 @@ async def test_upgrade_command_prepares_and_requests_external_install(
     assert fake.spawn_restart_watcher_calls == 1
     await asyncio.sleep(0.01)
     assert fake.shutdown_calls == 1
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("loaded_plugin", ["updater"], indirect=True)
+async def test_upgrade_command_installs_release_already_prepared(
+    loaded_plugin, monkeypatch, tmp_path
+):
+    authorize_master(loaded_plugin)
+    manager, _source, _checker, _config_path, _data_dir = make_manager(tmp_path)
+    await manager.prepare()  # 模拟 policy=download 已预下载
+    monkeypatch.setattr(manager, "spawn_restart_watcher", lambda: False)
+    loaded_plugin.updater = manager
+
+    result = await loaded_plugin.upgrade.callable_target(make_session("90001"))
+
+    assert "升级操作失败" not in str(result)
+    assert manager.layout.handoff_file.is_file()
 
 
 @pytest.mark.asyncio

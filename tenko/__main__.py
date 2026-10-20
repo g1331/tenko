@@ -74,7 +74,7 @@ def _run_startup_bootstrap(config: TenkoConfig, arguments: Sequence[str]) -> boo
             handoff = None
         if handoff is not None:
             handoff_action = handoff.get("action")
-        result = asyncio.run(manager.apply_handoff(start_process=False))
+        result = asyncio.run(manager.apply_handoff())
         if not result.success:
             if handoff_action == "rollback":
                 logger.error(

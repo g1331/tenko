@@ -67,8 +67,8 @@ def test_main_applies_handoff_and_reexecutes_active_release(
             calls["project_root"] = project_root
             return cls()
 
-        async def apply_handoff(self, *, start_process: bool):
-            calls["apply"].append(start_process)
+        async def apply_handoff(self):
+            calls["apply"].append(True)
             return InstallResult(True, Version("2.0.0"), candidate, False, "ok")
 
     import tenko.host.updater as updater_module
@@ -86,7 +86,7 @@ def test_main_applies_handoff_and_reexecutes_active_release(
 
     arguments = ["--config", "config/tenko.toml"]
     assert main_module.main(arguments) == 0
-    assert calls["apply"] == [False]
+    assert calls["apply"] == [True]
     assert calls["project_root"] == tmp_path.resolve()
     assert reexec == [
         (candidate.resolve(), tmp_path.resolve(), arguments),
@@ -112,8 +112,8 @@ def test_main_continues_with_recovered_active_after_rolled_back_handoff(
             assert project_root == tmp_path.resolve()
             return cls()
 
-        async def apply_handoff(self, *, start_process: bool):
-            calls.append(start_process)
+        async def apply_handoff(self):
+            calls.append(True)
             return InstallResult(
                 False, Version("2.0.0"), candidate, True, "health check failed"
             )
@@ -130,7 +130,7 @@ def test_main_continues_with_recovered_active_after_rolled_back_handoff(
     monkeypatch.chdir(tmp_path)
 
     assert main_module.main([]) == 0
-    assert calls == [False]
+    assert calls == [True]
     assert reexec == [candidate.resolve()]
 
 
@@ -159,8 +159,7 @@ def test_main_stops_when_automatic_rollback_handoff_fails(
             assert project_root == tmp_path.resolve()
             return cls()
 
-        async def apply_handoff(self, *, start_process: bool):
-            assert start_process is False
+        async def apply_handoff(self):
             return RollbackResult(
                 False,
                 Version("1.0.0"),

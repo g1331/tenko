@@ -39,7 +39,6 @@ from tenko.host.updater import (
     UpgradeLayout,
     UpgradeManager,
     UpgradeConfigError,
-    SubprocessLauncher,
     UrlManifestSource,
     Version,
     compare_versions,
@@ -153,20 +152,11 @@ class MemorySource:
 @dataclass
 class SequenceHealthChecker:
     values: list[bool]
-    calls: list[tuple[Path, str, Any]] = field(default_factory=list)
+    calls: list[tuple[Path, str]] = field(default_factory=list)
 
-    async def check(self, candidate: Path, *, phase: str, process=None):
-        self.calls.append((candidate, phase, process))
+    async def check(self, candidate: Path, *, phase: str):
+        self.calls.append((candidate, phase))
         return self.values.pop(0)
-
-
-@dataclass
-class RecordingLauncher:
-    calls: list[Path] = field(default_factory=list)
-
-    async def start(self, candidate: Path):
-        self.calls.append(candidate)
-        return type("Process", (), {"poll": lambda self: None})()
 
 
 def make_manager(
@@ -430,6 +420,44 @@ def test_from_config_reports_non_worktree_named_remote(tmp_path: Path) -> None:
         UpgradeManager.from_config(config, project_root=stable)
 
     assert "not a git repository" in str(error.value)
+
+
+@pytest.mark.asyncio
+async def test_disabled_from_config_ignores_unresolvable_source(
+    tmp_path: Path,
+) -> None:
+    stable = tmp_path / "not-a-worktree"
+    stable.mkdir()
+    config = UpgradeConfig(
+        enabled=False,
+        repository="origin",
+        current_version="1.0.0",
+        install_root=str(tmp_path / "upgrades"),
+    )
+
+    manager = UpgradeManager.from_config(config, project_root=stable)
+
+    assert manager.sources == ()
+    assert (await manager.check()).status == "disabled"
+
+
+def test_run_git_is_non_interactive_and_times_out(monkeypatch) -> None:
+    import tenko.host.updater as updater_module
+
+    captured: dict[str, Any] = {}
+
+    def hang(*_arguments, **kwargs):
+        captured.update(kwargs)
+        raise subprocess.TimeoutExpired("git", kwargs["timeout"])
+
+    monkeypatch.setattr(updater_module.subprocess, "run", hang)
+
+    with pytest.raises(UpdateSourceError, match="超时"):
+        updater_module._run_git("git", ["ls-remote", "origin"], timeout=1)
+
+    assert captured["timeout"] == 1
+    assert captured["stdin"] is subprocess.DEVNULL
+    assert captured["env"]["GIT_TERMINAL_PROMPT"] == "0"
 
 
 @pytest.mark.parametrize(
@@ -749,43 +777,6 @@ def test_config_compatibility_uses_stricter_release_or_manifest_requirement(
 
     assert result.compatible
     assert result.required_version == parse_version("1.2.0")
-
-
-@pytest.mark.asyncio
-async def test_subprocess_launcher_passes_shared_upgrade_paths(
-    monkeypatch, tmp_path: Path
-) -> None:
-    captured: dict[str, Any] = {}
-
-    def fake_popen(command, *, cwd, env):
-        captured.update(command=command, cwd=cwd, env=env)
-        return object()
-
-    import tenko.host.updater as updater_module
-
-    monkeypatch.setattr(updater_module.subprocess, "Popen", fake_popen)
-    candidate = tmp_path / "candidate"
-    candidate.mkdir()
-    config_path = tmp_path / "config" / "tenko.toml"
-    data_dir = tmp_path / "data"
-    upgrade_root = tmp_path / "upgrades"
-    stable_root = tmp_path / "stable"
-    stable_root.mkdir()
-
-    launcher = SubprocessLauncher(
-        ["{python}", "-m", "tenko", "--config", "{config_path}"],
-        config_path=config_path,
-        data_dir=data_dir,
-        upgrade_root=upgrade_root,
-        stable_root=stable_root,
-    )
-    await launcher.start(candidate)
-
-    assert Path(captured["command"][0]).name.startswith("python")
-    assert captured["cwd"] == stable_root.resolve()
-    assert captured["env"]["TENKO_CONFIG_PATH"] == str(config_path)
-    assert captured["env"]["TENKO_DATA_DIR"] == str(data_dir)
-    assert captured["env"]["TENKO_UPGRADE_ROOT"] == str(upgrade_root)
 
 
 def test_from_config_current_version_prefers_active_then_config_then_project(
@@ -1294,21 +1285,6 @@ async def test_database_backup_failure_is_audited_without_blocking_install(
 
 
 @pytest.mark.asyncio
-async def test_apply_handoff_can_skip_child_process_launch(tmp_path: Path) -> None:
-    manager, _source, checker, _config_path, _data_dir = make_manager(tmp_path)
-    await manager.prepare()
-    await manager.request_install()
-    launcher = RecordingLauncher()
-    manager.launcher = launcher
-
-    result = await manager.apply_handoff(start_process=False)
-
-    assert result.success
-    assert launcher.calls == []
-    assert [call[1] for call in checker.calls] == ["pre-switch", "post-switch"]
-
-
-@pytest.mark.asyncio
 async def test_corrupt_handoff_is_quarantined_without_changing_active_pointer(
     tmp_path: Path,
 ) -> None:
@@ -1316,7 +1292,7 @@ async def test_corrupt_handoff_is_quarantined_without_changing_active_pointer(
     manager.layout.ensure()
     manager.layout.handoff_file.write_text("{", encoding="utf-8")
 
-    result = await manager.apply_handoff(start_process=False)
+    result = await manager.apply_handoff()
 
     assert not result.success
     assert manager.layout.read_active() is None
@@ -1335,7 +1311,7 @@ async def test_invalid_utf8_handoff_is_quarantined_without_startup_failure(
     manager.layout.ensure()
     manager.layout.handoff_file.write_bytes(b"\xff\xfe")
 
-    result = await manager.apply_handoff(start_process=False)
+    result = await manager.apply_handoff()
 
     assert not result.success
     assert not manager.layout.handoff_file.exists()
@@ -1358,7 +1334,7 @@ async def test_inconsistent_activate_handoff_is_quarantined_and_pending_cleared(
         }
     )
 
-    result = await manager.apply_handoff(start_process=False)
+    result = await manager.apply_handoff()
 
     assert not result.success
     assert manager.layout.read_active() is None
@@ -1391,7 +1367,7 @@ async def test_invalid_activation_recovery_does_not_create_baseline_pointer(
         }
     )
 
-    result = await manager.apply_handoff(start_process=False)
+    result = await manager.apply_handoff()
 
     assert not result.success
     assert manager.layout.read_active() is None
@@ -1406,7 +1382,7 @@ async def test_unknown_handoff_action_is_quarantined_and_not_retried(
     manager, _source, _checker, _config_path, _data_dir = make_manager(tmp_path)
     manager.layout.write_handoff({"action": "future-action"})
 
-    result = await manager.apply_handoff(start_process=False)
+    result = await manager.apply_handoff()
 
     assert not result.success
     assert not manager.layout.handoff_file.exists()
@@ -1420,10 +1396,53 @@ async def test_failed_handoff_retention_is_bounded(tmp_path: Path) -> None:
 
     for index in range(12):
         manager.layout.write_handoff({"action": f"unknown-{index}"})
-        result = await manager.apply_handoff(start_process=False)
+        result = await manager.apply_handoff()
         assert not result.success
 
     assert len(list(manager.layout.failed_handoffs_dir.glob("*.json"))) == 10
+
+
+@pytest.mark.asyncio
+async def test_prepare_reuses_pending_release_of_same_version(tmp_path: Path) -> None:
+    manager, source, _checker, _config_path, _data_dir = make_manager(tmp_path)
+    first = await manager.prepare()
+
+    again = await manager.prepare(first.release)
+    handoff = await manager.request_install()
+
+    assert again.path == first.path
+    assert again.release == first.release
+    assert source.acquire_calls == 1
+    assert handoff.path == first.path
+
+
+@pytest.mark.asyncio
+async def test_prepare_rejects_pending_release_of_different_version(
+    tmp_path: Path,
+) -> None:
+    manager, _source, _checker, _config_path, _data_dir = make_manager(tmp_path)
+    await manager.prepare()
+
+    with pytest.raises(UpgradeConfigError, match="已有待安装版本"):
+        await manager.prepare(Release(parse_version("1.2.0"), "v1.2.0", "memory"))
+
+
+@pytest.mark.asyncio
+async def test_prepare_same_tag_twice_uses_unique_version_directories(
+    tmp_path: Path,
+) -> None:
+    manager, source, _checker, _config_path, _data_dir = make_manager(tmp_path)
+    release = Release(
+        parse_version("1.1.0"), "v1.1.0", source="memory", commit_sha="a" * 40
+    )
+    source.releases = (release,)
+
+    first = await manager.prepare(release)
+    manager.layout.clear_pending()
+    second = await manager.prepare(release)
+
+    assert first.path != second.path
+    assert first.path.is_dir() and second.path.is_dir()
 
 
 @pytest.mark.asyncio
@@ -1495,14 +1514,14 @@ async def test_activation_recovers_after_active_pointer_write_crash(
 
     monkeypatch.setattr(UpgradeLayout, "write_pointer", crash_after_target_write)
     with pytest.raises(SystemExit, match="simulated process crash"):
-        await manager.activate_pending(start_process=False)
+        await manager.activate_pending()
 
     pending = json.loads(manager.layout.pending_file.read_text(encoding="utf-8"))
     assert pending["activation_recovery"]["from"]["version"] == "1.0.0"
     assert manager.layout.read_active().path == prepared.path
 
     checker.values = [True]
-    recovered = await manager.apply_handoff(start_process=False)
+    recovered = await manager.apply_handoff()
 
     assert recovered.success
     assert manager.layout.read_active().path == prepared.path
@@ -1534,13 +1553,13 @@ async def test_activation_recovers_when_cleanup_crashes_after_health_check(
 
     monkeypatch.setattr(UpgradeLayout, "clear_pending", crash_once)
     with pytest.raises(SystemExit, match="simulated cleanup crash"):
-        await manager.activate_pending(start_process=False)
+        await manager.activate_pending()
 
     assert manager.layout.pending_file.exists()
     assert manager.layout.handoff_file.exists()
     checker.values = [True]
 
-    recovered = await manager.apply_handoff(start_process=False)
+    recovered = await manager.apply_handoff()
 
     assert recovered.success
     assert not manager.layout.pending_file.exists()
@@ -1581,11 +1600,11 @@ async def test_rollback_failure_restores_active_and_quarantines_live_handoff(
         tmp_path, health=[True, True, False]
     )
     await manager.prepare()
-    await manager.activate_pending(start_process=False)
+    await manager.activate_pending()
     requested = await manager.rollback()
     assert not requested.applied
 
-    result = await manager.apply_handoff(start_process=False)
+    result = await manager.apply_handoff()
 
     assert not result.success
     active = manager.layout.read_active()
@@ -1609,7 +1628,7 @@ async def test_rollback_recovers_after_active_pointer_write_crash(
         tmp_path, health=[True, True, True]
     )
     await manager.prepare()
-    await manager.activate_pending(start_process=False)
+    await manager.activate_pending()
     await manager.rollback()
     original_write_pointer = UpgradeLayout.write_pointer
     crashed = False
@@ -1623,10 +1642,10 @@ async def test_rollback_recovers_after_active_pointer_write_crash(
 
     monkeypatch.setattr(UpgradeLayout, "write_pointer", crash_once)
     with pytest.raises(SystemExit, match="simulated rollback crash"):
-        await manager.apply_handoff(start_process=False)
+        await manager.apply_handoff()
 
     checker.values = [True]
-    recovered = await manager.apply_handoff(start_process=False)
+    recovered = await manager.apply_handoff()
 
     assert recovered.success
     active = manager.layout.read_active()
@@ -1691,18 +1710,14 @@ def test_audit_logger_preserves_raw_release_tag(tmp_path: Path) -> None:
 
 
 @pytest.mark.asyncio
-async def test_default_health_checker_checks_minimal_entry_and_dead_process(
-    tmp_path: Path,
-) -> None:
+async def test_default_health_checker_checks_minimal_entry(tmp_path: Path) -> None:
     candidate = tmp_path / "candidate"
     (candidate / "tenko").mkdir(parents=True)
     (candidate / "tenko" / "__init__.py").write_text("VALUE = 1\n", encoding="utf-8")
     checker = DefaultHealthChecker()
 
     good = await checker.check(candidate, phase="pre-switch")
-    bad = await checker.check(
-        candidate, phase="post-switch", process=type("P", (), {"poll": lambda _: 1})()
-    )
+    bad = await checker.check(tmp_path / "missing", phase="post-switch")
 
     assert isinstance(good, HealthCheckResult) and good.ok
     assert not bad.ok

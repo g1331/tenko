@@ -143,12 +143,10 @@ current_version = ""
 config_version = "1.0.0"
 install_root = ".tenko/upgrades"
 config_path = "config/tenko.toml"
-# 仅传给自定义健康检查/启动命令的外部目录；Tenko 自身数据仍使用 .tenko。
+# 仅传给自定义健康检查命令的外部目录；Tenko 自身数据仍使用 .tenko。
 data_dir = "data"
 # 可选健康检查命令。{python}、{release_root}、{config_path}、{data_dir} 可作为独立参数使用。
 health_command = []
-# 可选外部启动命令。{python}、{release_root}、{config_path}、{data_dir} 可替换。
-launch_command = []
 health_timeout = 30
 # 旧进程退出 watcher 的最长等待时间；超时会留痕但不会强制拉起。
 restart_watch_timeout = 300
