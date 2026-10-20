@@ -24,6 +24,10 @@ const scopeText = computed(() => {
     : '群级功能 · 暂无群组'
 })
 const locked = computed(() => props.feature.protected || !props.feature.loaded)
+// 第三方插件默认未加载，启用开关必须在未加载时也可用（重启后才生效）。
+const toggleLocked = computed(
+  () => props.feature.protected || (!props.feature.loaded && props.feature.source !== 'external'),
+)
 const accent = computed(() =>
   !props.feature.loaded || !props.feature.enabled
     ? 'off'
@@ -66,6 +70,15 @@ const accent = computed(() =>
       >
         维护中
       </el-tag>
+      <el-tag
+        v-if="feature.source === 'external'"
+        size="small"
+        effect="plain"
+        type="warning"
+        disable-transitions
+      >
+        第三方
+      </el-tag>
       <el-tag v-if="feature.protected" size="small" effect="plain" disable-transitions
         >受保护</el-tag
       >
@@ -74,7 +87,7 @@ const accent = computed(() =>
       </el-tag>
     </div>
     <div class="actions">
-      <el-button size="small" :disabled="locked || busy" @click="emit('toggle')">
+      <el-button size="small" :disabled="toggleLocked || busy" @click="emit('toggle')">
         {{ feature.enabled ? '停用插件' : '启用插件' }}
       </el-button>
       <el-button

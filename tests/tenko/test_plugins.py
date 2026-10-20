@@ -1,10 +1,15 @@
 from __future__ import annotations
 
+import json
+import sys
 from dataclasses import dataclass, replace
+from importlib.metadata import EntryPoint
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock, call
 
 import pytest
+from loguru import logger
 
 from tenko.context import MessageContext
 from tenko.host import plugins as plugin_host
@@ -195,3 +200,250 @@ async def test_command_owner_resolves_real_plugins_in_entari_prefix_mode(
         for name in ("group_manager", "perm_manager"):
             runtime.unload(name)
         configure_command_prefix("/")
+
+
+def _entry(name: str, value: str, dist: str | None = None):
+    if dist is None:
+        return EntryPoint(name, value, "tenko.plugins")
+    return SimpleNamespace(name=name, value=value, dist=SimpleNamespace(name=dist))
+
+
+def patch_entry_points(monkeypatch, tenko=(), entari=()) -> None:
+    groups = {"tenko.plugins": list(tenko), "entari.plugin": list(entari)}
+    monkeypatch.setattr(
+        plugin_host, "entry_points", lambda *, group: groups.get(group, [])
+    )
+
+
+@pytest.fixture
+def log_lines():
+    lines: list[str] = []
+    sink = logger.add(lambda message: lines.append(str(message)), level="WARNING")
+    yield lines
+    logger.remove(sink)
+
+
+def test_discover_external_entry_points_validates_and_never_imports(
+    monkeypatch, tmp_path: Path, log_lines
+) -> None:
+    # 这些模块一旦被导入就会失败：发现阶段不能导入任何插件模块。
+    (tmp_path / "boom_good.py").write_text("raise RuntimeError('imported')")
+    monkeypatch.syspath_prepend(tmp_path)
+    patch_entry_points(
+        monkeypatch,
+        tenko=[
+            _entry("good", "boom_good", "dist-good"),
+            _entry("Bad-ID", "boom_a", "dist-bad-id"),
+            _entry("attr_style", "boom_b:plugin", "dist-attr"),
+            _entry("file_plugin", "boom_c", "dist-collide"),
+            _entry("twin", "boom_d", "dist-twin-1"),
+            _entry("twin", "boom_e", "dist-twin-2"),
+            _entry("also_entari", "boom_f", "dist-both"),
+        ],
+        entari=[EntryPoint("x", "boom_f", "entari.plugin")],
+    )
+
+    infos = PluginRuntime(make_plugin_dir(tmp_path)).discover()
+
+    by_name = {info.name: info for info in infos}
+    assert set(by_name) == {"file_plugin", "package_plugin", "good", "also_entari"}
+    good = by_name["good"]
+    assert (good.source, good.qualified_name, good.path) == (
+        "external",
+        "boom_good",
+        None,
+    )
+    assert good.lookup_names == ("good", "boom_good")
+    assert by_name["file_plugin"].source == "builtin"
+    assert "boom_good" not in sys.modules
+    log = "".join(log_lines)
+    for expected in ("Bad-ID", "dist-bad-id", "dist-attr", "dist-collide"):
+        assert expected in log
+    assert "dist-twin-1" in log and "dist-twin-2" in log
+    assert "also_entari" in log and "entari.plugin" in log
+
+
+@pytest.mark.asyncio
+async def test_load_all_only_loads_enabled_external_plugins(
+    monkeypatch, tmp_path: Path
+) -> None:
+    patch_entry_points(
+        monkeypatch,
+        tenko=[_entry("on", "ext_on"), _entry("off", "ext_off")],
+    )
+    state_file = tmp_path / "state" / "state.json"
+    state_file.parent.mkdir()
+    state_file.write_text(json.dumps({"enabled": ["on"]}), encoding="utf-8")
+    load_plugin = Mock(return_value=None)
+    monkeypatch.setattr(plugin_host, "load_plugin", load_plugin)
+
+    runtime = PluginRuntime(make_plugin_dir(tmp_path), state_file=state_file)
+    await runtime.load_all()
+
+    assert [c.args[0] for c in load_plugin.call_args_list] == [
+        "tenko.plugins.file_plugin",
+        "tenko.plugins.package_plugin",
+        "ext_on",
+    ]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("content", [None, "{not json", '{"enabled": "on"}', "[]"])
+async def test_missing_or_malformed_state_enables_nothing(
+    monkeypatch, tmp_path: Path, log_lines, content
+) -> None:
+    patch_entry_points(monkeypatch, tenko=[_entry("on", "ext_on")])
+    state_file = tmp_path / "state.json"
+    if content is not None:
+        state_file.write_text(content, encoding="utf-8")
+    load_plugin = Mock(return_value=None)
+    monkeypatch.setattr(plugin_host, "load_plugin", load_plugin)
+
+    runtime = PluginRuntime(make_plugin_dir(tmp_path), state_file=state_file)
+    await runtime.load_all()
+
+    assert "ext_on" not in [c.args[0] for c in load_plugin.call_args_list]
+    assert not runtime.is_enabled("on")
+    assert (content is not None) == ("状态文件无效" in "".join(log_lines))
+
+
+@pytest.mark.asyncio
+async def test_failing_external_load_does_not_abort_startup(
+    monkeypatch, tmp_path: Path, log_lines
+) -> None:
+    patch_entry_points(
+        monkeypatch, tenko=[_entry("bad", "ext_bad"), _entry("ok", "ext_ok")]
+    )
+    state_file = tmp_path / "state.json"
+    state_file.write_text(json.dumps({"enabled": ["bad", "ok"]}), encoding="utf-8")
+
+    def load_plugin(name, *args):
+        if name == "ext_bad":
+            raise ImportError("broken")
+        return None
+
+    load_plugin_mock = Mock(side_effect=load_plugin)
+    monkeypatch.setattr(plugin_host, "load_plugin", load_plugin_mock)
+
+    runtime = PluginRuntime(tmp_path / "none", state_file=state_file)
+    await runtime.load_all()
+
+    assert [c.args[0] for c in load_plugin_mock.call_args_list] == [
+        "ext_bad",
+        "ext_ok",
+    ]
+    assert "第三方插件加载失败: bad" in "".join(log_lines)
+
+
+@pytest.mark.asyncio
+async def test_set_enabled_persists_external_state_atomically(
+    monkeypatch, tmp_path: Path
+) -> None:
+    patch_entry_points(monkeypatch, tenko=[_entry("ext", "ext_mod")])
+    state_file = tmp_path / "nested" / "state.json"
+    enable_plugin = AsyncMock(return_value=True)
+    disable_plugin = AsyncMock(return_value=True)
+    monkeypatch.setattr(plugin_host, "enable_plugin", enable_plugin)
+    monkeypatch.setattr(plugin_host, "disable_plugin", disable_plugin)
+    loaded: list[FakePlugin] = []
+    monkeypatch.setattr(plugin_host, "get_plugins", lambda subplugged=False: loaded)
+    runtime = PluginRuntime(tmp_path / "none", state_file=state_file)
+
+    # 未加载：只写状态文件，重启后才生效。
+    assert await runtime.set_enabled("ext", True)
+    assert json.loads(state_file.read_text(encoding="utf-8")) == {"enabled": ["ext"]}
+    assert runtime.is_enabled("ext") and runtime.restart_required("ext")
+    enable_plugin.assert_not_awaited()
+    assert [p.name for p in state_file.parent.iterdir()] == ["state.json"]
+
+    # 已加载：同时应用 Entari 的运行期启停。
+    loaded.append(FakePlugin("ext_mod"))
+    assert not runtime.restart_required("ext")
+    assert await runtime.set_enabled("ext", False)
+    disable_plugin.assert_awaited_once_with("ext_mod")
+    assert json.loads(state_file.read_text(encoding="utf-8")) == {"enabled": []}
+    enable_plugin.return_value = False
+    assert not await runtime.set_enabled("ext", True)
+    assert json.loads(state_file.read_text(encoding="utf-8")) == {"enabled": []}
+
+
+def _write_command_plugin(root: Path, module: str, command: str) -> None:
+    (root / f"{module}.py").write_text(
+        "from arclet.alconna import Alconna\n"
+        "from arclet.entari import command, plugin\n"
+        f'plugin.metadata("{module}", author=["t"], version="0.0.1")\n'
+        f'@command.on(Alconna("{command}"))\n'
+        "async def handler():\n"
+        '    return "ok"\n',
+        encoding="utf-8",
+    )
+
+
+@pytest.mark.asyncio
+async def test_command_policy_covers_external_and_rejects_unmanaged(
+    entari_plugin_host, monkeypatch, tmp_path: Path, log_lines
+) -> None:
+    from arclet.entari.plugin import load_plugin, unload_plugin
+
+    from tenko.commands import configure_command_prefix
+    from tenko.host.features import CommandPolicy, FeatureService
+    from tenko.host.perm import PermissionChecker, PermissionRegistry
+    from tenko.host.ratelimit import RateLimitService
+
+    _write_command_plugin(tmp_path, "tenko_t_external", "外部演示")
+    _write_command_plugin(tmp_path, "tenko_t_unmanaged", "野生命令")
+    monkeypatch.syspath_prepend(tmp_path)
+    patch_entry_points(monkeypatch, tenko=[_entry("ext_demo", "tenko_t_external")])
+    state_file = tmp_path / "state.json"
+    state_file.write_text(json.dumps({"enabled": ["ext_demo"]}), encoding="utf-8")
+    runtime = PluginRuntime(tmp_path / "no_builtin", state_file=state_file)
+    configure_command_prefix("/", use_entari_prefix=True)
+    try:
+        await runtime.load_all()
+        assert load_plugin("tenko_t_unmanaged") is not None
+
+        owner = runtime.command_owner("外部演示")
+        assert (owner.source, owner.name) == ("external", "ext_demo")
+        assert runtime.is_loaded("ext_demo") and not runtime.restart_required(
+            "ext_demo"
+        )
+        unmanaged = runtime.command_owner("野生命令")
+        assert (unmanaged.source, unmanaged.name) == (
+            "unmanaged",
+            "tenko_t_unmanaged",
+        )
+        assert runtime.command_owner("无此命令") is None
+
+        features = FeatureService()
+        limiter = RateLimitService(
+            max_weight=2, cooldown_seconds=10, blacklist_seconds=0
+        )
+        policy = CommandPolicy(
+            features,
+            limiter,
+            plugin_runtime=runtime,
+            permission_checker=PermissionChecker(registry=PermissionRegistry()),
+        )
+
+        async def check(text: str) -> str | None:
+            context = replace(make_group_context("40001"), text=text)
+            monkeypatch.setattr(
+                MessageContext, "from_event", staticmethod(lambda _e, c=context: c)
+            )
+            return await policy.check(object(), object())
+
+        # 功能开关按插件 ID 生效，限流与内置插件走同一条路径。
+        features.disable("ext_demo", "40001")
+        assert "插件已关闭" in (await check("/外部演示") or "")
+        features.enable("ext_demo", "40001")
+        assert await check("/外部演示") is None
+        assert "频率" in (await check("/外部演示") or "")
+
+        notice = await check("/野生命令")
+        assert notice == "该命令所属插件未在 Tenko 登记，已拒绝执行"
+        assert "tenko_t_unmanaged" in "".join(log_lines)
+    finally:
+        configure_command_prefix("/")
+        for module in ("tenko_t_external", "tenko_t_unmanaged"):
+            unload_plugin(module)
+            sys.modules.pop(module, None)

@@ -9,6 +9,7 @@ from loguru import logger
 
 from ..config import DatabaseConfig
 from .errors import DatabaseUnavailableError
+from .migration import install_forward_only_guard
 
 _DATABASE_PLUGIN = "entari_plugin_database"
 _DATABASE_SERVICE = "database/sqlalchemy"
@@ -108,6 +109,8 @@ def load_database_plugin(
 
     if plugin is None:
         raise DatabaseUnavailableError("官方数据库插件未能加载")
+    # 迁移任务要等 service 就绪后才执行，此时安装保护来得及。
+    install_forward_only_guard()
 
     try:
         from . import models  # noqa: F401  # 注册所有 Tenko ORM 模型

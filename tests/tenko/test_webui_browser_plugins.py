@@ -27,6 +27,13 @@ class PluginsPanel(Panel):
                 _feature("status", "状态查询", scope="global", global_enabled=True),
                 _feature("antispam", "刷屏检测", global_enabled=False),
                 _feature("dice", "骰子", global_enabled=True),
+                _feature(
+                    "ext_demo",
+                    "演示插件",
+                    source="external",
+                    loaded=False,
+                    enabled=False,
+                ),
             ],
             "group_names": {},
         }
@@ -68,8 +75,8 @@ def open_plugins(open_panel, panel, **kwargs):
 def test_plugins_render_status_scope_and_locked_actions(open_panel):
     panel = PluginsPanel()
     page = open_plugins(open_panel, panel)
-    assert page.locator(".plugin-card").count() == 8
-    assert "共 8 个插件 · 5 个运行中" in page.locator("main").inner_text()
+    assert page.locator(".plugin-card").count() == 9
+    assert "共 9 个插件 · 5 个运行中" in page.locator("main").inner_text()
     assert "运行中" in card(page, "group_manager").inner_text()
     assert "群级功能 · 1/2 个群启用" in card(page, "group_manager").inner_text()
     protected = card(page, "perm_manager")
@@ -83,6 +90,7 @@ def test_plugins_render_status_scope_and_locked_actions(open_panel):
     unloaded = card(page, "rss")
     assert "未加载" in unloaded.inner_text()
     assert unloaded.get_by_role("button", name="启用插件").is_disabled()
+    assert "第三方" not in card(page, "rss").inner_text()
     glob = card(page, "status")
     assert "全局开启" in glob.inner_text() and "范围 全局" in glob.inner_text()
     assert glob.get_by_role("button", name="关闭全局功能").is_enabled()
@@ -217,7 +225,7 @@ def test_plugins_mobile_no_horizontal_overflow(open_panel):
         )
     )
     page = open_plugins(open_panel, panel, viewport=(390, 844))
-    assert page.locator(".plugin-card").count() == 9
+    assert page.locator(".plugin-card").count() == 10
     overflow = page.evaluate(
         "document.documentElement.scrollWidth - document.documentElement.clientWidth"
     )
@@ -250,4 +258,27 @@ def test_refresh_after_write_is_not_satisfied_by_older_inflight_request(open_pan
     # 写入后的刷新必须在旧请求之后再取一次，页面最终显示写入后的状态。
     card(page, "group_manager").get_by_role("button", name="启用插件").wait_for()
     assert len(panel.calls("GET", "/api/features")) == 3
+    assert not page.errors
+
+
+def test_external_plugin_is_tagged_and_enable_reports_restart(open_panel):
+    panel = PluginsPanel()
+    panel.write_results["/api/manage/plugins/ext_demo"] = {
+        "plugin": "ext_demo",
+        "enabled": True,
+        "restart_required": True,
+    }
+    page = open_plugins(open_panel, panel)
+    external = card(page, "ext_demo")
+    assert "第三方" in external.inner_text()
+    assert "未启用" in external.inner_text()
+    # 第三方插件未加载时也能启用；维护开关仍需先加载。
+    assert external.get_by_role("button", name="进入维护").is_disabled()
+    external.get_by_role("button", name="启用插件").click()
+    confirm(page, "启用插件")
+    toast(page, "已启用，重启后生效")
+    assert panel.calls("POST", "/api/manage/plugins/ext_demo")[0][3] == {
+        "enabled": True,
+        "confirm": True,
+    }
     assert not page.errors

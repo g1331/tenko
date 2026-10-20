@@ -763,7 +763,9 @@ async def test_invite_notice_falls_back_to_one_master(loaded_plugin) -> None:
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("loaded_plugin", ["group_manager"], indirect=True)
-async def test_invite_notice_without_group_or_master_only_logs(loaded_plugin) -> None:
+async def test_invite_notice_without_group_or_master_only_logs(
+    loaded_plugin, monkeypatch
+) -> None:
     protocol = InviteProtocol()
     account = InviteAccount(protocol)
     install_invite_action_service(loaded_plugin, account, PermissionRegistry())
@@ -771,7 +773,8 @@ async def test_invite_notice_without_group_or_master_only_logs(loaded_plugin) ->
     original_superusers = EntariConfig.instance.basic.superusers
     EntariConfig.instance.basic.superusers = {}
     warning = Mock()
-    loaded_plugin.logger.warning = warning
+    # loguru 的 logger 是进程级单例，必须用 monkeypatch 还原，避免污染其他测试。
+    monkeypatch.setattr(loaded_plugin.logger, "warning", warning)
     await clear_pending_invites(loaded_plugin)
 
     try:

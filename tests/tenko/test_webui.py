@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 from types import SimpleNamespace
@@ -279,6 +280,7 @@ async def test_webui_read_only_apis_expose_safe_account_and_feature_data(
             "plugin": "demo",
             "name": "演示插件",
             "scope": "group",
+            "source": "builtin",
             "protected": False,
             "loaded": False,
             "enabled": False,
@@ -290,6 +292,7 @@ async def test_webui_read_only_apis_expose_safe_account_and_feature_data(
             "plugin": "global",
             "name": "global",
             "scope": "group",
+            "source": "builtin",
             "protected": False,
             "loaded": False,
             "enabled": False,
@@ -301,6 +304,7 @@ async def test_webui_read_only_apis_expose_safe_account_and_feature_data(
             "plugin": "maintenance",
             "name": "maintenance",
             "scope": "group",
+            "source": "builtin",
             "protected": False,
             "loaded": False,
             "enabled": False,
@@ -749,3 +753,88 @@ def test_log_history_scans_tail_of_large_files(tmp_path):
         result = logs.history(tmp_path, name, "last-line")
         assert result["lines"] == ["last-line"] and result["truncated"]
         assert logs.history(tmp_path, name, "")["lines"][0] == "x" * 99
+
+
+@pytest.mark.asyncio
+async def test_external_plugin_toggle_uses_state_file_and_reports_restart(
+    repositories, monkeypatch, tmp_path
+):
+    from importlib.metadata import EntryPoint
+
+    from tenko.config import TenkoConfig
+    from tenko.connection import OneBotConnection
+    from tenko.db.repositories import ManagementRepository
+    from tenko.host import plugins as plugin_host
+    from tenko.host.account_management import AccountManagement
+    from tenko.host.actions import ActionService
+    from tenko.host.plugins import PluginRuntime
+
+    monkeypatch.setattr(
+        plugin_host,
+        "entry_points",
+        lambda *, group: (
+            [EntryPoint("ext_demo", "tenko_t_ext_demo", group)]
+            if group == "tenko.plugins"
+            else []
+        ),
+    )
+    config = TenkoConfig.from_mapping({"webui": {"enabled": True}})
+    accounts = AccountRegistry()
+    features = FeatureService(repositories["feature"])
+    await features.initialize()
+    management = AccountManagement(accounts, ActionService(registry=accounts))
+    management.repository = ManagementRepository()
+    await management.initialize({})
+    state_file = tmp_path / "plugins" / "state.json"
+    runtime = PluginRuntime(state_file=state_file)
+    connection = OneBotConnection(config.onebot)
+    WebUIService(
+        connection.server,
+        config.webui,
+        accounts=accounts,
+        feature_service=features,
+        management=management,
+        connection=connection,
+        plugin_runtime=runtime,
+        tenko_config=config,
+    )
+    transport = httpx.ASGITransport(
+        app=connection.server.app, client=("127.0.0.1", 12345)
+    )
+    async with httpx.AsyncClient(
+        transport=transport, base_url="http://testserver"
+    ) as client:
+        await _login(client)
+        listed = (await client.get("/webui/api/features")).json()["data"]["features"]
+        row = next(item for item in listed if item["plugin"] == "ext_demo")
+        assert (row["source"], row["loaded"], row["enabled"]) == (
+            "external",
+            False,
+            False,
+        )
+        assert {item["source"] for item in listed if item["plugin"] != "ext_demo"} == {
+            "builtin"
+        }
+
+        response = await client.post(
+            "/webui/api/manage/plugins/ext_demo",
+            json={"enabled": True, "confirm": True},
+        )
+        assert response.status_code == 200
+        assert response.json()["data"] == {
+            "plugin": "ext_demo",
+            "enabled": True,
+            "restart_required": True,
+        }
+        assert json.loads(state_file.read_text(encoding="utf-8")) == {
+            "enabled": ["ext_demo"]
+        }
+        # 内置插件的停用列表不会被第三方插件污染。
+        assert await management.repository.setting("disabled-plugins") is None
+
+        response = await client.post(
+            "/webui/api/manage/plugins/ext_demo",
+            json={"enabled": False, "confirm": True},
+        )
+        assert response.json()["data"]["restart_required"] is False
+        assert json.loads(state_file.read_text(encoding="utf-8")) == {"enabled": []}

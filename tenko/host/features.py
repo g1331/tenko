@@ -332,6 +332,14 @@ class CommandPolicy:
         owner = self._owner(context.text[len(self.command_prefix) :])
         if owner is None:
             return None
+        if getattr(owner, "source", None) == "unmanaged":
+            logger.warning(
+                "Reject command of unregistered plugin: plugin={} group={} text={!r}",
+                getattr(owner, "name", owner),
+                context.channel_id,
+                context.text,
+            )
+            return "该命令所属插件未在 Tenko 登记，已拒绝执行"
         if not self.feature_service.ready:
             return "功能状态暂不可用，请稍后再试"
         plugin_name = _plugin_name(owner)

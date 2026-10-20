@@ -1,10 +1,14 @@
 from __future__ import annotations
 
+import json
+import os
+import re
 from collections.abc import Mapping
 from dataclasses import dataclass
+from importlib.metadata import entry_points
 from pathlib import Path
 from types import MappingProxyType
-from typing import Any
+from typing import Any, Literal
 
 from arclet.alconna import command_manager
 from arclet.entari.exceptions import RegisterNotInPluginError as PluginInterfaceError
@@ -19,10 +23,16 @@ from arclet.entari.plugin import (
     unload_plugin,
     plugin_service,
 )
+from loguru import logger
 
 from ..context import MessageContext
 
 _DEFAULT_PLUGIN_DIR = Path(__file__).resolve().parent.parent / "plugins"
+# 第三方插件入口组；不能用 Entari 的 ``entari.plugin``，它会被无条件自动加载。
+EXTERNAL_ENTRY_POINT_GROUP = "tenko.plugins"
+_DEFAULT_STATE_FILE = Path(".tenko/plugins/state.json")
+_PLUGIN_ID = re.compile(r"[a-z][a-z0-9_]*")
+_MODULE_PATH = re.compile(r"[A-Za-z_]\w*(\.[A-Za-z_]\w*)*")
 _LEGACY_PLUGIN_NAMESPACES = (
     "modules.required",
     "modules.self_contained",
@@ -43,9 +53,13 @@ class PluginInfo:
     """插件目录项及其可传给 Entari 的导入名。"""
 
     name: str
-    path: Path
+    # 第三方插件在发现阶段不导入模块，不提供路径。
+    path: Path | None
     is_package: bool
     qualified_name: str
+    # builtin: tenko/plugins 下的内置插件；external: tenko.plugins 入口声明的
+    # 第三方包；unmanaged: Entari 里已注册命令但未在 Tenko 登记的原生插件。
+    source: Literal["builtin", "external", "unmanaged"] = "builtin"
 
     @property
     def display_name(self) -> str:
@@ -62,31 +76,41 @@ class PluginInfo:
     @property
     def lookup_names(self) -> tuple[str, ...]:
         names = [self.name, self.qualified_name]
-        names.extend(
-            f"{namespace}.{self.name}" for namespace in _LEGACY_PLUGIN_NAMESPACES
-        )
+        if self.source == "builtin":
+            names.extend(
+                f"{namespace}.{self.name}" for namespace in _LEGACY_PLUGIN_NAMESPACES
+            )
         return tuple(dict.fromkeys(names))
 
 
 class PluginRuntime:
-    """把 Tenko 插件目录适配到 Entari 原生插件机制。"""
+    """把 Tenko 插件目录和第三方插件入口适配到 Entari 原生插件机制。"""
 
     def __init__(
         self,
         plugin_dir: str | Path | None = None,
         *,
         namespace: str = "tenko.plugins",
+        state_file: str | Path | None = None,
     ) -> None:
         self.plugin_dir = Path(plugin_dir or _DEFAULT_PLUGIN_DIR)
         self.namespace = namespace
+        # 第三方插件默认关闭，启用状态保存在这个 JSON 文件里：加载插件发生在
+        # 数据库可用之前，所以不能放进数据库设置。
+        self.state_file = Path(state_file or _DEFAULT_STATE_FILE)
         self._discovered: dict[str, PluginInfo] = {}
 
     def discover(self) -> tuple[PluginInfo, ...]:
-        """发现插件目录的直接子项，不导入插件。"""
+        """发现内置插件和第三方插件入口，不导入任何插件模块。"""
 
+        discovered = self._discover_builtin()
+        discovered.update(self._discover_external(discovered))
+        self._discovered = discovered
+        return tuple(discovered.values())
+
+    def _discover_builtin(self) -> dict[str, PluginInfo]:
         if not self.plugin_dir.exists():
-            self._discovered = {}
-            return ()
+            return {}
         if not self.plugin_dir.is_dir():
             raise NotADirectoryError(f"插件目录不是目录: {self.plugin_dir}")
 
@@ -102,8 +126,89 @@ class PluginRuntime:
                 raise ValueError(f"插件名称重复: {name}")
             qualified_name = f"{self.namespace}.{name}" if self.namespace else name
             discovered[name] = PluginInfo(name, path, is_package, qualified_name)
-        self._discovered = discovered
-        return tuple(discovered.values())
+        return discovered
+
+    @staticmethod
+    def _discover_external(builtin: Mapping[str, PluginInfo]) -> dict[str, PluginInfo]:
+        """按入口名登记第三方插件；非法、与内置冲突或重复的入口一律跳过。"""
+
+        candidates: dict[str, list[Any]] = {}
+        for entry in entry_points(group=EXTERNAL_ENTRY_POINT_GROUP):
+            dist = getattr(getattr(entry, "dist", None), "name", None) or "未知"
+            if not _PLUGIN_ID.fullmatch(entry.name):
+                logger.error(
+                    "忽略第三方插件入口 {!r}（分发包 {}）：插件 ID 须匹配 [a-z][a-z0-9_]*",
+                    entry.name,
+                    dist,
+                )
+            elif not _MODULE_PATH.fullmatch(entry.value):
+                logger.error(
+                    "忽略第三方插件 {}（分发包 {}）：入口值 {!r} 必须是纯模块路径",
+                    entry.name,
+                    dist,
+                    entry.value,
+                )
+            elif entry.name in builtin:
+                logger.error(
+                    "忽略第三方插件 {}（分发包 {}）：与内置插件同名", entry.name, dist
+                )
+            else:
+                candidates.setdefault(entry.name, []).append(entry)
+
+        entari_modules = {entry.module for entry in entry_points(group="entari.plugin")}
+        external: dict[str, PluginInfo] = {}
+        for name, entries in candidates.items():
+            if len(entries) > 1:
+                dists = [getattr(e.dist, "name", None) or "未知" for e in entries]
+                logger.error("忽略重复的第三方插件 ID {}（分发包 {}）", name, dists)
+                continue
+            module = entries[0].value
+            if module in entari_modules:
+                logger.warning(
+                    "第三方插件 {} 同时声明了 entari.plugin 入口，Entari 会无视 "
+                    "Tenko 的启用状态自动加载它",
+                    name,
+                )
+            external[name] = PluginInfo(name, None, False, module, "external")
+        return external
+
+    def _read_state(self) -> dict[str, Any]:
+        """读取状态文件；缺失视为空，损坏时记录错误并按“全部未启用”处理。"""
+
+        try:
+            state = json.loads(self.state_file.read_text(encoding="utf-8"))
+            enabled = state["enabled"]
+            if not isinstance(enabled, list) or not all(
+                isinstance(item, str) for item in enabled
+            ):
+                raise TypeError("enabled 必须是字符串列表")
+            return state
+        except FileNotFoundError:
+            return {"enabled": []}
+        except (OSError, ValueError, KeyError, TypeError) as error:
+            logger.error(
+                "第三方插件状态文件无效，视为全部未启用: {} ({}: {})",
+                self.state_file,
+                type(error).__name__,
+                error,
+            )
+            return {"enabled": []}
+
+    def _enabled_external_ids(self) -> frozenset[str]:
+        return frozenset(self._read_state()["enabled"])
+
+    def _write_external_enabled(self, name: str, enabled: bool) -> None:
+        state = self._read_state()
+        ids = set(state["enabled"])
+        if enabled:
+            ids.add(name)
+        else:
+            ids.discard(name)
+        state["enabled"] = sorted(ids)
+        self.state_file.parent.mkdir(parents=True, exist_ok=True)
+        temp = self.state_file.with_name(f"{self.state_file.name}.tmp")
+        temp.write_text(json.dumps(state, indent=2) + "\n", encoding="utf-8")
+        os.replace(temp, self.state_file)
 
     def _info(self, plugin: str | PluginInfo) -> PluginInfo:
         if isinstance(plugin, PluginInfo):
@@ -129,7 +234,22 @@ class PluginRuntime:
         del context, group_id
         info = self._info(plugin)
         native_plugin = self._native_plugin(info)
-        return native_plugin is None or native_plugin.is_available
+        if native_plugin is None:
+            # 第三方插件默认关闭；未加载时以状态文件里的意愿为准。
+            return (
+                info.source != "external" or info.name in self._enabled_external_ids()
+            )
+        return native_plugin.is_available
+
+    def restart_required(self, plugin: str | PluginInfo) -> bool:
+        """第三方插件已被启用但尚未加载，需要重启后才会生效。"""
+
+        info = self._info(plugin)
+        return (
+            info.source == "external"
+            and info.name in self._enabled_external_ids()
+            and self._native_plugin(info) is None
+        )
 
     @staticmethod
     def _native_plugin(info: PluginInfo) -> Plugin | None:
@@ -154,6 +274,8 @@ class PluginRuntime:
         """同时检查原生启停会级联影响的插件，防止间接关闭控制平面。"""
 
         info = self._info(plugin)
+        if info.source != "builtin":
+            return False
         if info.name == "feature_manager":
             return True
         native = self._native_plugin(info)
@@ -209,6 +331,9 @@ class PluginRuntime:
     def command_owner(self, text: str) -> PluginInfo | None:
         """按当前 Entari 注册命令返回其插件目录项。
 
+        命令属于 Tenko 未登记的原生插件时返回 ``source="unmanaged"`` 的目录项，
+        由 ``CommandPolicy`` 拒绝执行（fail-closed）。
+
         ``text`` 是已去掉 Entari 命令前缀的消息文本；Entari 官方前缀模式下
         命令记录的 Alconna 前缀为空，所以直接用裸命令名和裸 shortcut 匹配。
         ``get_plugin_commands`` 是 Entari 保存的插件归属索引；命令 shortcut
@@ -247,8 +372,15 @@ class PluginRuntime:
             ):
                 continue
             for info in self._discovered.values():
-                if native_plugin.id in info.lookup_names:
+                # 子插件的 ID 以父插件模块名为前缀。
+                if native_plugin.id in info.lookup_names or native_plugin.id.startswith(
+                    f"{info.qualified_name}."
+                ):
                     return info
+            # 命令来自 Entari 里已注册、但 Tenko 未登记的插件：交给调用方拒绝。
+            return PluginInfo(
+                native_plugin.id, None, False, native_plugin.id, "unmanaged"
+            )
         return None
 
     async def load(
@@ -273,12 +405,13 @@ class PluginRuntime:
     ) -> Mapping[str, Plugin]:
         """发现并加载插件，可为指定插件传入 Entari 配置。
 
+        第三方插件只加载状态文件里已启用的；加载失败只记录日志，不影响启动。
         显式配置的插件先于其他插件加载，避免某个插件的依赖导入以默认
         配置抢先创建它，之后无法再替换已注册的 Entari 服务实例。
         """
 
         configs = {} if configs is None else configs
-        infos = self.discover()
+        infos = [info for info in self.discover() if info.source == "builtin"]
         configured_names = set(configs)
         for info in infos:
             if info.name not in configured_names:
@@ -289,6 +422,14 @@ class PluginRuntime:
             if info.name in configured_names:
                 continue
             await self.load(info)
+        enabled = self._enabled_external_ids()
+        for info in self._discovered.values():
+            if info.source != "external" or info.name not in enabled:
+                continue
+            try:
+                await self.load(info)
+            except Exception:
+                logger.exception("第三方插件加载失败: {}", info.name)
         return self.loaded_plugins
 
     def unload(self, plugin: str | PluginInfo) -> bool:
@@ -315,6 +456,20 @@ class PluginRuntime:
         return await disable_plugin(self._info(plugin).qualified_name)
 
     async def set_enabled(self, plugin: str | PluginInfo, enabled: bool) -> bool:
+        """启停插件；第三方插件的意愿同时写入状态文件。
+
+        第三方插件未加载时只更新状态文件，启用要等重启后才加载，调用方用
+        ``restart_required`` 判断是否需要提示重启。
+        """
+
         if type(enabled) is not bool:
             raise TypeError("enabled 必须是布尔值")
-        return await (self.enable(plugin) if enabled else self.disable(plugin))
+        info = self._info(plugin)
+        if info.source == "external":
+            if self._native_plugin(info) is not None:
+                result = await (self.enable(info) if enabled else self.disable(info))
+                if not result:
+                    return False
+            self._write_external_enabled(info.name, enabled)
+            return True
+        return await (self.enable(info) if enabled else self.disable(info))

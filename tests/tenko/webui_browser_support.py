@@ -53,6 +53,7 @@ def _feature(plugin, name, **overrides):
         "plugin": plugin,
         "name": name,
         "scope": "group",
+        "source": "builtin",
         "protected": False,
         "loaded": True,
         "enabled": True,
@@ -118,6 +119,7 @@ class Panel:
         self.login_error = None  # (状态码, error.code, 额外字段)
         self.sessions = copy.deepcopy(SESSIONS)
         self.failures = {}  # 写接口路径 -> 409 conflict 的错误消息
+        self.write_results = {}  # 写接口路径 -> 成功响应的 data（缺省为 {}）
 
     def paths(self, prefix=""):
         return [path for _m, path, _h, _b in self.requests if path.startswith(prefix)]
@@ -183,7 +185,7 @@ class Panel:
         elif request.method == "POST" and path in self.failures:
             fail(409, "conflict", self.failures[path])
         elif path.startswith("/api/manage/") and request.method == "POST":
-            ok({})
+            ok(self.write_results.get(path, {}))
         elif path == "/api/manage/logs":
             ok({"files": [], "lines": ["12:00 INFO hello"], "history_enabled": True})
         else:

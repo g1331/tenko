@@ -65,6 +65,9 @@ class AccountManagement:
             raise ValueError("持久化插件状态非法")
         if plugins is not None:
             for info in plugins.discover():
+                # 第三方插件的启停由 PluginRuntime 的状态文件管理。
+                if info.source != "builtin":
+                    continue
                 if info.name in disabled and not plugins.is_protected(info):
                     if not await plugins.set_enabled(info, False):
                         raise RuntimeError(f"无法恢复插件状态: {info.name}")

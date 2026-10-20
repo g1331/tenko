@@ -90,6 +90,25 @@ requirements-entari.txt      # pip 兼容出口（锁定版本快照，主路径
 5. 插件加载和卸载都必须释放自己创建的资源。渲染、网络和定时任务应遵循宿主
    生命周期，不在模块导入阶段启动副作用。
 
+## 第三方插件（外部包）
+
+完整方案见 issue #200；当前宿主只实现发现、启停和访问控制。
+
+- 第三方插件是标准 Python 包，在 `pyproject.toml` 声明 `tenko.plugins` 入口：
+  `[project.entry-points."tenko.plugins"]` 下写 `<id> = "<module>"`。`<id>` 匹配
+  `[a-z][a-z0-9_]*`，不能与内置插件重名；值必须是纯模块路径，不能带 `:属性`。
+  非法、重名的入口会被跳过并记录错误。
+- **不要声明 `entari.plugin` 入口**：Entari 会无视 Tenko 的启用状态自动加载它。
+- 第三方插件默认关闭。在 WebUI 插件页启用后写入 `.tenko/plugins/state.json`
+  （`{"enabled": ["<id>"]}`），首次加载需要重启 Tenko；状态文件缺失或损坏时视为全部未启用。
+- 第三方插件的命令与内置插件走同一套维护模式、功能开关和限流，功能开关以插件 ID 为键。
+  Entari 里已注册命令、但未登记为内置或第三方的插件，其群聊命令会被拒绝执行。
+- 插件不得删除表、删除列或修改列类型：宿主在官方迁移器上安装了“Schema 只前进”
+  保护，遇到这类变更会回滚该模块的结构迁移并拒绝删表（实现见 `tenko/db/migration.py`）。
+- 开发第三方插件时可用 `pip install "tenko @ git+https://github.com/g1331/tenko@<tag>"`
+  安装宿主本体（`pyproject.toml` 提供 `[build-system]`；生产环境仍用 `uv sync`，
+  不安装本项目）。
+
 ## 代码与提交规范
 
 - Ruff 使用 88 列、双引号，并启用 E、F、W、UP 规则集；遵循现有命名、异常处理和

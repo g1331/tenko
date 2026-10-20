@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
-import { api, type FeatureInfo } from '@/api'
+import { api, type FeatureInfo, type PluginToggleResult } from '@/api'
 import PageContainer from '@/components/PageContainer.vue'
 import ResourceBoundary from '@/components/ResourceBoundary.vue'
 import { confirmAction } from '@/composables/confirm'
@@ -40,8 +40,9 @@ async function apply(feature: FeatureInfo, change: Change) {
   if (!ok) return
   busy.value = feature.plugin
   try {
-    await change.body()
-    ElMessage.success(change.done)
+    const result = (await change.body()) as Partial<PluginToggleResult> | undefined
+    if (result?.restart_required) ElMessage.info('已启用，重启后生效')
+    else ElMessage.success(change.done)
     await refresh()
   } catch (error) {
     ElMessage.error(`${change.title}失败：${(error as Error).message}`)

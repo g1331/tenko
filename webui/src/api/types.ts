@@ -86,6 +86,8 @@ export interface FeatureInfo {
   /** 展示名。 */
   name: string
   scope: FeatureScope
+  /** builtin 内置；external 第三方（tenko.plugins 入口，默认关闭）。 */
+  source: 'builtin' | 'external' | 'unmanaged'
   /** 控制平面插件，不能通过面板停用或改开关。 */
   protected: boolean
   loaded: boolean
@@ -156,6 +158,8 @@ export interface PluginToggleBody {
 export interface PluginToggleResult {
   plugin: string
   enabled: boolean
+  /** 第三方插件已启用但尚未加载，需重启后生效。 */
+  restart_required: boolean
 }
 
 /** POST /manage/features/{plugin} 的三种请求体：维护开关、全局开关（null 表示清除）、群级开关。 */

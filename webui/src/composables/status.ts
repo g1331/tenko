@@ -15,7 +15,14 @@ export function accountStatus(account: Pick<AccountSummary, 'online'>): StatusIn
 /** 插件的综合状态：受保护 > 未加载 > 已停用 > 维护中 > 全局开关 > 群级开关。 */
 export function featureStatus(feature: FeatureInfo): StatusInfo {
   if (feature.protected) return { kind: 'prot', label: '受保护' }
-  if (!feature.loaded) return { kind: 'pending', label: '未加载' }
+  if (!feature.loaded) {
+    // 第三方插件默认不加载；已启用的要等重启后才会加载。
+    if (feature.source === 'external')
+      return feature.enabled
+        ? { kind: 'pending', label: '待重启' }
+        : { kind: 'off', label: '未启用' }
+    return { kind: 'pending', label: '未加载' }
+  }
   if (!feature.enabled) return { kind: 'off', label: '已停用' }
   if (feature.maintenance) return { kind: 'pending', label: '维护中' }
   if (feature.global_enabled === false) return { kind: 'off', label: '全局关闭' }

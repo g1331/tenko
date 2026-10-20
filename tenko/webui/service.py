@@ -405,6 +405,7 @@ class WebUIService(Service):
             state = states.get(plugin_name, self._empty_feature_state())
             metadata_name = plugin_name
             scope = "group"
+            source = "builtin"
             info = next(
                 (
                     candidate
@@ -416,6 +417,7 @@ class WebUIService(Service):
             if info is not None:
                 metadata_name = str(getattr(info, "display_name", plugin_name))
                 scope = self._plugin_scope(info)
+                source = str(getattr(info, "source", "builtin"))
 
             groups = {
                 group_id: self._effective_enabled(state, group_id, default_enabled)
@@ -426,6 +428,7 @@ class WebUIService(Service):
                     "plugin": plugin_name,
                     "name": metadata_name,
                     "scope": scope,
+                    "source": source,
                     "protected": bool(
                         info is not None
                         and self.plugin_runtime is not None
@@ -753,19 +756,28 @@ class WebUIService(Service):
             before = self.plugin_runtime.is_enabled(info)
             enabled = body["enabled"]
             request.state.webui_action = "enable" if enabled else "disable"
-            disabled = set(await repository.setting("disabled-plugins") or [])
-            if enabled:
-                disabled.discard(info.name)
+            if info.source == "external":
+                # 第三方插件默认关闭，状态由 PluginRuntime 写入状态文件。
+                if not await self.plugin_runtime.set_enabled(info, enabled):
+                    raise RuntimeError("插件当前未能切换状态")
             else:
-                disabled.add(info.name)
-            if not await self.plugin_runtime.set_enabled(info, enabled):
-                raise RuntimeError("插件当前未加载，无法切换状态")
-            try:
-                await repository.save_setting("disabled-plugins", sorted(disabled))
-            except Exception:
-                await self.plugin_runtime.set_enabled(info, before)
-                raise
-            return {"plugin": info.name, "enabled": enabled}
+                disabled = set(await repository.setting("disabled-plugins") or [])
+                if enabled:
+                    disabled.discard(info.name)
+                else:
+                    disabled.add(info.name)
+                if not await self.plugin_runtime.set_enabled(info, enabled):
+                    raise RuntimeError("插件当前未加载，无法切换状态")
+                try:
+                    await repository.save_setting("disabled-plugins", sorted(disabled))
+                except Exception:
+                    await self.plugin_runtime.set_enabled(info, before)
+                    raise
+            return {
+                "plugin": info.name,
+                "enabled": enabled,
+                "restart_required": self.plugin_runtime.restart_required(info),
+            }
 
         return await self._manage(request, change)
 
