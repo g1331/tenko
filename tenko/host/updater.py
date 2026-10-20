@@ -26,7 +26,7 @@ import tempfile
 import textwrap
 import uuid
 import zipfile
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Awaitable, Callable, Mapping, Sequence
 from dataclasses import dataclass, field, replace
 from datetime import datetime, UTC
 from enum import Enum
@@ -58,6 +58,7 @@ __all__ = [
     "ConfigurationCompatibilityError",
     "ConfigCompatibilityChecker",
     "DefaultHealthChecker",
+    "DependencySyncError",
     "GitTagSource",
     "GitHubReleaseSource",
     "HealthCheckFailed",
@@ -80,6 +81,7 @@ __all__ = [
     "UpgradeLayout",
     "UpgradeManager",
     "UrlManifestSource",
+    "UvDependencySync",
     "Version",
     "VersionSource",
     "compare_versions",
@@ -126,6 +128,10 @@ class ConfigurationCompatibilityError(UpdaterError):
 
 class HealthCheckFailed(UpdaterError):
     """制品在切换前或切换后健康检查失败。"""
+
+
+class DependencySyncError(UpdaterError):
+    """按版本锁文件同步依赖失败。"""
 
 
 class UpgradeConfigError(UpdaterError, ValueError):
@@ -1367,9 +1373,11 @@ class DefaultHealthChecker:
         data_dir: Path | None = None,
         upgrade_root: Path | None = None,
         stable_root: Path | None = None,
+        import_check: bool = False,
     ) -> None:
         if timeout <= 0:
             raise ValueError("health timeout 必须大于 0")
+        self.import_check = import_check
         self.command = tuple(command)
         self.timeout = timeout
         self.python_executable = python_executable
@@ -1450,6 +1458,24 @@ class DefaultHealthChecker:
             return HealthCheckResult(False, f"Python 编译冒烟失败: {output[:500]}")
         return HealthCheckResult(True, "tenko 包入口和 Python 编译冒烟通过")
 
+    def _import_check_sync(self, candidate: Path) -> HealthCheckResult:
+        try:
+            completed = subprocess.run(
+                [self.python_executable, "-c", _IMPORT_CHECK_SCRIPT, str(candidate)],
+                check=False,
+                capture_output=True,
+                text=True,
+                timeout=max(self.timeout, _IMPORT_CHECK_MIN_TIMEOUT),
+                env=self._environment(candidate),
+                cwd=self._working_directory(candidate),
+            )
+        except (OSError, subprocess.TimeoutExpired) as exc:
+            return HealthCheckResult(False, f"导入检查执行失败: {exc}")
+        if completed.returncode != 0:
+            output = (completed.stderr or completed.stdout or "").strip()
+            return HealthCheckResult(False, f"导入检查失败: {output[-800:]}")
+        return HealthCheckResult(True, "宿主和已启用插件导入检查通过")
+
     async def check(
         self,
         candidate: Path,
@@ -1457,9 +1483,109 @@ class DefaultHealthChecker:
         phase: str,
     ) -> HealthCheckResult:
         result = await asyncio.to_thread(self._check_sync, candidate)
+        # 导入检查依赖候选版本的依赖已同步，所以只在切换后/回滚阶段执行；
+        # 自定义 health_command 取代整个默认检查（含导入检查）。
+        if (
+            result.ok
+            and self.import_check
+            and not self.command
+            and phase != "pre-switch"
+        ):
+            result = await asyncio.to_thread(self._import_check_sync, candidate)
         if not result.ok:
             return HealthCheckResult(False, f"{phase}: {result.reason}")
         return result
+
+
+_IMPORT_CHECK_MIN_TIMEOUT = 120
+# 在子进程里用候选代码导入宿主，并通过 Entari 加载全部内置插件和已启用的第三方
+# 插件。load_plugin 失败只返回错误而不抛异常，所以要逐个检查结果。
+_IMPORT_CHECK_SCRIPT = """
+import sys
+from pathlib import Path
+sys.path.insert(0, sys.argv[1])
+from arclet.entari.config import EntariConfig
+from arclet.entari.plugin import load_plugin
+EntariConfig(Path(".tenko/entari-boot.yaml"))
+import tenko.runtime
+from tenko.host.plugins import PluginRuntime
+runtime = PluginRuntime()
+enabled = runtime._enabled_external_ids()
+failed = []
+for info in runtime.discover():
+    if info.source == "external" and info.name not in enabled:
+        continue
+    result = load_plugin(info.qualified_name)
+    if not result:
+        failed.append(f"{info.name}: {type(result.error).__name__}: {result.error}")
+if failed:
+    print("插件导入失败:\\n" + "\\n".join(failed), file=sys.stderr)
+    raise SystemExit(1)
+""".strip()
+
+_DEPENDENCY_SYNC_TIMEOUT = 600
+
+
+class UvDependencySync:
+    """按版本目录的 ``uv.lock`` 把依赖同步到当前运行的虚拟环境。
+
+    第三方插件与宿主共用同一个虚拟环境，所以不用 ``uv sync`` 默认的精确同步
+    （会卸载锁文件之外的插件依赖），而是 ``--inexact``：只安装、升级或降级锁文件
+    里的包，不删除多余的包。``--no-install-workspace`` 跳过 ``tenko-api``：宿主启动时
+    已把 ``packages/tenko-api/src`` 放到 ``sys.path`` 最前，不需要也不应安装指向
+    可能被清理的版本目录的可编辑安装。升级和回滚都调用它：回滚时传入上一版本目录，
+    即恢复上一版本的锁文件。
+    """
+
+    def __init__(
+        self,
+        *,
+        environment: str | Path | None = None,
+        uv: str | None = None,
+        timeout: int = _DEPENDENCY_SYNC_TIMEOUT,
+    ) -> None:
+        self.environment = Path(environment or sys.prefix)
+        self.uv = uv
+        self.timeout = timeout
+
+    def _sync(self, release_root: Path) -> None:
+        if not (release_root / "uv.lock").is_file():
+            # 早于 uv 迁移的旧版本没有锁文件，保持环境现状。
+            logger.warning("Tenko 版本 {} 没有 uv.lock，跳过依赖同步", release_root)
+            return
+        uv = self.uv or os.environ.get("UV") or shutil.which("uv")
+        if not uv:
+            raise DependencySyncError("找不到 uv 可执行文件（可用环境变量 UV 指定）")
+        command = [
+            uv,
+            "sync",
+            "--frozen",
+            "--inexact",
+            "--no-install-workspace",
+            "--project",
+            str(release_root),
+        ]
+        environment = os.environ.copy()
+        environment["UV_PROJECT_ENVIRONMENT"] = str(self.environment)
+        try:
+            completed = subprocess.run(
+                command,
+                check=False,
+                capture_output=True,
+                text=True,
+                timeout=self.timeout,
+                env=environment,
+            )
+        except (OSError, subprocess.TimeoutExpired) as exc:
+            raise DependencySyncError(f"依赖同步无法执行: {exc}") from exc
+        if completed.returncode != 0:
+            output = _redact_text((completed.stderr or completed.stdout or "").strip())
+            raise DependencySyncError(
+                f"依赖同步失败（uv sync 返回 {completed.returncode}）: {output[-800:]}"
+            )
+
+    async def __call__(self, release_root: Path) -> None:
+        await asyncio.to_thread(self._sync, release_root)
 
 
 def _atomic_write_json(path: Path, payload: Mapping[str, Any]) -> None:
@@ -2035,6 +2161,7 @@ class UpgradeManager:
         database_backup_enabled: bool = True,
         compatibility_checker: ConfigCompatibilityChecker | None = None,
         health_checker: Any | None = None,
+        dependency_sync: Callable[[Path], Awaitable[None]] | None = None,
         audit: AuditLogger | None = None,
         shutdown_callback: Callable[[], bool] | None = None,
     ) -> None:
@@ -2079,6 +2206,8 @@ class UpgradeManager:
             upgrade_root=self.layout.root,
             stable_root=self.project_root,
         )
+        # 切换到某个版本目录前后，把共享虚拟环境同步到该目录的锁文件。
+        self.dependency_sync = dependency_sync
         self.audit = audit or AuditLogger(self.layout.audit_file)
         self._shutdown_callback = shutdown_callback
         self._operation_lock = asyncio.Lock()
@@ -2520,9 +2649,29 @@ class UpgradeManager:
             raise
         return ReleasePointer(self.current_version, baseline)
 
-    async def _health(self, candidate: Path, *, phase: str) -> bool:
+    async def _health(self, candidate: Path, *, phase: str) -> None:
         result = await self.health_checker.check(candidate, phase=phase)
-        return _health_ok(result)
+        if not _health_ok(result):
+            raise HealthCheckFailed(_health_reason(result))
+
+    async def _sync_dependencies(self, release: Path) -> None:
+        if self.dependency_sync is None:
+            return
+        logger.info("Tenko 正在按 {} 的 uv.lock 同步依赖", release)
+        await self.dependency_sync(release)
+
+    async def _restore_dependencies(self, release: Path) -> str:
+        """切换失败后尽力把依赖恢复到仍在运行的版本；返回要追加到原因里的说明。"""
+
+        try:
+            await self._sync_dependencies(release)
+        except Exception as exc:
+            error = _redact_text(str(exc) or exc.__class__.__name__)
+            logger.error(
+                "Tenko 恢复旧版本依赖失败，环境可能与运行版本不一致: {}", error
+            )
+            return f"；恢复旧版本依赖也失败: {error}"
+        return ""
 
     @staticmethod
     def _same_pointer(left: ReleasePointer, right: ReleasePointer) -> bool:
@@ -2766,8 +2915,8 @@ class UpgradeManager:
                 # active.json 的替换是唯一切换点；应用根目录从不被覆盖。
                 if not already_active:
                     self.layout.write_pointer(target_path, target_version)
-                if not await self._health(target_path, phase="post-switch"):
-                    raise HealthCheckFailed("切换后的健康检查未通过")
+                await self._sync_dependencies(target_path)
+                await self._health(target_path, phase="post-switch")
             except Exception as exc:
                 self.layout.write_pointer(source.path, source.version)
                 if previous_before is None:
@@ -2780,7 +2929,15 @@ class UpgradeManager:
                     )
                 self.layout.clear_pending()
                 self.layout.clear_handoff()
-                reason = str(exc) or exc.__class__.__name__
+                reason = (str(exc) or exc.__class__.__name__) + (
+                    await self._restore_dependencies(source.path)
+                )
+                logger.error(
+                    "Tenko 升级到 {} 失败，已恢复 {}: {}",
+                    target_tag,
+                    source.version,
+                    reason,
+                )
                 self.audit.record(
                     "install",
                     current_version=source.version,
@@ -2794,13 +2951,13 @@ class UpgradeManager:
                     current_version=target_tag,
                     target_version=source.version,
                     result="success",
-                    reason="post-switch health check failed",
+                    reason=_redact_text(reason),
                     automatic=automatic_rollback,
                 )
                 if automatic_rollback:
                     self._write_automatic_recovery_notice(
                         source.version,
-                        reason="post-switch health check failed",
+                        reason=_redact_text(reason),
                     )
                 return InstallResult(False, target_version, source.path, True, reason)
 
@@ -2838,12 +2995,20 @@ class UpgradeManager:
         try:
             if not already_active:
                 self.layout.write_pointer(previous.path, previous.version)
-            if not await self._health(previous.path, phase="rollback"):
-                raise HealthCheckFailed("回滚后的健康检查未通过")
+            await self._sync_dependencies(previous.path)
+            await self._health(previous.path, phase="rollback")
         except Exception as exc:
             self.layout.write_pointer(source.path, source.version)
             failed_handoff, quarantine_error = self._discard_live_handoff(isolate=True)
-            reason = str(exc) or exc.__class__.__name__
+            reason = (str(exc) or exc.__class__.__name__) + (
+                await self._restore_dependencies(source.path)
+            )
+            logger.error(
+                "Tenko 回滚到 {} 失败，已恢复 {}: {}",
+                previous.version,
+                source.version,
+                _redact_text(reason),
+            )
             details: dict[str, Any] = {
                 "error": _redact_text(reason),
                 "failed_handoff_path": (
@@ -3047,6 +3212,7 @@ class UpgradeManager:
             data_dir=data_dir.resolve(),
             upgrade_root=layout.root,
             stable_root=root,
+            import_check=True,
         )
         return cls(
             current,
@@ -3064,6 +3230,7 @@ class UpgradeManager:
             database_path=database_path,
             database_backup_enabled=database_backup_enabled,
             health_checker=health_checker,
+            dependency_sync=UvDependencySync(),
         )
 
 

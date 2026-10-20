@@ -311,7 +311,7 @@ control 使用的 `local_data` 状态文件（包括全局插件/函数控制）
 | install_root | 版本和升级状态目录，默认 .tenko/upgrades |
 | config_path | 外部配置路径，默认 config/tenko.toml |
 | data_dir | 仅传给自定义健康检查命令的外部目录，默认 data；Tenko 自身持久化数据仍在 .tenko |
-| health_command | 可选健康检查命令参数列表 |
+| health_command | 可选健康检查命令参数列表；设置后取代默认检查（含导入检查） |
 | health_timeout | 健康检查超时时间，默认 30 秒 |
 | check_interval_hours | 定时检查间隔，默认 24 小时 |
 | superuser_ids | 可执行升级命令的用户 ID；省略时继承 basic.superusers |
@@ -367,13 +367,25 @@ remote（例如 `origin`），会在加载配置时用 `git remote get-url` 将�
 4. 收到成功回复后使用 `Ctrl+C` 让当前 Tenko 进程优雅退出。watcher 检测到旧进程
    退出后启动标准启动器 `scripts/launcher.sh`，并在启动宽限期内观察新进程。
 5. 启动器固定以部署根目录为工作目录，并使用共享的 uv 环境启动 Tenko。启动早期
-   会消费 `handoff.json`，原子更新 `active.json`，执行切换后的健康检查，然后在
-   fresh Python 进程中重新执行 active 版本。配置、SQLite 数据库和 `.tenko/` 下的
-   运行状态仍使用稳定根目录中的原有路径。
+   会消费 `handoff.json`，原子更新 `active.json`，按候选版本的 `uv.lock` 同步依赖，
+   执行切换后的健康检查，然后在 fresh Python 进程中重新执行 active 版本。配置、
+   SQLite 数据库和 `.tenko/` 下的运行状态仍使用稳定根目录中的原有路径。
+
+依赖同步等价于 `uv sync --frozen --inexact --no-install-workspace --project <版本目录>`，
+目标是当前运行的虚拟环境。第三方插件与宿主共用这个环境，所以用 `--inexact` 保留锁文件
+之外的插件依赖（默认的精确同步会把它们卸载）；`tenko-api` 由宿主通过 `sys.path` 提供，
+不安装。需要 `uv` 可执行文件（`PATH` 或环境变量 `UV`）；没有 `uv.lock` 的旧版本目录
+跳过同步。插件自己需要的包版本与锁文件冲突时以锁文件为准，导入检查会暴露由此造成的
+插件加载失败。
+
+默认健康检查（`health_command` 为空时）在切换前只做编译冒烟；依赖同步后再用候选代码
+启动子进程，导入宿主并通过 Entari 加载全部内置插件和已启用的第三方插件，任何一个导入
+失败都视为健康检查失败。
 
 如果 watcher 未能 arm，`/升级` 的回复会提示手动接管；此时退出当前进程后运行
-`./scripts/launcher.sh`。如果切换后的健康检查失败，升级器会恢复原 active 指针并
-清理本次接管记录，避免失败 handoff 在后续启动中反复执行。启动器拉起后续进程仍在
+`./scripts/launcher.sh`。如果依赖同步或切换后的健康检查失败，升级器会恢复原 active
+指针、把依赖重新同步回原版本的锁文件，并清理本次接管记录，避免失败 handoff 在后续
+启动中反复执行；失败原因写入日志、审计和 `recovery-notice.json`，运行版本不变。启动器拉起后续进程仍在
 宽限期内退出时，watcher 会把 `active.json` 切回 `previous.json` 指向的制品并重新拉起；
 回滚成功后，新进程启动通知会播报“已自动回滚至 X 版本”。如果回滚制品也无法存活，
 watcher 停止尝试、隔离失败 handoff 并保留审计记录，等待人工处理，不会继续循环拉起。
@@ -384,10 +396,10 @@ watcher 停止尝试、隔离失败 handoff 并保留审计记录，等待人工
 2. 写入 `action = "rollback"` 的 `handoff.json`，并按与 `/升级` 相同的方式尝试
    arm watcher。
 3. 使用 `Ctrl+C` 退出当前进程；下一次由标准启动器启动时，启动早期消费回滚 handoff，
-   将 `active.json` 切换到上一版本并执行健康检查。
+   将 `active.json` 切换到上一版本，按上一版本的 `uv.lock` 恢复依赖，再执行健康检查。
 
-回滚也不会在当前进程中立即替换代码。回滚后的健康检查失败会恢复原 active 指针并
-隔离失败的 handoff；如果不存在上一可用版本，命令会返回“没有可回滚的上一可用版本”。
+回滚也不会在当前进程中立即替换代码。回滚时的依赖同步或健康检查失败会恢复原 active
+指针和原版本的依赖，并隔离失败的 handoff；如果不存在上一可用版本，命令会返回“没有可回滚的上一可用版本”。
 
 `[upgrade]` 配置在 Tenko 启动时读取并构造升级管理器，运行期间不会自动重新读取配置。
 因此修改 `channel`、`repository`、`source`、`policy` 或其他升级配置后，必须重启

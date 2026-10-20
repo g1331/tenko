@@ -33,6 +33,12 @@ CANDIDATE_MARKER = "candidate-2.0.0"
 REMOTE_MARKER = "candidate-remote-2.0.0"
 E2E_RELEASE = Release(Version("2.0.0"), "v2.0.0", source="e2e")
 _COPY_IGNORE = shutil.ignore_patterns("__pycache__", "*.pyc")
+# watcher 以“启动宽限期内进程仍存活”判断候选版本启动成功；负载下 launcher 重新
+# 引导 Python 可能超过几秒，宽限期太短会让 watcher 误杀仍在启动的进程。
+# 崩溃类用例的进程立即退出，不受宽限期长短影响。
+WATCHER_GRACE = 10.0
+WATCHER_TIMEOUT = 60
+WAIT_DEADLINE = 60
 
 
 _TEST_MAIN = """
@@ -433,14 +439,14 @@ def _read_audit(fixture: E2EFixture) -> list[dict[str, object]]:
     ]
 
 
-def _wait_for(path: Path, *, timeout: float = 8) -> None:
+def _wait_for(path: Path, *, timeout: float = WAIT_DEADLINE) -> None:
     deadline = time.monotonic() + timeout
     while not path.exists() and time.monotonic() < deadline:
         time.sleep(0.05)
     assert path.is_file(), f"等待文件超时: {path}"
 
 
-def _wait_until_gone(path: Path, *, timeout: float = 8) -> None:
+def _wait_until_gone(path: Path, *, timeout: float = WAIT_DEADLINE) -> None:
     deadline = time.monotonic() + timeout
     while path.exists() and time.monotonic() < deadline:
         time.sleep(0.05)
@@ -642,11 +648,11 @@ def test_real_watcher_relaunches_launcher_after_old_process_exits(
             (str(fixture.launcher),),
             stable_root=fixture.stable_root,
             watcher_dir=fixture.upgrade_root / "restart-watchers",
-            timeout=8,
+            timeout=WATCHER_TIMEOUT,
             poll_interval=0.05,
         )
         assert watcher_file.is_file()
-        assert old_process.wait(timeout=5) == 0
+        assert old_process.wait(timeout=WAIT_DEADLINE) == 0
         _wait_for(fixture.observation)
         observation = _read_observation(fixture)
         assert observation["source"] == CANDIDATE_MARKER
@@ -694,13 +700,13 @@ def test_real_watcher_rolls_back_crashing_candidate_and_records_recovery(
             (str(fixture.launcher), "--e2e-watchdog"),
             stable_root=fixture.stable_root,
             watcher_dir=fixture.upgrade_root / "restart-watchers",
-            timeout=8,
+            timeout=WATCHER_TIMEOUT,
             poll_interval=0.05,
             upgrade_root=fixture.upgrade_root,
-            startup_grace_period=2.0,
+            startup_grace_period=WATCHER_GRACE,
             startup_failure_threshold=2,
         )
-        assert old_process.wait(timeout=5) == 0
+        assert old_process.wait(timeout=WAIT_DEADLINE) == 0
         _wait_for(failure_log)
         _wait_for(notification_path)
         _wait_for(server_pid_path)
@@ -787,13 +793,13 @@ def test_real_watcher_keeps_live_candidate_after_startup_grace(
             (str(fixture.launcher), "--e2e-watchdog-survive"),
             stable_root=fixture.stable_root,
             watcher_dir=fixture.upgrade_root / "restart-watchers",
-            timeout=8,
+            timeout=WATCHER_TIMEOUT,
             poll_interval=0.05,
             upgrade_root=fixture.upgrade_root,
-            startup_grace_period=2.0,
+            startup_grace_period=WATCHER_GRACE,
             startup_failure_threshold=2,
         )
-        assert old_process.wait(timeout=5) == 0
+        assert old_process.wait(timeout=WAIT_DEADLINE) == 0
         _wait_for(server_pid_path)
         _wait_until_gone(watcher_file)
         assert not failure_log.exists()
@@ -849,13 +855,13 @@ def test_real_watcher_stops_when_previous_release_also_fails(
             (str(fixture.launcher), "--e2e-watchdog-fail-rollback"),
             stable_root=fixture.stable_root,
             watcher_dir=fixture.upgrade_root / "restart-watchers",
-            timeout=8,
+            timeout=WATCHER_TIMEOUT,
             poll_interval=0.05,
             upgrade_root=fixture.upgrade_root,
-            startup_grace_period=2.0,
+            startup_grace_period=WATCHER_GRACE,
             startup_failure_threshold=2,
         )
-        assert old_process.wait(timeout=5) == 0
+        assert old_process.wait(timeout=WAIT_DEADLINE) == 0
         _wait_for(failure_log)
         _wait_until_gone(watcher_file)
         assert failure_log.read_text(encoding="utf-8").splitlines() == [

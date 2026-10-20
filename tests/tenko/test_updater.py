@@ -24,6 +24,7 @@ from tenko.host.updater import (
     ConfigCompatibilityChecker,
     ConfigurationCompatibilityError,
     DefaultHealthChecker,
+    DependencySyncError,
     GitHubReleaseSource,
     GitTagSource,
     HandoffResult,
@@ -40,6 +41,7 @@ from tenko.host.updater import (
     UpgradeManager,
     UpgradeConfigError,
     UrlManifestSource,
+    UvDependencySync,
     Version,
     compare_versions,
     parse_version,
@@ -1681,3 +1683,94 @@ async def test_default_health_checker_checks_minimal_entry(tmp_path: Path) -> No
 
     assert isinstance(good, HealthCheckResult) and good.ok
     assert not bad.ok
+
+
+@pytest.mark.asyncio
+async def test_dependencies_follow_upgrade_and_rollback_targets(tmp_path: Path) -> None:
+    manager, _source, _checker, _config_path, _data_dir = make_manager(tmp_path)
+    synced: list[Path] = []
+
+    async def record(release: Path) -> None:
+        synced.append(release)
+
+    manager.dependency_sync = record
+    prepared = await manager.prepare()
+    await manager.activate_pending()
+    previous = manager.layout.read_previous()
+    assert previous is not None
+    await manager.rollback()
+    await manager.apply_handoff()
+
+    assert synced == [prepared.path, previous.path]
+
+
+@pytest.mark.asyncio
+async def test_failed_dependency_sync_keeps_running_version_and_restores_deps(
+    tmp_path: Path,
+) -> None:
+    manager, _source, checker, _config_path, _data_dir = make_manager(tmp_path)
+    synced: list[Path] = []
+
+    async def fail_for_candidate(release: Path) -> None:
+        synced.append(release)
+        if len(synced) == 1:
+            raise DependencySyncError("uv sync 失败")
+
+    manager.dependency_sync = fail_for_candidate
+    prepared = await manager.prepare()
+
+    result = await manager.activate_pending()
+
+    active = manager.layout.read_active()
+    assert not result.success and result.rolled_back
+    assert "uv sync 失败" in result.reason
+    assert active is not None and active.version == parse_version("1.0.0")
+    # 第二次同步是把环境恢复到仍在运行的旧版本的锁文件。
+    assert synced == [prepared.path, active.path]
+    assert [call[1] for call in checker.calls] == ["pre-switch"]
+    assert not manager.layout.pending_file.exists()
+
+
+@pytest.mark.asyncio
+async def test_import_check_failure_blocks_post_switch_only(tmp_path: Path) -> None:
+    candidate = tmp_path / "candidate"
+    (candidate / "tenko").mkdir(parents=True)
+    (candidate / "tenko" / "__init__.py").write_text("", encoding="utf-8")
+    checker = DefaultHealthChecker(import_check=True, stable_root=tmp_path)
+
+    pre = await checker.check(candidate, phase="pre-switch")
+    post = await checker.check(candidate, phase="post-switch")
+
+    assert pre.ok
+    assert not post.ok and "导入检查失败" in post.reason
+
+
+def test_uv_dependency_sync_is_inexact_and_targets_running_environment(
+    tmp_path: Path,
+) -> None:
+    uv = tmp_path / "fake-uv"
+    uv.write_text(
+        '#!/bin/sh\necho "$UV_PROJECT_ENVIRONMENT $*" > "$0.args"\n',
+        encoding="utf-8",
+    )
+    uv.chmod(0o755)
+    release = tmp_path / "release"
+    release.mkdir()
+    sync = UvDependencySync(environment=tmp_path / "venv", uv=str(uv))
+
+    sync._sync(release)
+    assert not (tmp_path / "fake-uv.args").exists()  # 没有 uv.lock：不同步
+
+    (release / "uv.lock").write_text("", encoding="utf-8")
+    sync._sync(release)
+    environment, *arguments = (tmp_path / "fake-uv.args").read_text().split()
+    assert environment == str(tmp_path / "venv")
+    # --inexact 保留第三方插件装在同一环境里的依赖。
+    assert arguments == [
+        "sync",
+        "--frozen",
+        "--inexact",
+        "--no-install-workspace",
+        "--project",
+        str(release),
+    ]
