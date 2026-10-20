@@ -11,6 +11,7 @@ from tenko.render import (
     RenderTimeoutError,
     RenderUnavailableError,
     render_or_none,
+    try_render,
 )
 
 
@@ -32,11 +33,8 @@ async def test_render_or_none_returns_none_when_unavailable() -> None:
     unavailable = RenderService()
     unavailable._startup_error = RuntimeError("browser missing")
     assert (
-        await render_or_none(
-            unavailable,
-            "render_template",
-            "status.html",
-            {"content": "text"},
+        await try_render(
+            unavailable.render_template, "status.html", {"content": "text"}
         )
         is None
     )
@@ -52,12 +50,7 @@ async def test_render_timeout_falls_back_to_none(monkeypatch) -> None:
     monkeypatch.setattr(service, "_render_html_to_image", slow_render)
 
     assert (
-        await render_or_none(
-            service,
-            "render_template",
-            "status.html",
-            {"content": "slow"},
-        )
+        await try_render(service.render_template, "status.html", {"content": "slow"})
         is None
     )
 

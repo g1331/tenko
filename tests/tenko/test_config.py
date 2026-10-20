@@ -156,6 +156,20 @@ def test_config_example_is_loadable_with_official_basic_section(tmp_path) -> Non
     assert config.notify_group is None
 
 
+@pytest.mark.parametrize(
+    "text", ["", '[basic]\nprefix = ["/"]\n', "[basic]\nstr_as_message = true\n"]
+)
+def test_plugin_str_replies_are_always_plain_text(tmp_path, text) -> None:
+    """插件直接返回 str：Entari 的 str_as_message 会把 str 当 Satori XML 解析，强制关闭。"""
+
+    path = tmp_path / "tenko.toml"
+    path.write_text(text, encoding="utf-8")
+
+    basic = TenkoConfig.load(path).basic
+    assert basic.str_as_message is False
+    assert basic.prefix == ["/"]
+
+
 def test_entari_save_preserves_tenko_sections_and_writes_toml(tmp_path) -> None:
     path = tmp_path / "tenko.toml"
     path.write_text(

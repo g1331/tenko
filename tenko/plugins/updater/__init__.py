@@ -7,7 +7,6 @@ watcher，随后安排当前运行时优雅退出，避免当前事件处理器�
 
 from __future__ import annotations
 
-import asyncio
 import time
 from datetime import UTC, datetime, timedelta
 
@@ -28,7 +27,7 @@ from tenko.host.updater import (
     get_upgrade_manager,
     get_upgrade_permission_checker,
 )
-from tenko.plugins._common import context_from_session, text_message
+from tenko.plugins._common import context_from_session
 
 
 plugin.metadata(
@@ -39,18 +38,12 @@ plugin.metadata(
     description="检查、准备并通过外部重启流程升级 Tenko 宿主。",
     classifier=["required", "host"],
 )
-# Entari 0.19.1 不会在 PluginMetadata 中暴露 default_switch。保留供 host 的
-# legacy-state inspector 使用的兼容性标记。
-plugin.get_plugin().metadata.default_switch = True
-
 
 updater = get_upgrade_manager()
 permission_checker = get_upgrade_permission_checker()
-_RESTART_SHUTDOWN_DELAY_SECONDS = 4.0
 _RESTART_COOLDOWN_SECONDS = 60.0
 _RESTART_COOLDOWN_MESSAGE = "重启操作冷却中，请稍后再试"
 _restart_cooldown_until = 0.0
-_shutdown_task: asyncio.Task[None] | None = None
 
 
 check_command = Alconna(
@@ -114,9 +107,9 @@ def _format_check(result: CheckResult) -> str:
 @require(Permission.Master, checker=permission_checker)
 async def check_update(session: Session):
     try:
-        return text_message(_format_check(await updater.check()))
+        return _format_check(await updater.check())
     except UpdaterError as exc:
-        return text_message(_error_message(exc))
+        return _error_message(exc)
 
 
 @command.on(upgrade_command)
@@ -125,18 +118,18 @@ async def upgrade(session: Session):
     try:
         checked = await updater.check()
         if checked.candidate is None:
-            return text_message(_format_check(checked))
+            return _format_check(checked)
         prepared = await updater.prepare(checked.candidate)
         handoff = await updater.request_install()
         watcher_armed = _arm_restart_watcher()
-        response = text_message(_format_upgrade(prepared, handoff, watcher_armed))
+        response = _format_upgrade(prepared, handoff, watcher_armed)
         if watcher_armed:
-            _schedule_graceful_shutdown()
+            return await _reply_then_shutdown(session, response)
         return response
     except NoUpdateAvailable:
-        return text_message("没有可安装的新版本")
+        return "没有可安装的新版本"
     except UpdaterError as exc:
-        return text_message(_error_message(exc))
+        return _error_message(exc)
 
 
 @command.on(rollback_command)
@@ -145,12 +138,12 @@ async def rollback(session: Session):
     try:
         result = await updater.rollback()
         watcher_armed = _arm_restart_watcher() if not result.applied else False
-        response = text_message(_format_rollback(result, watcher_armed))
+        response = _format_rollback(result, watcher_armed)
         if watcher_armed:
-            _schedule_graceful_shutdown()
+            return await _reply_then_shutdown(session, response)
         return response
     except UpdaterError as exc:
-        return text_message(_error_message(exc))
+        return _error_message(exc)
 
 
 @command.on(restart_command)
@@ -159,20 +152,19 @@ async def restart(session: Session):
     context = context_from_session(session)
     if not getattr(updater, "enabled", False):
         _record_restart_audit(context, "disabled")
-        return text_message("重启依赖升级系统，当前未启用")
+        return "重启依赖升级系统，当前未启用"
     if not _claim_restart_cooldown():
         _record_restart_audit(context, "cooldown")
-        return text_message(_RESTART_COOLDOWN_MESSAGE)
+        return _RESTART_COOLDOWN_MESSAGE
 
     watcher_armed = _arm_restart_watcher()
     if not watcher_armed:
         _release_restart_cooldown()
         _record_restart_audit(context, "watcher_failed")
-        return text_message("重启失败：自动重启未能启动，请手动重启。")
+        return "重启失败：自动重启未能启动，请手动重启。"
 
     _record_restart_audit(context, "requested")
-    _schedule_graceful_shutdown()
-    return text_message("正在重启…")
+    return await _reply_then_shutdown(session, "正在重启…")
 
 
 def _claim_restart_cooldown() -> bool:
@@ -234,25 +226,16 @@ def _arm_restart_watcher() -> bool:
     return armed
 
 
-def _schedule_graceful_shutdown() -> None:
-    """在回复完成发送后，安排一次性优雅退出。"""
+async def _reply_then_shutdown(session: Session, text: str) -> None:
+    """先把提示发出去，再请求优雅退出；``session.send`` 返回即表示提示已交给平台。
 
-    global _shutdown_task
-    loop = asyncio.get_running_loop()
-    if _shutdown_task is not None and not _shutdown_task.done():
-        if _shutdown_task.get_loop() is loop:
-            return
-        _shutdown_task.cancel()
-    _shutdown_task = loop.create_task(
-        _shutdown_after_reply(),
-        name="tenko-upgrade-graceful-shutdown",
-    )
+    发送失败也继续退出：重启接管记录已经生成，留着旧进程只会卡在半完成状态。
+    """
 
-
-async def _shutdown_after_reply() -> None:
-    # handler 返回后，Entari 才会把已经构造的 MessageChain 投递出去；延迟
-    # 给发送链路留出稳定窗口，退出本身仍交给运行时的 Launart 生命周期。
-    await asyncio.sleep(_RESTART_SHUTDOWN_DELAY_SECONDS)
+    try:
+        await session.send(text)
+    except Exception:
+        logger.exception("Tenko restart notice could not be sent; shutting down anyway")
     try:
         if not updater.request_graceful_shutdown():
             logger.warning(

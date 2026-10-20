@@ -3,20 +3,18 @@ from __future__ import annotations
 from collections.abc import Iterable
 from typing import Any
 
-from arclet.alconna import Alconna, Args, CommandMeta
+from arclet.alconna import Alconna, Args, CommandMeta, Option
 from arclet.alconna import command_manager
-from arclet.entari import MessageChain, Session, command, plugin
+from arclet.entari import Session, command, plugin
 from arclet.entari.command import Query
-from arclet.entari.plugin import PluginRole, get_plugin_commands, get_plugins
-from satori import Image
+from arclet.entari.plugin import PluginRole, get_plugin_commands
 
 from tenko.host.features import feature_service
 from tenko.host.guards import command_requirements, require, requirement_text
 from tenko.host.perm import Permission
 from tenko.host.plugins import PluginInfo, PluginRuntime
-from tenko.plugins._common import context_from_session, text_message
+from tenko.plugins._common import context_from_session, render_or_text
 from tenko.render import RenderService
-from tenko.render import render_or_none
 
 
 plugin.metadata(
@@ -27,9 +25,6 @@ plugin.metadata(
     description="根据 Entari 当前注册命令生成帮助文本。",
     classifier=["required"],
 )
-# Entari 0.19.1 的构造函数没有 default_switch 字段。将兼容性标记保留在原生
-# metadata 上，供 host/plugins.py 和 inspectors 使用。
-plugin.get_plugin().metadata.default_switch = True
 
 
 plugin_runtime = PluginRuntime()
@@ -62,17 +57,10 @@ def registered_commands():
     return [item for item in command_manager.get_commands() if not item.meta.hide]
 
 
-def _native_plugin(info: PluginInfo):
-    names = set(info.lookup_names)
-    return next(
-        (item for item in get_plugins(subplugged=True) if item.id in names), None
-    )
-
-
 def _help_plugins() -> tuple[tuple[PluginInfo, object], ...]:
     plugins: list[tuple[PluginInfo, object]] = []
     for info in plugin_runtime.discover():
-        native_plugin = _native_plugin(info)
+        native_plugin = info.native_plugin
         if native_plugin is not None:
             plugins.append((info, native_plugin))
     return tuple(plugins)
@@ -119,6 +107,17 @@ def _format_command_value(
     return "\n".join(lines)
 
 
+def _command_option_lines(command: object) -> list[str]:
+    """列出命令里写了 ``help_text`` 的选项；Alconna 内置的 --help 等不展示。"""
+
+    return [
+        f"{'/'.join([option.name, *sorted(option.aliases - {option.name})])}："
+        f"{option.help_text}"
+        for option in getattr(command, "options", ())
+        if type(option) is Option and option.help_text != option.dest
+    ]
+
+
 def _format_command_help(
     command: object,
     command_name: str,
@@ -135,6 +134,8 @@ def _format_command_help(
         formatted = _format_command_value(value, field, display_name, prefix)
         if formatted:
             fields.append((label, formatted))
+    if options := _command_option_lines(command):
+        fields.append(("选项", "\n".join(options)))
     if requirement:
         fields.append(("权限", requirement))
 
@@ -319,16 +320,10 @@ async def helper(
     context = context_from_session(session)
     value = index.result if index.available else None
     if value is not None:
-        return text_message(build_help(value))
+        return build_help(value)
 
     group_id = context.channel_id if context.chat_type == "group" else None
     help_data = build_help_data(group_id)
-    image = await render_or_none(
-        render_service,
-        "render_template",
-        "help.html",
-        help_data,
+    return await render_or_text(
+        render_service, "help.html", help_data, format_help_text(help_data)
     )
-    if image is not None:
-        return MessageChain(Image.of(raw=image, mime="image/jpeg"))
-    return text_message(format_help_text(help_data))

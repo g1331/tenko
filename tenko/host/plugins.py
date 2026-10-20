@@ -98,27 +98,36 @@ class PluginInfo:
     def display_name(self) -> str:
         """返回已加载插件的元数据名称，未加载时回退到目录名。"""
 
+        metadata_name = getattr(
+            getattr(self.native_plugin, "metadata", None), "name", None
+        )
+        return str(metadata_name) if metadata_name else self.name
+
+    @property
+    def native_plugin(self) -> Plugin | None:
+        """Entari 里已加载的同名插件；未加载时为 ``None``。"""
+
         names = set(self.lookup_names)
-        native_plugin = next(
+        return next(
             (plugin for plugin in get_plugins(subplugged=True) if plugin.id in names),
             None,
         )
-        metadata_name = getattr(getattr(native_plugin, "metadata", None), "name", None)
-        return str(metadata_name) if metadata_name else self.name
 
     @property
     def rate_weight(self) -> int | None:
         """插件通过 ``declare`` 声明的限流权重；未声明时为 ``None``。"""
 
-        native_plugin = PluginRuntime._native_plugin(self)
-        return getattr(getattr(native_plugin, "metadata", None), "rate_weight", None)
+        return getattr(
+            getattr(self.native_plugin, "metadata", None), "rate_weight", None
+        )
 
     @property
     def group_level(self) -> int | None:
         """插件要求的群等级（``declare(level=...)`` 或内置插件直接设置）；默认 ``None``。"""
 
-        native_plugin = PluginRuntime._native_plugin(self)
-        return getattr(getattr(native_plugin, "metadata", None), "group_level", None)
+        return getattr(
+            getattr(self.native_plugin, "metadata", None), "group_level", None
+        )
 
     @property
     def lookup_names(self) -> tuple[str, ...]:
@@ -280,7 +289,7 @@ class PluginRuntime:
 
         del context, group_id
         info = self._info(plugin)
-        native_plugin = self._native_plugin(info)
+        native_plugin = info.native_plugin
         if native_plugin is None:
             # 第三方插件默认关闭；未加载时以状态文件里的意愿为准。
             return (
@@ -295,15 +304,7 @@ class PluginRuntime:
         return (
             info.source == "external"
             and info.name in self._enabled_external_ids()
-            and self._native_plugin(info) is None
-        )
-
-    @staticmethod
-    def _native_plugin(info: PluginInfo) -> Plugin | None:
-        names = set(info.lookup_names)
-        return next(
-            (plugin for plugin in get_plugins(subplugged=True) if plugin.id in names),
-            None,
+            and info.native_plugin is None
         )
 
     @property
@@ -313,7 +314,7 @@ class PluginRuntime:
         loaded = {
             info.name: plugin
             for info in self._discovered.values()
-            if (plugin := self._native_plugin(info)) is not None
+            if (plugin := info.native_plugin) is not None
         }
         return MappingProxyType(loaded)
 
@@ -325,7 +326,7 @@ class PluginRuntime:
             return False
         if info.name == "feature_manager":
             return True
-        native = self._native_plugin(info)
+        native = info.native_plugin
         pending = [native] if native is not None else []
         seen: set[str] = set()
         while pending:
@@ -346,7 +347,7 @@ class PluginRuntime:
         return False
 
     def is_loaded(self, plugin: str | PluginInfo) -> bool:
-        return self._native_plugin(self._info(plugin)) is not None
+        return self._info(plugin).native_plugin is not None
 
     def command_owner(self, command: str) -> PluginInfo | None:
         """按 Entari 的插件命令登记，返回命令名所属插件的目录项。
@@ -482,7 +483,7 @@ class PluginRuntime:
             raise TypeError("enabled 必须是布尔值")
         info = self._info(plugin)
         if info.source == "external":
-            if self._native_plugin(info) is not None:
+            if info.native_plugin is not None:
                 result = await (self.enable(info) if enabled else self.disable(info))
                 if not result:
                     return False

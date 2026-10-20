@@ -59,7 +59,7 @@ async def test_feature_commands_persist_group_switch_and_restore(
         session, Match("announcement", True)
     )
 
-    assert disabled.extract_plain_text() == "功能<announcement>已关闭~"
+    assert str(disabled) == "功能<announcement>已关闭~"
     assert not service.is_enabled("announcement", "40001")
     restored = FeatureService(repositories["feature"])
     await restored.initialize()
@@ -69,7 +69,7 @@ async def test_feature_commands_persist_group_switch_and_restore(
         session, Match("announcement", True)
     )
 
-    assert enabled.extract_plain_text() == "功能<announcement>已开启~"
+    assert str(enabled) == "功能<announcement>已开启~"
     await restored.initialize()
     assert restored.is_enabled("announcement", "40001")
 
@@ -83,7 +83,7 @@ async def test_feature_commands_cannot_disable_required_host_plugin(loaded_plugi
         make_session(), Match("feature_manager", True)
     )
 
-    assert result.extract_plain_text() == "无法操作必须插件<功能开关>"
+    assert str(result) == "无法操作必须插件<功能开关>"
 
 
 @pytest.mark.asyncio
@@ -102,7 +102,9 @@ async def test_feature_commands_can_disable_required_function_plugin(
         metadata=SimpleNamespace(name="公告", classifier=("required",)),
     )
     monkeypatch.setattr(loaded_plugin.plugin_runtime, "discover", lambda: (info,))
-    monkeypatch.setattr(loaded_plugin, "get_plugins", lambda *, subplugged: (native,))
+    monkeypatch.setattr(
+        "tenko.host.plugins.get_plugins", lambda *, subplugged: (native,)
+    )
     service = FeatureService()
     monkeypatch.setattr(loaded_plugin, "feature_service", service)
     loaded_plugin.permission_checker = PermissionChecker(registry=PermissionRegistry())
@@ -111,7 +113,7 @@ async def test_feature_commands_can_disable_required_function_plugin(
         make_session(), Match("announcement", True)
     )
 
-    assert result.extract_plain_text() == "功能<announcement>已关闭~"
+    assert str(result) == "功能<公告>已关闭~"
     assert not service.is_enabled("announcement", "40001")
 
 
@@ -133,7 +135,9 @@ async def test_feature_commands_toggle_global_feature(loaded_plugin, monkeypatch
         ),
     )
     monkeypatch.setattr(loaded_plugin.plugin_runtime, "discover", lambda: (info,))
-    monkeypatch.setattr(loaded_plugin, "get_plugins", lambda *, subplugged: (native,))
+    monkeypatch.setattr(
+        "tenko.host.plugins.get_plugins", lambda *, subplugged: (native,)
+    )
     service = FeatureService()
     monkeypatch.setattr(loaded_plugin, "feature_service", service)
     loaded_plugin.permission_checker = PermissionChecker(
@@ -143,14 +147,14 @@ async def test_feature_commands_toggle_global_feature(loaded_plugin, monkeypatch
     refused = await loaded_plugin.disable.callable_target(
         make_session("20002"), Match("startup_notify", True)
     )
-    assert refused.extract_plain_text() == "权限不足"
+    assert str(refused) == "权限不足"
     assert service.is_enabled("startup_notify", "40001")
 
     result = await loaded_plugin.disable.callable_target(
         make_session("20001"), Match("startup_notify", True)
     )
 
-    assert result.extract_plain_text() == "功能<startup_notify>已关闭~"
+    assert str(result) == "功能<启动通知>已关闭~"
     assert not service.is_enabled("startup_notify", "40001")
     assert not service.is_enabled("startup_notify", "40002")
 
@@ -163,7 +167,7 @@ async def test_feature_commands_reject_unknown_plugin(loaded_plugin):
     unknown_result = await loaded_plugin.disable.callable_target(
         make_session(), Match("not-a-plugin", True)
     )
-    assert unknown_result.extract_plain_text() == "编号不在运行插件范围内~"
+    assert str(unknown_result) == "编号不在运行插件范围内~"
 
 
 @pytest.mark.asyncio
@@ -196,7 +200,7 @@ async def test_feature_numbers_match_help_and_external_cannot_claim_protection(
         ),
     )
     monkeypatch.setattr(loaded_plugin.plugin_runtime, "discover", lambda: infos)
-    monkeypatch.setattr(loaded_plugin, "get_plugins", lambda *, subplugged: natives)
+    monkeypatch.setattr("tenko.host.plugins.get_plugins", lambda *, subplugged: natives)
     service = FeatureService()
     monkeypatch.setattr(loaded_plugin, "feature_service", service)
     loaded_plugin.permission_checker = PermissionChecker(registry=PermissionRegistry())
@@ -209,7 +213,7 @@ async def test_feature_numbers_match_help_and_external_cannot_claim_protection(
     result = await loaded_plugin.disable.callable_target(
         make_session(), Match("2", True)
     )
-    assert result.extract_plain_text() == "功能<ext_on>已关闭~"
+    assert str(result) == "功能<外部>已关闭~"
     assert not service.is_enabled("ext_on", "40001")
 
 
@@ -238,7 +242,7 @@ async def test_clear_plugin_data_asks_for_confirmation(
         result = await loaded_plugin.clear_data.callable_target(
             session(answer), Match(plugin_id, True)
         )
-        return result.extract_plain_text()
+        return str(result)
 
     assert await clear("否") == "已取消"
     assert data.is_dir()

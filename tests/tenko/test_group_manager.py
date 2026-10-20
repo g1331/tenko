@@ -33,6 +33,7 @@ from tenko.host.actions import (
 from tenko.host.accounts import AccountRegistry
 from tenko.host.guards import REQUIRES_ATTR
 from tenko.host.perm import Permission, PermissionChecker, PermissionRegistry
+from tenko.plugins._common import NotifyGroupConfig, action_error_message
 
 
 def make_session(user_id: str, role: str, elements=None):
@@ -52,7 +53,9 @@ def make_session(user_id: str, role: str, elements=None):
             channel=event.channel,
             guild=event.guild,
             user=event.user,
-        )
+        ),
+        quote=next((e for e in elements or [] if isinstance(e, Quote)), None),
+        send=AsyncMock(),
     )
 
 
@@ -73,7 +76,9 @@ def make_private_session(user_id: str):
             channel=event.channel,
             guild=event.guild,
             user=event.user,
-        )
+        ),
+        quote=None,
+        send=AsyncMock(),
     )
 
 
@@ -369,8 +374,7 @@ def install_invite_action_service(loaded_plugin, account, permissions):
     return checker
 
 
-@pytest.mark.parametrize("loaded_plugin", ["group_manager"], indirect=True)
-def test_action_error_message_never_exposes_platform_details(loaded_plugin) -> None:
+def test_action_error_message_never_exposes_platform_details() -> None:
     failure = ActionFailure(
         account_id="10001",
         capability=ActionCapability.MEMBER_MUTE,
@@ -398,7 +402,7 @@ def test_action_error_message_never_exposes_platform_details(loaded_plugin) -> N
     )
 
     for error, expected in errors:
-        result = loaded_plugin._action_error(error)
+        result = action_error_message(error)
         assert result == expected
         assert all(
             field not in result
@@ -422,7 +426,7 @@ async def test_group_action_error_reports_and_returns_safe_message(
     )
     error = ActionExecutionError("平台动作失败: set_group_ban (1200)", failure=failure)
     reporter = AsyncMock()
-    monkeypatch.setattr(loaded_plugin, "report_action_error", reporter)
+    monkeypatch.setattr("tenko.plugins._common.report_action_error", reporter)
     loaded_plugin.permission_checker = PermissionChecker(registry=PermissionRegistry())
     loaded_plugin.action_service = SimpleNamespace(
         authorize=AsyncMock(return_value=True),
@@ -436,7 +440,8 @@ async def test_group_action_error_reports_and_returns_safe_message(
         Match(None, False),
     )
 
-    assert str(result) == "该账号在此群没有管理员权限"
+    assert result is None  # 提示已经通过 session 发出
+    session.send.assert_awaited_once_with("该账号在此群没有管理员权限")
     reporter.assert_awaited_once_with(error, session)
 
 
@@ -561,6 +566,17 @@ def test_essence_command_keeps_legacy_reply_alias_and_explicit_id(
 
 
 @pytest.mark.parametrize("loaded_plugin", ["group_manager"], indirect=True)
+def test_numeric_arguments_are_validated_by_the_command_patterns(loaded_plugin) -> None:
+    """数字校验交给 Alconna 的正则；不能只做前缀匹配而放过 ``4000x``。"""
+
+    assert loaded_plugin.leave_group_command.parse("/退群 40001 10001").matched
+    assert loaded_plugin.leave_group_command.parse("/quit 40001 10001").matched
+    assert not loaded_plugin.leave_group_command.parse("/退群 4000x 10001").matched
+    assert not loaded_plugin.leave_group_command.parse("/退群 40001 bot").matched
+    assert not loaded_plugin.essence_command.parse("/加精 60001x").matched
+
+
+@pytest.mark.parametrize("loaded_plugin", ["group_manager"], indirect=True)
 def test_whole_unmute_keeps_legacy_command_alias(loaded_plugin) -> None:
     assert loaded_plugin.whole_unmute_command.parse("/全体解禁").matched
     assert loaded_plugin.whole_unmute_command.parse("/关闭全体禁言").matched
@@ -583,33 +599,6 @@ async def test_essence_uses_action_service_for_reply_target(loaded_plugin) -> No
 
     assert str(result) == "加精成功"
     assert protocol.calls == [("internal", ("set_essence_msg",), {"message_id": 60001})]
-
-
-@pytest.mark.asyncio
-@pytest.mark.parametrize("loaded_plugin", ["group_manager"], indirect=True)
-async def test_essence_capability_failure_returns_safe_message(
-    loaded_plugin, monkeypatch
-):
-    error = ActionCapabilityUnavailable("set_essence_msg unsupported")
-    loaded_plugin.permission_checker = PermissionChecker(registry=PermissionRegistry())
-    loaded_plugin.action_service = SimpleNamespace(
-        authorize=AsyncMock(return_value=True),
-        set_essence=AsyncMock(side_effect=error),
-    )
-    reporter = AsyncMock()
-    monkeypatch.setattr(loaded_plugin, "report_action_error", reporter)
-
-    result = await loaded_plugin.set_essence.callable_target(
-        make_session(
-            "20001",
-            "admin",
-            [Quote("60001", content=[Author("20002")])],
-        ),
-        Query("message_id", None),
-    )
-
-    assert str(result) == "该账号暂不支持此操作（或已被临时限制），已通知开发者"
-    reporter.assert_awaited_once()
 
 
 @pytest.mark.asyncio
@@ -672,7 +661,7 @@ async def test_mute_rejects_legacy_minute_boundaries(loaded_plugin, minutes) -> 
         Match(None, False),
     )
 
-    assert str(result) == "时间非法!范围(分钟): `0 &lt; time &lt;= 43200`"
+    assert str(result) == "时间非法!范围(分钟): `0 < time <= 43200`"
     assert protocol.calls == []
 
 
@@ -720,7 +709,7 @@ async def test_invite_notice_prefers_configured_notify_group(loaded_plugin) -> N
     protocol = InviteProtocol()
     account = InviteAccount(protocol)
     install_invite_action_service(loaded_plugin, account, PermissionRegistry())
-    loaded_plugin.configure_notify_group("40002")
+    loaded_plugin.config = NotifyGroupConfig(notify_group="40002")
     await clear_pending_invites(loaded_plugin)
 
     try:
@@ -734,7 +723,6 @@ async def test_invite_notice_prefers_configured_notify_group(loaded_plugin) -> N
         assert pending.notification_id == "group-notice-1"
         assert pending.notification_channel_id == "group:40002"
     finally:
-        loaded_plugin.configure_notify_group(None)
         await clear_pending_invites(loaded_plugin)
 
 
@@ -748,7 +736,6 @@ async def test_invite_notice_falls_back_to_one_master(loaded_plugin) -> None:
         account,
         PermissionRegistry(bot_admin_ids=["90002"]),
     )
-    loaded_plugin.configure_notify_group(None)
     original_superusers = EntariConfig.instance.basic.superusers
     EntariConfig.instance.basic.superusers = {
         "onebot": ["90001", "90002"],
@@ -778,7 +765,6 @@ async def test_invite_notice_without_group_or_master_only_logs(
     protocol = InviteProtocol()
     account = InviteAccount(protocol)
     install_invite_action_service(loaded_plugin, account, PermissionRegistry())
-    loaded_plugin.configure_notify_group(None)
     original_superusers = EntariConfig.instance.basic.superusers
     EntariConfig.instance.basic.superusers = {}
     warning = Mock()
@@ -1084,7 +1070,7 @@ async def test_expired_pending_invite_is_rejected_with_legacy_comment(
     protocol = InviteProtocol()
     account = InviteAccount(protocol)
     install_invite_action_service(loaded_plugin, account, PermissionRegistry())
-    loaded_plugin.configure_notify_group("40002")
+    loaded_plugin.config = NotifyGroupConfig(notify_group="40002")
     loaded_plugin.pending_invites["request-1"] = loaded_plugin.PendingInvite(
         request_id="request-1",
         account=account,
@@ -1101,7 +1087,6 @@ async def test_expired_pending_invite_is_rejected_with_legacy_comment(
     try:
         await loaded_plugin._expire_invite("request-1")
     finally:
-        loaded_plugin.configure_notify_group(None)
         await clear_pending_invites(loaded_plugin)
 
     assert protocol.approvals == [

@@ -65,7 +65,7 @@ PUBLIC_API = {
     },
     "accounts": {"online_accounts", "accounts_for_group"},
     "features": {"feature_enabled", "declare", "feature_required"},
-    "render": {"render_or_none", "RenderService"},
+    "render": {"render_or_none", "try_render", "RenderService"},
     "messages": {"text_message", "report_error", "action_error_message"},
     "storage": {
         "data_dir",
@@ -88,6 +88,13 @@ def test_facade_modules_export_documented_names(module: str) -> None:
     assert PUBLIC_API[module] <= set(facade.__all__)
     for name in set(facade.__all__) - LAZY_NAMES:
         assert getattr(facade, name) is not None
+
+
+def test_text_message_is_deprecated_but_still_works() -> None:
+    from tenko_api.messages import text_message
+
+    with pytest.warns(DeprecationWarning, match="0.2.0"):
+        assert str(text_message("你好")) == "你好"
 
 
 def test_facade_has_no_runtime_dependencies_and_is_typed() -> None:
@@ -189,7 +196,7 @@ async def test_declare_sets_host_metadata_and_cannot_grant_protection(
     try:
         await runtime.load_all()
         metadata = runtime.loaded_plugins["decl"].metadata
-        assert (metadata.feature_scope, metadata.default_switch) == ("global", False)
+        assert metadata.feature_scope == "global"
         assert metadata.rate_weight == 7
         info = runtime.discover()[0]
         assert info.rate_weight == 7

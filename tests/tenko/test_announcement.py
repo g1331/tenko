@@ -62,7 +62,7 @@ def make_context() -> MessageContext:
     )
 
 
-def make_session(protocol=None):
+def make_session(protocol=None, answer="是"):
     context = make_context()
     event = Event(
         type=EventType.MESSAGE_CREATED,
@@ -77,6 +77,8 @@ def make_session(protocol=None):
     return SimpleNamespace(
         account=SimpleNamespace(protocol=protocol),
         event=SimpleNamespace(_origin=event),
+        send=AsyncMock(),
+        prompt=AsyncMock(return_value=answer),
     )
 
 
@@ -218,7 +220,6 @@ async def test_announcement_command_uses_switches_and_returns_group_summary(
     monkeypatch.setattr(loaded_plugin, "feature_enabled", lambda feature, group: True)
 
     session = make_session()
-    session.send = AsyncMock()
     result = await loaded_plugin.push_handle.callable_target(
         session,
         Match("帮助系统", True),
@@ -232,9 +233,37 @@ async def test_announcement_command_uses_switches_and_returns_group_summary(
     assert "40001" not in str(result)
     assert isinstance(result[0], At)
     assert result[0].id == "20001"
-    session.send.assert_awaited_once()
+    assert session.send.await_count == 2  # 确认提示 + 开始推送
     assert str(session.send.await_args.args[0]) == "开始推送：目标数 1"
     service.send_group_message.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("answer", [None, "否", "不确定"])
+@pytest.mark.parametrize("loaded_plugin", ["announcement"], indirect=True)
+async def test_announcement_without_confirmation_is_not_pushed(
+    loaded_plugin, monkeypatch, answer
+) -> None:
+    registry = AccountRegistry()
+    registry.register(FakeAccount("10001"), groups=["40001"])
+    service = SimpleNamespace(send_group_message=AsyncMock(return_value=None))
+    monkeypatch.setattr(loaded_plugin, "account_registry", registry)
+    monkeypatch.setattr(loaded_plugin, "action_service", service)
+    monkeypatch.setattr(loaded_plugin, "resolve_feature", lambda name: make_feature())
+    monkeypatch.setattr(loaded_plugin, "feature_enabled", lambda feature, group: True)
+    loaded_plugin.permission_checker = PermissionChecker(
+        registry=PermissionRegistry(bot_admin_ids=["20001"])
+    )
+
+    result = await loaded_plugin.push_handle.callable_target(
+        make_session(answer=answer),
+        Match("帮助系统", True),
+        Match(("维护",), True),
+        Match(None, False),
+    )
+
+    assert result == "未预期回复,操作退出"
+    service.send_group_message.assert_not_awaited()
 
 
 @pytest.mark.asyncio
@@ -293,7 +322,6 @@ async def test_announcement_progress_counts_muted_preflight_groups(
     monkeypatch.setattr(loaded_plugin, "resolve_feature", lambda name: make_feature())
     monkeypatch.setattr(loaded_plugin, "feature_enabled", lambda feature, group: True)
     session = make_session()
-    session.send = AsyncMock()
 
     result = await loaded_plugin.push_handle.callable_target(
         session,

@@ -146,6 +146,8 @@ def test_specified_bot_command_accepts_numeric_id_or_clear(loaded_plugin) -> Non
     assert command.parse("/指定BOT 10001").matched
     assert command.parse("/指定BOT 清除").matched
     assert not command.parse("/指定BOT").matched
+    assert not command.parse("/指定BOT abc").matched
+    assert not command.parse("/指定BOT 10001abc").matched
     assert not command.parse("/指定BOT 10001 extra").matched
     assert not command.parse("指定BOT 10001").matched
 
@@ -157,7 +159,9 @@ async def test_query_handler_reads_the_shared_account_registry(
 ) -> None:
     registry = make_registry()
     loaded_plugin.account_registry = registry
-    monkeypatch.setattr(loaded_plugin, "render_or_none", AsyncMock(return_value=None))
+    monkeypatch.setattr(
+        "tenko.plugins._common.try_render", AsyncMock(return_value=None)
+    )
 
     result = await loaded_plugin.bot_list.callable_target(
         make_session(), render_service=loaded_plugin.RenderService()
@@ -264,7 +268,9 @@ async def test_online_bot_uses_only_current_group_counts(
 ) -> None:
     registry = make_registry()
     loaded_plugin.account_registry = registry
-    monkeypatch.setattr(loaded_plugin, "render_or_none", AsyncMock(return_value=None))
+    monkeypatch.setattr(
+        "tenko.plugins._common.try_render", AsyncMock(return_value=None)
+    )
 
     result = await loaded_plugin.online_bot.callable_target(
         make_session(), render_service=loaded_plugin.RenderService()
@@ -283,7 +289,9 @@ async def test_bot_group_list_lists_every_account_group(
     registry.register(second, groups=[40002])
     loaded_plugin.account_registry = registry
 
-    monkeypatch.setattr(loaded_plugin, "render_or_none", AsyncMock(return_value=None))
+    monkeypatch.setattr(
+        "tenko.plugins._common.try_render", AsyncMock(return_value=None)
+    )
     private_result = await loaded_plugin.bot_group_list.callable_target(
         make_private_session("90001"),
         Query("account_id", None),
@@ -301,7 +309,7 @@ async def test_response_list_wraps_successful_render_as_image(
     registry = make_registry()
     loaded_plugin.account_registry = registry
     renderer = AsyncMock(return_value=b"jpeg-bytes")
-    monkeypatch.setattr(loaded_plugin, "render_or_none", renderer)
+    monkeypatch.setattr("tenko.plugins._common.try_render", renderer)
     render_service = loaded_plugin.RenderService()
 
     result = await loaded_plugin.bot_list.callable_target(
@@ -310,11 +318,10 @@ async def test_response_list_wraps_successful_render_as_image(
 
     assert isinstance(result[0], Image)
     renderer.assert_awaited_once()
-    assert renderer.await_args.args[:3] == (
-        render_service,
-        "render_template",
+    assert renderer.await_args.args[:2] == (
+        render_service.render_template,
         "list.html",
     )
-    data = renderer.await_args.args[3]
+    data = renderer.await_args.args[2]
     assert data["summary"] == "群40001BOT数: 2；可用数: 0"
     assert data["items"][0]["name"] == "群40001"

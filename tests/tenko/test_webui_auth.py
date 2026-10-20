@@ -330,8 +330,8 @@ async def test_account_change_counts_toward_rate_limit(tenko_database):
 async def test_reset_command_takes_effect_for_running_panel(
     loaded_plugin, tenko_database
 ):
-    loaded_plugin.configure_webui(
-        WebUIConfig(enabled=True, public_url="http://203.0.113.10:8081")
+    loaded_plugin.config = loaded_plugin.Config(
+        enabled=True, public_url="http://203.0.113.10:8081"
     )
     async with _client(_app()) as client:
         message = await loaded_plugin.show_account.callable_target(

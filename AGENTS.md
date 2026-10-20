@@ -99,10 +99,22 @@ config/tenko.toml.example    # 配置模板
    或 `<message>`（合并转发/多条消息）的内容、私聊、以及不经 session 的主动发送
    （`action_service`、`account.protocol.send_message` 等：公告、通知、定时任务）都不加；
    想让某条回复不带引用，用后者发送。
+   命令直接返回 `str` 作为纯文本回复（Entari 原样发送），图片等混合内容返回
+   `MessageChain`；不要再包 `text_message`（`tenko_api.messages.text_message` 自 0.2.0 起弃用，
+   1.0 前移除）。Tenko 强制 `[basic] str_as_message = false`，`str` 一律按纯文本发送，
+   用户输入里的 `<at id="all"/>` 不会被解析成元素。渲染图片用
+   `_common.render_or_text`（底层 `tenko.render.try_render`，传入注入的 `RenderService` 的方法，
+   失败回退文本）。
 3. 平台动作通过宿主动作服务执行，先确认账号能力、目标可用性和权限，再处理
-   失败结果；不要在插件中复制协议层调用或吞掉未知异常。
-4. 配置从 `tenko.config` 读取，数据库操作通过 `tenko.db.repositories` 等现有
-   抽象完成。新增状态需要明确持久化路径、迁移策略和测试覆盖。
+   失败结果；不要在插件中复制协议层调用或吞掉未知异常。群管理命令用
+   `_common.action_errors(session)` 包住动作：失败时上报开发者并回复简短提示，成功消息写在
+   `async with` 块内 `return`。
+4. 数据库操作通过 `tenko.db.repositories` 等现有抽象完成。新增状态需要明确持久化路径、
+   迁移策略和测试覆盖。宿主配置（通知群、WebUI 地址、异常取证目录）作为 Entari 插件配置
+   传入：运行时在 `PluginRuntime.load_all(configs)` 里按插件名给出，插件模块用
+   `plugin_config(模型)` 读取；不要再给插件模块加 `configure_*` 钩子。事件处理函数需要
+   `Session` 时由 Entari 注入，不要手动 `Session(event.account, event)`。命令的数字、枚举参数
+   用 Alconna 的 `"0|16|32|64"`、`r"re:\d+\b"`（正则只做前缀匹配，必须带 `\b`）等模式校验。
 5. 插件加载和卸载都必须释放自己创建的资源。渲染、网络和定时任务应遵循宿主
    生命周期，不在模块导入阶段启动副作用。
 
@@ -137,7 +149,7 @@ config/tenko.toml.example    # 配置模板
   `tenko-api` 发行版。版本号在 `tenko_api/__init__.py` 的 `__version__`，1.0 之前接口可
   调整；发布推送标签 `tenko-api-v<版本>`（`.github/workflows/publish-api.yml`，Trusted Publishing）。
 - 元数据：插件模块导入期间调用 `tenko_api.features.declare(scope, default_enabled,
-  rate_weight, level)`，宿主据此设置 `feature_scope`、`default_switch`、限流权重
+  rate_weight, level)`，宿主据此设置 `feature_scope`、限流权重
   （`CommandPolicy` 传给限流器）和 `group_level`（群等级要求），`default_enabled=False`
   表示没有显式开启的群默认关闭。
 - 配置：`config/tenko.toml` 的 `[plugin_config.<id>]` 在加载该插件时传给

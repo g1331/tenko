@@ -24,7 +24,7 @@ except ModuleNotFoundError:  # pragma: no cover - 仅在 Python 3.10 中执行
 def _default_basic_config() -> BasicConfig:
     """返回保持 Tenko 默认命令语义的官方基础配置。"""
 
-    return BasicConfig(prefix=["/"])
+    return BasicConfig(prefix=["/"], str_as_message=False)
 
 
 @register_loader("toml")
@@ -122,6 +122,8 @@ def _normalize_legacy_mapping(data: Mapping[str, Any]) -> dict[str, Any]:
     basic = normalized.get("basic")
     if isinstance(basic, Mapping):
         normalized["basic"] = _normalize_basic_section(basic)
+    elif basic is None:
+        normalized["basic"] = _normalize_basic_section({})
 
     return normalized
 
@@ -131,6 +133,13 @@ def _normalize_basic_section(section: Mapping[str, Any]) -> dict[str, Any]:
 
     normalized = dict(section)
     normalized.setdefault("prefix", ["/"])
+    # 插件直接返回 str，必须按纯文本发送：Entari 的 str_as_message 会把 str 当 Satori
+    # XML 解析，用户输入里的 ``<at id="all"/>`` 会被回显成真实元素，所以强制关闭。
+    if normalized.get("str_as_message"):
+        logger.warning(
+            "[basic] str_as_message 会让回复中的用户输入被解析为消息元素，已强制关闭"
+        )
+    normalized["str_as_message"] = False
     if "superusers" in normalized:
         users = _identifier_mapping(
             {"superusers": normalized["superusers"]}, "superusers", {}

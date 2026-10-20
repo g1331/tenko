@@ -1,9 +1,9 @@
 from __future__ import annotations
 
-import asyncio
 from datetime import datetime
 from pathlib import Path
 from types import SimpleNamespace
+from unittest.mock import AsyncMock
 
 import pytest
 from satori import (
@@ -51,7 +51,8 @@ def make_session(user_id: str, role: str = "member"):
             channel=event.channel,
             guild=event.guild,
             user=event.user,
-        )
+        ),
+        send=AsyncMock(),
     )
 
 
@@ -93,6 +94,7 @@ class FakeUpdater:
         self.rollback_calls = 0
         self.spawn_restart_watcher_calls = 0
         self.shutdown_calls = 0
+        self.events: list[str] = []
         self.watcher_armed = True
         self.audit = FakeAudit()
 
@@ -119,6 +121,7 @@ class FakeUpdater:
 
     def request_graceful_shutdown(self):
         self.shutdown_calls += 1
+        self.events.append("shutdown")
         return True
 
 
@@ -186,16 +189,19 @@ async def test_upgrade_command_prepares_and_requests_external_install(
     authorize_master(loaded_plugin)
     fake = FakeUpdater(tmp_path)
     loaded_plugin.updater = fake
-    monkeypatch.setattr(loaded_plugin, "_RESTART_SHUTDOWN_DELAY_SECONDS", 0)
 
-    result = await loaded_plugin.upgrade.callable_target(make_session("90001"))
+    session = make_session("90001")
 
-    assert str(result) == "版本 v2.0.0 已下载、校验通过，正在自动重启进入新版本。"
+    result = await loaded_plugin.upgrade.callable_target(session)
+
+    assert result is None  # 提示已经通过 session 发出
+    session.send.assert_awaited_once_with(
+        "版本 v2.0.0 已下载、校验通过，正在自动重启进入新版本。"
+    )
     assert fake.check_calls == 1
     assert fake.prepare_calls == 1
     assert fake.request_install_calls == 1
     assert fake.spawn_restart_watcher_calls == 1
-    await asyncio.sleep(0.01)
     assert fake.shutdown_calls == 1
 
 
@@ -243,14 +249,15 @@ async def test_rollback_command_requests_external_rollback(
     authorize_master(loaded_plugin)
     fake = FakeUpdater(tmp_path)
     loaded_plugin.updater = fake
-    monkeypatch.setattr(loaded_plugin, "_RESTART_SHUTDOWN_DELAY_SECONDS", 0)
 
-    result = await loaded_plugin.rollback.callable_target(make_session("90001"))
+    session = make_session("90001")
 
-    assert str(result) == "已请求回滚到版本 1.0.0，正在自动重启。"
+    result = await loaded_plugin.rollback.callable_target(session)
+
+    assert result is None
+    session.send.assert_awaited_once_with("已请求回滚到版本 1.0.0，正在自动重启。")
     assert fake.rollback_calls == 1
     assert fake.spawn_restart_watcher_calls == 1
-    await asyncio.sleep(0.01)
     assert fake.shutdown_calls == 1
 
 
@@ -318,12 +325,14 @@ async def test_restart_command_arms_watcher_audits_actor_and_shuts_down(
     authorize_master(loaded_plugin)
     fake = FakeUpdater(tmp_path)
     loaded_plugin.updater = fake
-    monkeypatch.setattr(loaded_plugin, "_RESTART_SHUTDOWN_DELAY_SECONDS", 0)
     monkeypatch.setattr(loaded_plugin, "_restart_cooldown_until", 0.0)
 
-    result = await loaded_plugin.restart.callable_target(make_session("90001"))
+    session = make_session("90001")
 
-    assert str(result) == "正在重启…"
+    result = await loaded_plugin.restart.callable_target(session)
+
+    assert result is None
+    session.send.assert_awaited_once_with("正在重启…")
     assert fake.spawn_restart_watcher_calls == 1
     assert fake.audit.records[-1] == {
         "action": "restart",
@@ -336,7 +345,6 @@ async def test_restart_command_arms_watcher_audits_actor_and_shuts_down(
         "channel_id": "40001",
         "message_id": "50001",
     }
-    await asyncio.sleep(0.01)
     assert fake.shutdown_calls == 1
 
 
@@ -348,21 +356,46 @@ async def test_restart_command_applies_global_cooldown(
     authorize_master(loaded_plugin)
     fake = FakeUpdater(tmp_path)
     loaded_plugin.updater = fake
-    monkeypatch.setattr(loaded_plugin, "_RESTART_SHUTDOWN_DELAY_SECONDS", 0)
     monkeypatch.setattr(loaded_plugin, "_restart_cooldown_until", 0.0)
 
-    first = await loaded_plugin.restart.callable_target(make_session("90001"))
+    first_session = make_session("90001")
+    first = await loaded_plugin.restart.callable_target(first_session)
     second = await loaded_plugin.restart.callable_target(make_session("90001"))
 
-    assert str(first) == "正在重启…"
+    assert first is None
+    first_session.send.assert_awaited_once_with("正在重启…")
     assert str(second) == "重启操作冷却中，请稍后再试"
     assert fake.spawn_restart_watcher_calls == 1
     assert [record["result"] for record in fake.audit.records[-2:]] == [
         "requested",
         "cooldown",
     ]
-    await asyncio.sleep(0.01)
     assert fake.shutdown_calls == 1
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("send_fails", [False, True])
+@pytest.mark.parametrize("loaded_plugin", ["updater"], indirect=True)
+async def test_restart_requests_shutdown_only_after_the_reply_was_sent(
+    loaded_plugin, monkeypatch, tmp_path, send_fails
+):
+    authorize_master(loaded_plugin)
+    fake = FakeUpdater(tmp_path)
+    loaded_plugin.updater = fake
+    monkeypatch.setattr(loaded_plugin, "_restart_cooldown_until", 0.0)
+    session = make_session("90001")
+
+    async def send(text):
+        fake.events.append("send")
+        if send_fails:
+            raise RuntimeError("platform down")
+
+    session.send = send
+
+    await loaded_plugin.restart.callable_target(session)
+
+    # 回复发送失败时仍然退出：重启接管记录已经生成。
+    assert fake.events == ["send", "shutdown"]
 
 
 @pytest.mark.asyncio

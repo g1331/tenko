@@ -135,26 +135,22 @@ async def test_run_async_loads_plugins_before_starting_entari(
     startup_notify = Mock()
     startup_plugin = SimpleNamespace(module=startup_notify)
 
-    async def load_all(*, external_configs):
+    async def load_all(configs, *, external_configs):
         assert external_configs == runtime.config.plugin_config
-        lifecycle.append("plugins")
-        return {
-            "startup_notify": startup_plugin,
-            "group_manager": SimpleNamespace(module=group_manager),
-            "perm_manager": SimpleNamespace(module=permission_manager),
+        # 宿主配置在加载时作为插件配置传入，不再事后注入插件模块。
+        assert configs == {
+            "group_manager": {"notify_group": "40002"},
+            "perm_manager": {"notify_group": "40002"},
+            "startup_notify": {"notify_group": "40002"},
+            "webui_account": {"enabled": False, "public_url": None},
+            "exception_catcher": {"evidence_dir": ".tenko/exceptions"},
         }
+        lifecycle.append("plugins")
+        return {"startup_notify": startup_plugin}
 
     plugin_runtime.load_all = AsyncMock(side_effect=load_all)
-    group_manager = Mock()
-    permission_manager = Mock()
-    monkeypatch.setitem(
-        runtime_module.sys.modules, "tenko.plugins.group_manager", group_manager
-    )
     monkeypatch.setitem(
         runtime_module.sys.modules, "tenko.plugins.startup_notify", startup_notify
-    )
-    monkeypatch.setitem(
-        runtime_module.sys.modules, "tenko.plugins.perm_manager", permission_manager
     )
     manager_provider = Mock(return_value=manager)
     monkeypatch.setattr(runtime_module, "it", manager_provider)
@@ -179,7 +175,7 @@ async def test_run_async_loads_plugins_before_starting_entari(
     manager.add_component.assert_called_once()
     registered = manager.add_component.call_args.args[0]
     assert registered.id == "tenko.render"
-    plugin_runtime.load_all.assert_awaited_once_with(external_configs={})
+    plugin_runtime.load_all.assert_awaited_once()
     assert runtime.plugin_runtime is plugin_runtime
     assert runtime._startup_notify_module is startup_notify
     database_loader.assert_called_once_with(
@@ -187,13 +183,6 @@ async def test_run_async_loads_plugins_before_starting_entari(
         runtime_state_service=runtime.runtime_state_service,
     )
     assert runtime.database_service is database_loader.return_value
-    group_manager.configure_notify_group.assert_called_once_with("40002")
-    startup_notify.configure_startup_notification.assert_called_once_with(
-        "40002",
-        started_at=runtime_module._process_start_monotonic,
-        history=runtime.startup_history,
-    )
-    permission_manager.configure_notify_group.assert_called_once_with("40002")
     app.run_async.assert_awaited_once_with(
         manager,
         stop_signal=(runtime_module.signal.SIGINT, runtime_module.signal.SIGTERM),
@@ -247,7 +236,8 @@ async def test_run_async_registers_render_service(
     assert service.width == 1024
     assert service.quality == 91
     assert service.device_scale_factor == 3
-    plugin_runtime.load_all.assert_awaited_once_with(external_configs={})
+    plugin_runtime.load_all.assert_awaited_once()
+    assert plugin_runtime.load_all.await_args.kwargs == {"external_configs": {}}
 
 
 @pytest.mark.asyncio

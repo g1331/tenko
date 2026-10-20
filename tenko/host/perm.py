@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import inspect
-import sqlite3
 from collections.abc import Iterable, Mapping
 from enum import IntEnum
 from typing import Any
@@ -9,56 +8,22 @@ from typing import Any
 from arclet.entari.config import EntariConfig
 
 from ..context import MessageContext
-from ..db.errors import DatabaseUnavailableError
+from ..db.errors import is_database_unavailable
 from loguru import logger
 
-_DATABASE_IMPORT_ROOTS = (
-    "tenko.db",
-    "sqlalchemy",
-    "aiosqlite",
-    "asyncpg",
-    "aiomysql",
-    "psycopg2",
-)
-_SQLALCHEMY_CONNECTION_ERRORS = {
-    "DisconnectionError",
-    "InterfaceError",
-    "NoSuchModuleError",
-    "OperationalError",
-    "TimeoutError",
-}
 
+def superuser_ids(platform: str | None) -> tuple[str, ...]:
+    """返回 Entari ``basic.superusers`` 中该平台配置的用户 ID（去空白、去空值）。"""
 
-def _is_database_unavailable(error: BaseException) -> bool:
-    """判断异常是否属于数据库依赖/连接不可用，而不是业务逻辑错误。"""
-
-    if isinstance(error, DatabaseUnavailableError):
-        return True
-    if isinstance(error, ImportError):
-        module_name = getattr(error, "name", None)
-        if module_name and any(
-            module_name == root or module_name.startswith(f"{root}.")
-            for root in _DATABASE_IMPORT_ROOTS
-        ):
-            return True
-        message = str(error)
-        return "No module named 'sqlalchemy'" in message or (
-            "sqlalchemy" in message and "cannot import" in message
-        )
-
-    if isinstance(
-        error, ConnectionError | TimeoutError | OSError | sqlite3.OperationalError
-    ):
-        return True
-
-    for error_type in type(error).__mro__:
-        if error_type.__module__ != "sqlalchemy.exc":
-            continue
-        if error_type.__name__ in _SQLALCHEMY_CONNECTION_ERRORS:
-            return True
-        if error_type.__name__ == "DBAPIError":
-            return bool(getattr(error, "connection_invalidated", False))
-    return False
+    if platform is None or not getattr(EntariConfig, "_inited", False):
+        return ()
+    configured = getattr(
+        getattr(EntariConfig.instance, "basic", None), "superusers", None
+    )
+    if not isinstance(configured, Mapping):
+        return ()
+    values = (str(value).strip() for value in configured.get(platform, ()))
+    return tuple(value for value in values if value)
 
 
 class Permission(IntEnum):
@@ -233,7 +198,7 @@ class PermissionChecker:
                 "get_member_permission", group_id, user_id
             )
         except Exception as error:
-            if not _is_database_unavailable(error):
+            if not is_database_unavailable(error):
                 raise
             self._record_database_failure(error)
             # 读不到数据库时无法确认该用户是否在黑名单，回退到角色权限会让
@@ -247,7 +212,7 @@ class PermissionChecker:
         try:
             result = await self._call_database("get_group_permission", group_id)
         except Exception as error:
-            if not _is_database_unavailable(error):
+            if not is_database_unavailable(error):
                 raise
             self._record_database_failure(error)
             # 同上：无法确认群是否被停用，按未启用处理，不放行。
@@ -255,23 +220,11 @@ class PermissionChecker:
         self._database_failing = False
         return _level(result)
 
-    @staticmethod
-    def _is_native_superuser(context: MessageContext, user_id: str) -> bool:
-        """复用 Entari filter.superusers 使用的 basic.superusers 配置。"""
-
-        if not getattr(EntariConfig, "_inited", False):
-            return False
-        basic = getattr(EntariConfig.instance, "basic", None)
-        configured = getattr(basic, "superusers", {})
-        if not isinstance(configured, Mapping):
-            return False
-        return user_id in {str(value) for value in configured.get(context.platform, ())}
-
     async def get_user_perm(self, context: MessageContext) -> int:
         """获取上下文发送者的有效成员权限数值。"""
 
         user_id = _key(context.user_id)
-        if self._is_native_superuser(context, user_id):
+        if user_id in superuser_ids(context.platform):
             return Permission.Master
         global_level: int | None = None
         if self._database_enabled:

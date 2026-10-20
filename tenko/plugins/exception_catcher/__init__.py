@@ -8,9 +8,8 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from arclet.entari import ExceptionEvent, plugin
-from arclet.entari.config import EntariConfig
-from arclet.entari.plugin import PluginRole
+from arclet.entari import BasicConfModel, ExceptionEvent, plugin
+from arclet.entari.plugin import PluginRole, plugin_config
 from loguru import logger
 from satori import Image, Text
 from satori.exception import NotFoundException
@@ -22,8 +21,8 @@ from tenko.host.actions import (
     ActionFailure,
     ActionTargetUnavailable,
 )
-from tenko.render import RenderService
-from tenko.render import render_or_none
+from tenko.host.perm import superuser_ids
+from tenko.render import RenderService, try_render
 
 
 plugin.metadata(
@@ -34,14 +33,18 @@ plugin.metadata(
     description="捕获 Entari 全局异常并向超级用户发送带上下文的取证报告。",
     classifier=["required"],
 )
-# Entari 0.19.1 的构造函数没有 default_switch 字段。将兼容性标记保留在原生
-# metadata 上，供 host/plugins.py 和 inspectors 使用。
-plugin.get_plugin().metadata.default_switch = True
 
 
+class Config(BasicConfModel):
+    """由宿主按 ``[exception]`` 传入。"""
+
+    evidence_dir: str = ".tenko/exceptions"
+    """投递失败时保留本地取证报告的目录。"""
+
+
+config = plugin_config(Config)
 ERROR_COOLDOWN = 30.0
 last_error_time: dict[str, float] = {}
-EVIDENCE_DIR = Path(".tenko/exceptions")
 MAX_EVIDENCE_FILES = 200
 _IGNORED_EXCEPTION_NAMES = frozenset(
     {"AccountMuted", "UnknownTarget", "ActionTargetUnavailable"}
@@ -57,13 +60,6 @@ _IGNORED_EXCEPTION_PHRASES = (
     "账号在对象所在聊天区域被封禁",
     "账号在群内禁言",
 )
-
-
-def configure_evidence_directory(path: str | Path) -> None:
-    """由 TenkoRuntime 在插件加载后设置异常报告落盘目录。"""
-
-    global EVIDENCE_DIR
-    EVIDENCE_DIR = Path(path)
 
 
 def get_error_hash(exception: BaseException) -> str:
@@ -228,7 +224,7 @@ def _write_local_evidence(
     *,
     evidence_dir: str | Path | None = None,
 ) -> Path | None:
-    directory = Path(EVIDENCE_DIR if evidence_dir is None else evidence_dir)
+    directory = Path(config.evidence_dir if evidence_dir is None else evidence_dir)
     stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%S.%fZ")
     path = directory / f"{stamp}-{time.time_ns()}-{get_error_hash(exception)[:12]}.log"
     try:
@@ -267,16 +263,6 @@ def _in_cooldown(exception: BaseException) -> bool:
     return False
 
 
-def _superuser_ids(account: Any) -> tuple[str, ...]:
-    if not EntariConfig._inited:
-        return ()
-    configured = EntariConfig.instance.basic.superusers
-    platform = getattr(account, "platform", None)
-    return (
-        tuple(str(value) for value in configured.get(platform, ())) if platform else ()
-    )
-
-
 async def send_error_report(
     exception: BaseException,
     origin: Any,
@@ -299,7 +285,7 @@ async def send_error_report(
     if account is None:
         logger.error("无法发送异常报告：ExceptionEvent 没有关联 Entari account")
     else:
-        user_ids = _superuser_ids(account)
+        user_ids = superuser_ids(getattr(account, "platform", None))
         if not user_ids:
             delivery_failed = True
             logger.error(
@@ -307,7 +293,11 @@ async def send_error_report(
                 getattr(account, "platform", "-"),
             )
         else:
-            image = await render_or_none(render_service, "render_markdown", report)
+            image = (
+                None
+                if render_service is None
+                else await try_render(render_service.render_markdown, report)
+            )
             for user_id in user_ids:
                 try:
                     content = (

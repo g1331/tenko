@@ -31,7 +31,6 @@ from arclet.alconna import Alconna
 from arclet.entari import Session, command, plugin
 
 from tenko_api.features import declare
-from tenko_api.messages import text_message
 from tenko_api.perm import Permission, require
 
 plugin.metadata("你好", author=["you"], version="0.1.0", description="打招呼")
@@ -43,8 +42,15 @@ declare(
 @command.on(Alconna("你好"))
 @require(Permission.User)
 async def hello(session: Session):
-    return text_message("你好！")
+    return "你好！"
 ```
+
+## 返回消息
+
+命令处理函数直接返回 `str`，Entari 原样发送；图片等混合内容返回 `MessageChain`。
+`tenko_api.messages.text_message` 自 0.2.0 起弃用（调用时发出 `DeprecationWarning`），
+将在 1.0 前移除，请改为直接返回字符串。宿主强制关闭 Entari 的 `str_as_message`，
+返回的 `str` 一律按纯文本发送；需要 @、图片等元素时返回 `MessageChain`。
 
 ## 权限与功能开关
 
@@ -86,8 +92,8 @@ async def on_message(event: MessageCreatedEvent): ...
 | `tenko_api.actions` | 发消息、禁言、踢人、撤回、查询群成员等宿主动作，以及 `ActionServiceError` 系列异常 |
 | `tenko_api.accounts` | 只读账号信息：在线账号、某群可响应的账号 |
 | `tenko_api.features` | `feature_enabled` 只读查询；`declare` 声明范围、默认开关、限流权重和群等级；`feature_required` 装饰非命令监听器 |
-| `tenko_api.render` | `render_or_none`（浏览器不可用时回退文本） |
-| `tenko_api.messages` | `text_message`、`report_error` |
+| `tenko_api.render` | `RenderService`、`try_render`（浏览器不可用时得到 `None`，回退文本；`render_or_none` 是按方法名分发的旧写法） |
+| `tenko_api.messages` | `report_error`；`text_message` 已弃用（见上文“返回消息”） |
 | `tenko_api.storage` | 插件独立数据目录 `data_dir()`、带版本号并自动备份迁移的 JSON `Store`、插件自己的 SQLite 库 `Model` 与 `get_session()` |
 
 ## 插件的 SQLite 库

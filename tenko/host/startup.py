@@ -60,6 +60,13 @@ class StartupHistory:
 
         return self._ready
 
+    def configure(self, repository: StartupTimeRepository | None) -> None:
+        """运行时在数据库就绪后接入 repository，并清掉上一次的缓存和失败标记。"""
+
+        self._repository = repository
+        self._durations = ()
+        self._ready = True
+
     def mark_unavailable(self) -> None:
         """记录数据库失败，但不阻止主生命周期继续启动。"""
 
@@ -113,6 +120,10 @@ class StartupHistory:
         updated = (*samples, current)
         self._durations = updated
         return updated
+
+
+# 宿主级单例：运行时在加载插件前后配置它，启动通知插件直接使用。
+startup_history = StartupHistory()
 
 
 def calculate_beaten_percent(
@@ -249,11 +260,6 @@ class StartupNotifier:
         self._attempted = False
         self._sending = False
 
-    def configure_notify_group(self, group_id: str | int | None) -> None:
-        """设置通知群；空值表示回退到 Master 私聊。"""
-
-        self.notify_group_id = _normalize_id(group_id)
-
     async def mark_account_online(self, account: object) -> None:
         self._online_account = account
         await self._maybe_notify()
@@ -386,6 +392,7 @@ __all__ = [
     "STARTUP_NOTIFY_FEATURE",
     "StartupHistory",
     "StartupNotifier",
+    "startup_history",
     "build_startup_notice",
     "calculate_beaten_percent",
     "calculate_percentile",

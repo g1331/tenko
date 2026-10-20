@@ -77,7 +77,6 @@ def test_startup_notify_is_a_global_feature_plugin(loaded_plugin) -> None:
     assert native.metadata.name == "启动通知"
     assert "required" in native.metadata.classifier
     assert native.metadata.feature_scope == "global"
-    assert loaded_plugin.notifier is None
 
 
 @pytest.mark.asyncio
@@ -86,15 +85,14 @@ async def test_startup_notify_plugin_ready_listener_uses_configured_notifier(
     loaded_plugin,
 ) -> None:
     actions = NotificationActions()
-    loaded_plugin.action_service = actions
-    loaded_plugin.feature_service = FeatureService()
-    loaded_plugin.permission_checker = PermissionChecker(
-        registry=PermissionRegistry(master_id="90001")
-    )
-    loaded_plugin.configure_startup_notification(
-        None,
+    loaded_plugin.notifier = StartupNotifier(
         started_at=10.0,
         history=StartupHistory(),
+        action_service=actions,
+        feature_service=FeatureService(),
+        permission_checker=PermissionChecker(
+            registry=PermissionRegistry(master_id="90001")
+        ),
     )
     loaded_plugin.notifier.clock = lambda: 12.5
     loaded_plugin.notifier.version_provider = lambda: "4.0.0-pre6"

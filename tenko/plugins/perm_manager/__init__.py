@@ -4,7 +4,7 @@ from collections.abc import Mapping
 from dataclasses import replace
 
 from arclet.alconna import Alconna, Args, CommandMeta, Field, MultiVar, Option
-from arclet.entari import MessageChain, Session, command, plugin
+from arclet.entari import Session, command, plugin
 from arclet.entari.command import Match, Query
 from arclet.entari.event.base import (
     GuildMemberAddedEvent,
@@ -12,23 +12,22 @@ from arclet.entari.event.base import (
     GuildMemberUpdatedEvent,
     InternalEvent,
 )
-from arclet.entari.config import EntariConfig
-from arclet.entari.plugin import PluginRole
+from arclet.entari.plugin import PluginRole, plugin_config
 from loguru import logger
-from satori import Image
 
 from tenko.db.errors import DatabaseUnavailableError
 from tenko.host.actions import ActionServiceError, action_service
 from tenko.host.guards import group_only, private_only, require
-from tenko.host.perm import Permission, PermissionChecker
+from tenko.host.perm import Permission, PermissionChecker, superuser_ids
 from tenko.plugins._common import (
+    NotifyGroupConfig,
     context_from_session,
+    list_data,
     normalize_targets,
+    render_or_text,
     send_private_message,
-    text_message,
 )
 from tenko.render import RenderService
-from tenko.render import render_or_none
 
 
 plugin.metadata(
@@ -39,28 +38,18 @@ plugin.metadata(
     description="管理 Tenko 的成员权限、群权限和权限同步。",
     classifier=["required"],
 )
-# Entari 0.19.1 的构造函数没有 default_switch 字段。将兼容性标记保留在原生
-# metadata 上，供 host/plugins.py 和 inspectors 使用。
-plugin.get_plugin().metadata.default_switch = True
 # 未激活群也要能在本群用 /修改群权限 恢复，不受 CommandPolicy 的群等级静默。
 plugin.get_plugin().metadata.group_level = Permission.InactiveGroup
 
 
 permission_checker = PermissionChecker()
-_notify_group_id: str | None = None
-
-
-def configure_notify_group(group_id: str | int | None) -> None:
-    """设置通知群保护的目标；空值表示不启用该保护。"""
-
-    global _notify_group_id
-    _notify_group_id = (
-        None if group_id is None or str(group_id) == "" else str(group_id)
-    )
+config = plugin_config(NotifyGroupConfig)
 
 
 def _is_notify_group(group_id: str) -> bool:
-    return _notify_group_id is not None and group_id == _notify_group_id
+    """通知群的权限不能通过命令修改；未配置通知群时不启用该保护。"""
+
+    return config.notify_group is not None and group_id == str(config.notify_group)
 
 
 def _member_repository():
@@ -163,50 +152,39 @@ def _member_permission_from_platform(member: object) -> int:
     )
 
 
-def _superuser_ids(account: object) -> tuple[str, ...]:
-    if not EntariConfig._inited:
-        return ()
-    configured = getattr(
-        getattr(EntariConfig.instance, "basic", None), "superusers", {}
-    )
-    platform = getattr(account, "platform", "onebot")
-    return tuple(str(value) for value in configured.get(platform, ()))
-
-
 def _permission_demotion_notice(event: GuildMemberUpdatedEvent) -> str:
-    group_id = getattr(getattr(event, "guild", None), "id", "未知群")
-    user = getattr(event, "user", None)
-    user_id = getattr(user, "id", "未知成员")
-    name = getattr(user, "name", None) or user_id
+    user_id = event.user.id
+    name = event.user.name or user_id
     return (
         "检测到群管理权限变动\n"
         f"{name}({user_id})->16\n"
         "Tenko 权限暂不自动修改，请人工确认；如需修改请使用指令 "
-        f"/修改权限 16 {user_id}（群 {group_id}）"
+        f"/修改权限 16 {user_id}（群 {event.guild.id}）"
     )
 
 
-async def _notify_permission_demotion(event: GuildMemberUpdatedEvent) -> None:
+async def _notify_permission_demotion(
+    event: GuildMemberUpdatedEvent, session: Session
+) -> None:
     notice = _permission_demotion_notice(event)
     if event.channel:
         try:
-            await Session(event.account, event).send(text_message(notice))
+            await session.send(notice)
         except Exception:
             logger.exception(
                 "管理员降级提示发送失败: group={} user={}",
-                getattr(getattr(event, "guild", None), "id", None),
-                getattr(getattr(event, "user", None), "id", None),
+                event.guild.id,
+                event.user.id,
             )
         return
 
-    session = Session(event.account, event)
-    for reviewer_id in _superuser_ids(event.account):
+    for reviewer_id in superuser_ids(event.account.platform):
         await send_private_message(session, reviewer_id, notice)
 
 
 def _database_error_message(error: BaseException, *, action: str) -> object:
     logger.warning("权限数据库不可用，{}未执行: {}", action, error)
-    return text_message(f"数据库暂不可用，{action}未执行")
+    return f"数据库暂不可用，{action}未执行"
 
 
 def _current_group(session: Session, group: Query[int]) -> str | None:
@@ -243,39 +221,6 @@ def _failure_summary(targets: tuple[str, ...], failures: list[tuple[str, str]]) 
     return result
 
 
-def _list_data(
-    title: str,
-    subtitle: str,
-    badge: str,
-    summary: str,
-    items: tuple[dict[str, object], ...],
-    empty_text: str,
-) -> dict[str, object]:
-    return {
-        "title": title,
-        "subtitle": subtitle,
-        "badge": badge,
-        "summary": summary,
-        "items": items,
-        "item_count": len(items),
-        "empty_text": empty_text,
-    }
-
-
-async def _render_list(
-    render_service: RenderService, data: dict[str, object]
-) -> MessageChain | None:
-    image = await render_or_none(
-        render_service,
-        "render_template",
-        "list.html",
-        data,
-    )
-    if image is None:
-        return None
-    return MessageChain(Image.of(raw=image, mime="image/jpeg"))
-
-
 def build_vip_groups_data(rows) -> dict[str, object]:
     items = tuple(
         {
@@ -287,7 +232,7 @@ def build_vip_groups_data(rows) -> dict[str, object]:
         }
         for index, row in enumerate(rows, 1)
     )
-    return _list_data(
+    return list_data(
         "VIP 群列表",
         "Master 私聊 · 已授权的群组",
         "VIP",
@@ -311,7 +256,7 @@ def build_permission_list_data(
         }
         for index, row in enumerate(entries, 1)
     )
-    return _list_data(
+    return list_data(
         "权限列表",
         f"群{target_group} · 成员权限",
         f"群 {target_group}",
@@ -332,7 +277,7 @@ def build_global_blacklist_data(values) -> dict[str, object]:
         }
         for index, value in enumerate(values, 1)
     )
-    return _list_data(
+    return list_data(
         "全局黑名单",
         "Master 私聊 · 全局权限限制",
         "BLACK",
@@ -353,7 +298,7 @@ def build_bot_admins_data(values) -> dict[str, object]:
         }
         for index, value in enumerate(values, 1)
     )
-    return _list_data(
+    return list_data(
         "BOT 管理列表",
         "Master 私聊 · Tenko 管理权限",
         "ADMIN",
@@ -365,7 +310,7 @@ def build_bot_admins_data(values) -> dict[str, object]:
 
 modify_user_command = Alconna(
     "修改权限",
-    Args["perm", int],
+    Args["perm", "0|16|32|64"],
     Args[
         "member_id",
         MultiVar(str),
@@ -391,23 +336,16 @@ modify_user_command = Alconna(
 @require(Permission.GroupOwner)
 async def change_user_perm(
     session: Session,
-    perm: Match[int],
+    perm: Match[str],
     member_id: Match[tuple[str, ...]],
     group: Query[int] = Query("group.group_id", None),
 ):
-    if perm.result not in {
-        Permission.GroupOwner,
-        Permission.GroupAdmin,
-        Permission.User,
-        Permission.GroupBlack,
-    }:
-        return text_message("请检查输入的权限(64/32/16/0)")
     context = context_from_session(session)
     # 装饰器保证了 GroupOwner 的底线；跨群改权限取决于参数，由 _target_group 额外
     # 要求 BotAdmin，所以这一项只能留在函数体里。
     target_group, _ = await _target_group(session, group)
     if target_group is None:
-        return text_message("权限不足或没有找到目标群")
+        return "权限不足或没有找到目标群"
 
     targets = normalize_targets(member_id.result)
     actor_permission = await permission_checker.get_user_perm(context)
@@ -422,7 +360,7 @@ async def change_user_perm(
             elif await _target_member(session, target_group, target) is None:
                 failures.append((target, f"没有在群{target_group}找到群成员"))
             else:
-                await _write_member_permission(target_group, target, perm.result)
+                await _write_member_permission(target_group, target, int(perm.result))
         except DatabaseUnavailableError as error:
             logger.warning("成员 {} 的权限修改未执行，数据库不可用: {}", target, error)
             failures.append((target, "数据库暂不可用，未写入权限"))
@@ -431,16 +369,22 @@ async def change_user_perm(
             failures.append((target, f"无法确认{target}是否在群内"))
         except ValueError as error:
             failures.append((target, str(error)))
-    return text_message(_failure_summary(targets, failures))
+    return _failure_summary(targets, failures)
 
 
 modify_group_command = Alconna(
     "修改群权限",
-    Args["perm", int],
-    Option("--group", Args["group_id", int], alias=["-g", "群"]),
+    Args["perm", "0|1|2|3"],
+    Option(
+        "--group",
+        Args["group_id", int],
+        alias=["-g", "群"],
+        help_text="指定目标群（跨群需要 BotAdmin）",
+    ),
     meta=CommandMeta(
         "修改群权限等级",
         usage="修改群权限 <0|1|2|3> [--group <群号>]",
+        example="修改群权限 2",
         compact=True,
     ),
 )
@@ -451,42 +395,41 @@ modify_group_command = Alconna(
 @require(Permission.BotAdmin)
 async def change_group_perm(
     session: Session,
-    perm: Match[int],
+    perm: Match[str],
     group: Query[int] = Query("group.group_id", None),
 ):
     target_group, _ = await _target_group(session, group)
     if target_group is None:
-        return text_message("没有找到目标群")
-    if perm.result not in {
-        Permission.InactiveGroup,
-        Permission.ActiveGroup,
-        Permission.VipGroup,
-        Permission.TestGroup,
-    }:
-        return text_message("请检查输入的群权限(3/2/1/0)")
+        return "没有找到目标群"
     if _is_notify_group(target_group):
-        return text_message(f"无法通过该指令修改通知群({target_group})权限!")
+        return f"无法通过该指令修改通知群({target_group})权限!"
     try:
         await _group_repository().set(
             target_group,
-            perm.result,
+            int(perm.result),
             group_name=target_group,
             active=True,
         )
     except DatabaseUnavailableError as error:
         return _database_error_message(error, action="修改群权限")
     except ValueError as error:
-        return text_message(f"群号无效，未修改群权限: {error}")
-    return text_message(f"已修改群{target_group}权限为{perm.result}")
+        return f"群号无效，未修改群权限: {error}"
+    return f"已修改群{target_group}权限为{perm.result}"
 
 
 modify_group_type_command = Alconna(
     "修改群权限类型",
     Args["permission_type", "admin|default"],
-    Option("--group", Args["group_id", int], alias=["-g", "群"]),
+    Option(
+        "--group",
+        Args["group_id", int],
+        alias=["-g", "群"],
+        help_text="指定目标群（跨群需要 BotAdmin）",
+    ),
     meta=CommandMeta(
         "修改群成员权限同步策略",
         usage="修改群权限类型 <admin|default> [--group <群号>]",
+        example="修改群权限类型 admin",
         compact=True,
     ),
 )
@@ -502,9 +445,9 @@ async def change_group_perm_type(
 ):
     target_group, _ = await _target_group(session, group)
     if target_group is None:
-        return text_message("没有找到目标群")
+        return "没有找到目标群"
     if _is_notify_group(target_group):
-        return text_message(f"无法通过该指令修改通知群({target_group})权限!")
+        return f"无法通过该指令修改通知群({target_group})权限!"
     try:
         members = await _target_members(session, target_group)
         await _setting_repository().set_permission_type(
@@ -532,16 +475,21 @@ async def change_group_perm_type(
         return _database_error_message(error, action="修改群权限类型")
     except ActionServiceError as error:
         logger.warning("群 {} 的成员权限同步未完成: {}", target_group, error)
-        return text_message(f"无法读取群{target_group}成员，未完成权限同步")
+        return f"无法读取群{target_group}成员，未完成权限同步"
     except ValueError as error:
-        return text_message(f"群{target_group}成员数据无效，未完成权限同步: {error}")
-    return text_message(f"已修改群{target_group}权限类型为{permission_type.result}")
+        return f"群{target_group}成员数据无效，未完成权限同步: {error}"
+    return f"已修改群{target_group}权限类型为{permission_type.result}"
 
 
 @command.on(
     Alconna(
         "VIP群列表",
-        meta=CommandMeta("查询 VIP 群列表", compact=True),
+        meta=CommandMeta(
+            "查询 VIP 群列表",
+            usage="VIP群列表",
+            example="VIP群列表",
+            compact=True,
+        ),
     )
 )
 @private_only()
@@ -554,15 +502,26 @@ async def get_vg_list(session: Session, *, render_service: RenderService):
     groups = [f"{row.group_id}({row.group_name})" for row in rows]
     result = "当前没有VIP群~" if not groups else "VIP群列表:\n" + "\n".join(groups)
     if not groups:
-        return text_message(result)
-    image = await _render_list(render_service, build_vip_groups_data(rows))
-    return image if image is not None else text_message(result)
+        return result
+    return await render_or_text(
+        render_service, "list.html", build_vip_groups_data(rows), result
+    )
 
 
 permission_list_command = Alconna(
     "权限列表",
-    Option("--group", Args["group_id", int], alias=["-g", "群"]),
-    meta=CommandMeta("查询群成员权限", compact=True),
+    Option(
+        "--group",
+        Args["group_id", int],
+        alias=["-g", "群"],
+        help_text="指定目标群（跨群需要 BotAdmin）",
+    ),
+    meta=CommandMeta(
+        "查询群成员权限",
+        usage="权限列表 [--group <群号>]",
+        example="权限列表\n权限列表 --group 40001",
+        compact=True,
+    ),
 )
 permission_list_command.shortcut(
     "perm list",
@@ -582,15 +541,15 @@ async def get_perm_list(
     if context.chat_type == "group":
         target_group = str(group.result) if group.available else context.channel_id
         if target_group != context.channel_id:
-            return text_message("群内只能查询当前群")
+            return "群内只能查询当前群"
         if not await permission_checker.require_perm(context, Permission.GroupAdmin):
-            return text_message("权限不足")
+            return "权限不足"
         target_context = context
     elif context.chat_type == "private":
         if not await permission_checker.require_perm(context, Permission.Master):
-            return text_message("权限不足")
+            return "权限不足"
         if not group.available:
-            return text_message("Master 私聊查询请提供 --group <群号>")
+            return "Master 私聊查询请提供 --group <群号>"
         target_group = str(group.result)
         target_context = replace(
             context,
@@ -598,7 +557,7 @@ async def get_perm_list(
             channel_id=target_group,
         )
     else:
-        return text_message("该指令仅支持群聊或 Master 私聊执行")
+        return "该指令仅支持群聊或 Master 私聊执行"
     try:
         rows = await _group_member_permissions(target_group)
     except DatabaseUnavailableError as error:
@@ -608,18 +567,24 @@ async def get_perm_list(
     result = f"群{target_group}权限等级: {group_level}"
     if entries:
         result += "\n" + "\n".join(entries)
-    image = await _render_list(
+    return await render_or_text(
         render_service,
+        "list.html",
         build_permission_list_data(target_group, group_level, rows),
+        result,
     )
-    return image if image is not None else text_message(result)
 
 
 global_black_command = Alconna(
     "全局黑",
     Args["action", "添加|删除"],
     Args["member_id", MultiVar(str)],
-    meta=CommandMeta("增删全局黑名单", compact=True),
+    meta=CommandMeta(
+        "增删全局黑名单",
+        usage="全局黑 <添加|删除> <成员ID...>",
+        example="全局黑 添加 123456",
+        compact=True,
+    ),
 )
 
 
@@ -663,10 +628,20 @@ async def change_global_black(
                 failures.append((target, "数据库暂不可用，未删除权限"))
             except ValueError as error:
                 failures.append((target, str(error)))
-    return text_message(_failure_summary(targets, failures))
+    return _failure_summary(targets, failures)
 
 
-@command.on(Alconna("全局黑名单列表", meta=CommandMeta("查询全局黑名单", compact=True)))
+@command.on(
+    Alconna(
+        "全局黑名单列表",
+        meta=CommandMeta(
+            "查询全局黑名单",
+            usage="全局黑名单列表",
+            example="全局黑名单列表",
+            compact=True,
+        ),
+    )
+)
 @private_only()
 @require(Permission.Master)
 async def get_global_black_list(session: Session, *, render_service: RenderService):
@@ -676,16 +651,22 @@ async def get_global_black_list(session: Session, *, render_service: RenderServi
         return _database_error_message(error, action="查询全局黑名单")
     result = "全局黑名单为空哦~" if not values else "全局黑名单:\n" + "\n".join(values)
     if not values:
-        return text_message(result)
-    image = await _render_list(render_service, build_global_blacklist_data(values))
-    return image if image is not None else text_message(result)
+        return result
+    return await render_or_text(
+        render_service, "list.html", build_global_blacklist_data(values), result
+    )
 
 
 bot_admin_command = Alconna(
     "BOT管理",
     Args["action", "添加|删除"],
     Args["member_id", MultiVar(str)],
-    meta=CommandMeta("增删 BOT 管理员", compact=True),
+    meta=CommandMeta(
+        "增删 BOT 管理员",
+        usage="BOT管理 <添加|删除> <成员ID...>",
+        example="BOT管理 添加 123456",
+        compact=True,
+    ),
 )
 
 
@@ -725,10 +706,20 @@ async def change_bot_admin(
                 failures.append((target, "数据库暂不可用，未删除权限"))
             except ValueError as error:
                 failures.append((target, str(error)))
-    return text_message(_failure_summary(targets, failures))
+    return _failure_summary(targets, failures)
 
 
-@command.on(Alconna("BOT管理列表", meta=CommandMeta("查询 BOT 管理员", compact=True)))
+@command.on(
+    Alconna(
+        "BOT管理列表",
+        meta=CommandMeta(
+            "查询 BOT 管理员",
+            usage="BOT管理列表",
+            example="BOT管理列表",
+            compact=True,
+        ),
+    )
+)
 @private_only()
 @require(Permission.Master)
 async def get_bot_admins_list(session: Session, *, render_service: RenderService):
@@ -740,15 +731,16 @@ async def get_bot_admins_list(session: Session, *, render_service: RenderService
         "当前还没有BOT管理哦~" if not values else "BOT管理列表:\n" + "\n".join(values)
     )
     if not values:
-        return text_message(result)
-    image = await _render_list(render_service, build_bot_admins_data(values))
-    return image if image is not None else text_message(result)
+        return result
+    return await render_or_text(
+        render_service, "list.html", build_bot_admins_data(values), result
+    )
 
 
 @plugin.listen(GuildMemberRemovedEvent)
-async def auto_delete_member_permission(event: GuildMemberRemovedEvent):
-    if not event.guild or not event.user:
-        return
+async def auto_delete_member_permission(
+    event: GuildMemberRemovedEvent, session: Session
+):
     try:
         previous = await _member_permission(event.guild.id, event.user.id)
         # 群黑名单记录需要在退群后保留，避免重新入群即被洗白。
@@ -760,18 +752,13 @@ async def auto_delete_member_permission(event: GuildMemberRemovedEvent):
         return
     if previous < Permission.GroupAdmin or not event.channel:
         return
-    session = Session(event.account, event)
     await session.send(
-        text_message(
-            f"已自动删除退群成员{event.user.name or event.user.id}({event.user.id})的权限"
-        )
+        f"已自动删除退群成员{event.user.name or event.user.id}({event.user.id})的权限"
     )
 
 
 @plugin.listen(GuildMemberAddedEvent)
-async def auto_add_member_permission(event: GuildMemberAddedEvent):
-    if not event.guild or not event.user:
-        return
+async def auto_add_member_permission(event: GuildMemberAddedEvent, session: Session):
     group_id = event.guild.id
     try:
         permission_type = await _permission_type(group_id)
@@ -784,19 +771,17 @@ async def auto_add_member_permission(event: GuildMemberAddedEvent):
         if permission is not None:
             await _write_member_permission(group_id, event.user.id, permission)
             if event.channel and permission == Permission.GroupAdmin:
-                await Session(event.account, event).send(
-                    text_message(
-                        f"已自动修改成员{event.user.name or event.user.id}({event.user.id})的权限为32"
-                    )
+                await session.send(
+                    f"已自动修改成员{event.user.name or event.user.id}({event.user.id})的权限为32"
                 )
     except DatabaseUnavailableError as error:
         logger.warning("新成员 {} 的权限同步失败: {}", event.user.id, error)
 
 
 @plugin.listen(GuildMemberUpdatedEvent)
-async def auto_change_member_permission(event: GuildMemberUpdatedEvent):
-    if not event.guild or not event.user:
-        return
+async def auto_change_member_permission(
+    event: GuildMemberUpdatedEvent, session: Session
+):
     if event.user.id == permission_checker.registry.master_id:
         return
     try:
@@ -828,7 +813,7 @@ async def auto_change_member_permission(event: GuildMemberUpdatedEvent):
             event.user.id,
             event.guild.id,
         )
-        await _notify_permission_demotion(event)
+        await _notify_permission_demotion(event, session)
         return
 
     try:
@@ -838,11 +823,9 @@ async def auto_change_member_permission(event: GuildMemberUpdatedEvent):
         return
 
     if permission != Permission.User and event.channel:
-        await Session(event.account, event).send(
-            text_message(
-                f"检测到群管理权限变动\n已自动修改{event.user.name or event.user.id}"
-                f"({event.user.id})权限为{permission}"
-            )
+        await session.send(
+            f"检测到群管理权限变动\n已自动修改{event.user.name or event.user.id}"
+            f"({event.user.id})权限为{permission}"
         )
 
 

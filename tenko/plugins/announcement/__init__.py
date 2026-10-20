@@ -9,7 +9,7 @@ from typing import Any
 from arclet.alconna import Alconna, Args, CommandMeta, MultiVar, Option
 from arclet.entari import MessageChain, Session, command, plugin
 from arclet.entari.command import Match
-from arclet.entari.plugin import PluginRole, get_plugins
+from arclet.entari.plugin import PluginRole
 from satori import Text
 from satori.element import At
 
@@ -32,7 +32,6 @@ from tenko.plugins._common import (
     context_from_session,
     report_action_error,
     send_private_message,
-    text_message,
 )
 
 """公告插件。
@@ -54,9 +53,6 @@ plugin.metadata(
     description="向开启指定功能的群推送公告，并逐条报告结果。",
     classifier=["required"],
 )
-# Entari 0.19.1 的构造函数没有 default_switch 字段。将兼容性标记保留在原生
-# metadata 上，供 host/plugins.py 和 inspectors 使用。
-plugin.get_plugin().metadata.default_switch = True
 
 
 permission_checker = PermissionChecker()
@@ -81,14 +77,6 @@ class PushResult:
     account_id: str | None = None
 
 
-def _native_plugin(info: PluginInfo):
-    names = set(info.lookup_names)
-    return next(
-        (current for current in get_plugins(subplugged=True) if current.id in names),
-        None,
-    )
-
-
 def resolve_feature(function_name: str) -> PluginInfo | None:
     """按旧 display_name、Tenko 插件名或兼容导入名解析功能。"""
 
@@ -96,7 +84,7 @@ def resolve_feature(function_name: str) -> PluginInfo | None:
     if not wanted:
         return None
     for info in plugin_runtime.discover():
-        native = _native_plugin(info)
+        native = info.native_plugin
         display_name = native.metadata.name if native and native.metadata else None
         if wanted in {info.name, info.qualified_name, *info.lookup_names}:
             return info
@@ -284,12 +272,8 @@ def format_diagnostic_results(results: Iterable[PushResult]) -> str:
 async def _confirm(session: Session, content: str, count: int, interval: int) -> bool:
     """使用 Entari 原生 prompt 保留旧公告的二次确认语义。"""
 
-    if not hasattr(session, "prompt") or not hasattr(session, "send"):
-        return True
     await session.send(
-        text_message(
-            f"推送内容:\n“{content}”\n预计推送到{count}个群（间隔:{interval}分钟），确定吗?（是/否）"
-        )
+        f"推送内容:\n“{content}”\n预计推送到{count}个群（间隔:{interval}分钟），确定吗?（是/否）"
     )
     reply = await session.prompt(timeout=30, timeout_message="回复等待超时,进程退出")
     if reply is None:
@@ -299,16 +283,20 @@ async def _confirm(session: Session, content: str, count: int, interval: int) ->
 
 
 async def _send_progress(session: Session, target_count: int) -> None:
-    sender = getattr(session, "send", None)
-    if callable(sender):
-        await sender(text_message(f"开始推送：目标数 {target_count}"))
+    await session.send(f"开始推送：目标数 {target_count}")
 
 
 announcement_command = Alconna(
     "公告",
     Args["function_name", str],
     Args["content", MultiVar(str)],
-    Option("--time", Args["time", int], alias=["-t", "--interval"], default=1),
+    Option(
+        "--time",
+        Args["time", int],
+        alias=["-t", "--interval"],
+        default=1,
+        help_text="相邻两个群的推送间隔（分钟），默认 1",
+    ),
     meta=CommandMeta(
         "向开启指定功能的群推送公告",
         usage="公告 <功能名> <内容...> [-t <间隔分钟>]",
@@ -332,14 +320,14 @@ async def push_handle(
 
     interval = time.result if time.available else 1
     if not 0 < interval < 10:
-        return text_message(f"间隔时间需要在0~10之间哦!匹配到的时间:{interval}")
+        return f"间隔时间需要在0~10之间哦!匹配到的时间:{interval}"
     feature_name = function_name.result.strip()
     announcement_content = " ".join(content.result).strip()
     if not announcement_content:
-        return text_message("公告内容不能为空")
+        return "公告内容不能为空"
     feature = resolve_feature(feature_name)
     if feature is None:
-        return text_message(f"没有在运行插件中找到 {feature_name} 哦~")
+        return f"没有在运行插件中找到 {feature_name} 哦~"
 
     targets, preflight = collect_targets(feature)
     target_count = len(targets) + len(preflight)
@@ -353,9 +341,9 @@ async def push_handle(
                 context.user_id,
                 format_diagnostic_results(results),
             )
-        return text_message(format_results(results))
+        return format_results(results)
     if not await _confirm(session, announcement_content, len(targets), interval):
-        return text_message("未预期回复,操作退出")
+        return "未预期回复,操作退出"
 
     await _send_progress(session, target_count)
     pushed = await pusher(

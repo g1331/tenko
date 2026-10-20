@@ -10,23 +10,23 @@ from arclet.alconna import Alconna, Args, CommandMeta, MultiVar, Option
 from arclet.entari import Session, command, plugin
 from arclet.entari.command import Match, Query
 from arclet.entari.event.base import GuildRequestEvent
-from arclet.entari.plugin import PluginRole, collect_disposes
+from arclet.entari.plugin import PluginRole, collect_disposes, plugin_config
 from loguru import logger
 from satori import User
-from satori.element import At, Author, Element, Quote
+from satori.element import At, Author, select
 
-from tenko.host.actions import ActionServiceError, action_service
+from tenko.host.actions import action_service
 from tenko.host.accounts import account_registry
 from tenko.context import MessageContext
 from tenko.host.guards import group_only, private_only, require
 from tenko.host.perm import Permission, PermissionChecker
 from tenko.host.ratelimit import rate_limit_service
 from tenko.plugins._common import (
-    action_error_message,
+    NotifyGroupConfig,
+    action_errors,
     context_from_session,
     master_id_for_account,
     report_action_error,
-    text_message,
 )
 
 
@@ -38,14 +38,11 @@ plugin.metadata(
     description="查询群设置并通过宿主动作服务执行群管理操作。",
     classifier=["required"],
 )
-# Entari 0.19.1 的构造函数没有 default_switch 字段。将兼容性标记保留在原生
-# metadata 上，供 host/plugins.py 和 inspectors 使用。
-plugin.get_plugin().metadata.default_switch = True
 
 
 permission_checker = PermissionChecker()
 _database_warning_groups: set[str] = set()
-_notify_group_id: str | None = None
+config = plugin_config(NotifyGroupConfig)
 
 
 INVITE_TIMEOUT_SECONDS = 60 * 60
@@ -88,16 +85,8 @@ def _normalize_id(value: object) -> str | None:
     return normalized or None
 
 
-def configure_notify_group(group_id: str | int | None) -> None:
-    """设置邀请审批等管理通知的群目标；空值表示改发 Master 私聊。"""
-
-    global _notify_group_id
-    _notify_group_id = _normalize_id(group_id)
-
-
 def _event_inviter_id(event: GuildRequestEvent) -> str | None:
-    user = getattr(event, "user", None)
-    inviter_id = _normalize_id(getattr(user, "id", None))
+    inviter_id = _normalize_id(event.user.id) if event.user else None
     if inviter_id is not None:
         return inviter_id
 
@@ -109,8 +98,7 @@ def _event_inviter_id(event: GuildRequestEvent) -> str | None:
 
 
 def _event_inviter_name(event: GuildRequestEvent, inviter_id: str | None) -> str:
-    user = getattr(event, "user", None)
-    name = _normalize_id(getattr(user, "name", None))
+    name = _normalize_id(event.user.name) if event.user else None
     if name is not None:
         return name
     if inviter_id is not None:
@@ -179,7 +167,8 @@ async def _send_reviewer_notice(
     pending: PendingInvite,
     text: str,
 ) -> None:
-    if _notify_group_id is not None:
+    notify_group = _normalize_id(config.notify_group)
+    if notify_group is not None:
         send_group = getattr(action_service, "send_group_message", None)
         if not callable(send_group):
             logger.warning(
@@ -191,7 +180,7 @@ async def _send_reviewer_notice(
         try:
             receipt = send_group(
                 pending.account,
-                _notify_group_id,
+                notify_group,
                 text,
                 context=None,
                 permission_checker=permission_checker,
@@ -203,11 +192,11 @@ async def _send_reviewer_notice(
             items = tuple(result or ())
             if items and getattr(items[-1], "id", None) is not None:
                 pending.notification_id = str(items[-1].id)
-                pending.notification_channel_id = f"group:{_notify_group_id}"
+                pending.notification_channel_id = f"group:{notify_group}"
         except Exception:
             logger.exception(
                 "Failed to notify group {} about pending invite {}",
-                _notify_group_id,
+                notify_group,
                 pending.request_id,
             )
         return
@@ -323,24 +312,21 @@ def _invite_notice(pending: PendingInvite) -> str:
 async def invited_event(event: GuildRequestEvent):
     """迁移旧版群邀请处理：管理员邀请自动同意，其余进入待审队列。"""
 
-    request_id = getattr(getattr(event, "message", None), "id", None)
-    group = getattr(event, "guild", None)
-    account = getattr(event, "account", None)
-    group_id = _normalize_id(getattr(group, "id", None))
-    request_id = _normalize_id(request_id)
-    if request_id is None or group is None or group_id is None or account is None:
+    request_id = _normalize_id(event.message.id)
+    group_id = _normalize_id(event.guild.id)
+    if request_id is None or group_id is None:
         logger.warning("Ignore malformed guild request event: {}", event)
         return
 
     inviter_id = _event_inviter_id(event)
     pending = PendingInvite(
         request_id=request_id,
-        account=account,
+        account=event.account,
         group_id=group_id,
-        group_name=str(getattr(group, "name", None) or group_id),
+        group_name=str(event.guild.name or group_id),
         inviter_id=inviter_id,
         inviter_name=_event_inviter_name(event, inviter_id),
-        comment=str(getattr(getattr(event, "message", None), "content", "") or ""),
+        comment=str(event.message.content or ""),
         created_at=asyncio.get_running_loop().time(),
     )
     _ensure_action_account(pending)
@@ -415,9 +401,9 @@ invite_approve_command.shortcut("同意", command="同意邀请", prefix=True)
 async def approve_invite(session: Session, request_id: Match[str]):
     pending = _pending_invite(request_id.result)
     if pending is None:
-        return text_message(f"未找到待审邀请: {request_id.result}")
+        return f"未找到待审邀请: {request_id.result}"
     if not await _can_review_invite(session, pending):
-        return text_message("权限不足")
+        return "权限不足"
     try:
         await _apply_invite_decision(
             pending,
@@ -428,10 +414,10 @@ async def approve_invite(session: Session, request_id: Match[str]):
     except Exception as error:
         logger.exception("Failed to approve invite {}", pending.request_id)
         await report_action_error(error, session)
-        return text_message("处理邀请失败，已通知开发者")
+        return "处理邀请失败，已通知开发者"
     pending_invites.pop(pending.request_id, None)
     _cancel_invite_expiry(pending.request_id)
-    return text_message(f"已同意邀请 {pending.request_id}")
+    return f"已同意邀请 {pending.request_id}"
 
 
 invite_reject_command = Alconna(
@@ -456,9 +442,9 @@ async def reject_invite(
 ):
     pending = _pending_invite(request_id.result)
     if pending is None:
-        return text_message(f"未找到待审邀请: {request_id.result}")
+        return f"未找到待审邀请: {request_id.result}"
     if not await _can_review_invite(session, pending):
-        return text_message("权限不足")
+        return "权限不足"
     comment = " ".join(reason.result).strip() if reason.available else ""
     comment = comment or "BOT拒绝了你的入群邀请!"
     try:
@@ -471,10 +457,10 @@ async def reject_invite(
     except Exception as error:
         logger.exception("Failed to reject invite {}", pending.request_id)
         await report_action_error(error, session)
-        return text_message("处理邀请失败，已通知开发者")
+        return "处理邀请失败，已通知开发者"
     pending_invites.pop(pending.request_id, None)
     _cancel_invite_expiry(pending.request_id)
-    return text_message(f"已拒绝邀请 {pending.request_id}")
+    return f"已拒绝邀请 {pending.request_id}"
 
 
 pending_invites_command = Alconna(
@@ -482,6 +468,7 @@ pending_invites_command = Alconna(
     meta=CommandMeta(
         "查看待审群邀请（Master 私聊；目标群 BotAdmin/Master 审批，GroupAdmin 无权）",
         usage="待审邀请",
+        example="/待审邀请",
         compact=True,
     ),
 )
@@ -492,7 +479,7 @@ pending_invites_command = Alconna(
 @require(Permission.Master)
 async def pending_invite_list(session: Session):
     if not pending_invites:
-        return text_message("当前没有待审邀请")
+        return "当前没有待审邀请"
     lines = [
         f"{pending.request_id}: {pending.group_name}({pending.group_id}) "
         f"邀请人 {pending.inviter_name}"
@@ -503,13 +490,14 @@ async def pending_invite_list(session: Session):
         )
         for pending in pending_invites.values()
     ]
-    return text_message("待审邀请:\n" + "\n".join(lines))
+    return "待审邀请:\n" + "\n".join(lines)
 
 
 leave_group_command = Alconna(
     "退群",
-    Args["group_id", str],
-    Args["account_id", str],
+    # 群号和账号都是纯数字；\b 保证整词匹配（Alconna 的正则只做前缀匹配）。
+    Args["group_id", r"re:\d+\b"],
+    Args["account_id", r"re:\d+\b"],
     meta=CommandMeta(
         "指定 BOT 退出指定群（群内或 Master 私聊）",
         usage="退群 <群号> <BOT账号>",
@@ -528,10 +516,8 @@ async def leave_group(
     account_id: Match[str],
 ):
     context = context_from_session(session)
-    target_group = group_id.result.strip()
-    target_account = account_id.result.strip()
-    if not target_group.isdigit() or not target_account.isdigit():
-        return text_message("群号和BOT账号必须是数字")
+    target_group = group_id.result
+    target_account = account_id.result
 
     registry = getattr(action_service, "registry", None)
     if registry is not None:
@@ -541,24 +527,16 @@ async def leave_group(
             str(getattr(candidate, "self_id", "")) != target_account
             for candidate in bound_accounts
         ):
-            return text_message("没有找到目标群和BOT")
+            return "没有找到目标群和BOT"
 
-    try:
+    async with action_errors(session):
         await action_service.leave_group(
             target_account,
             target_group,
             context=context,
             permission_checker=permission_checker,
         )
-    except ActionServiceError as error:
-        await report_action_error(error, session)
-        return text_message(_action_error(error))
-    return text_message(f"BOT{target_account}已退出群{target_group}!")
-
-
-# 兼容旧实现和调用点使用的函数/命令名称；实际注册仍只有一个原生命令。
-quit_group_command = leave_group_command
-quit_group = leave_group
+        return f"BOT{target_account}已退出群{target_group}!"
 
 
 reset_capability_command = Alconna(
@@ -585,9 +563,7 @@ async def reset_capability(
         str(account_id.result) if account_id.available else context.account_id
     )
     reset_count = action_service.reset_capabilities(target_account)
-    return text_message(
-        f"已重置账号 {target_account} 的 {reset_count} 项平台能力学习状态"
-    )
+    return f"已重置账号 {target_account} 的 {reset_count} 项平台能力学习状态"
 
 
 async def read_group_settings(group_id: str) -> dict[str, object]:
@@ -658,6 +634,7 @@ group_setting_command = Alconna(
     meta=CommandMeta(
         "只读查询群设置",
         usage="群设置 [--group <群号>]",
+        example="/群设置\n/群设置 --group 40001",
         compact=True,
     ),
 )
@@ -673,19 +650,19 @@ async def group_setting(
     if context.chat_type == "group":
         target_group = str(group.result) if group.available else context.channel_id
         if target_group != context.channel_id:
-            return text_message("群内只能查询当前群")
+            return "群内只能查询当前群"
         if not await permission_checker.require_perm(context, Permission.GroupAdmin):
-            return text_message("权限不足")
+            return "权限不足"
     elif context.chat_type == "private":
         if not await permission_checker.require_perm(context, Permission.Master):
-            return text_message("权限不足")
+            return "权限不足"
         if not group.available:
-            return text_message("Master 私聊查询请提供 --group <群号>")
+            return "Master 私聊查询请提供 --group <群号>"
         target_group = str(group.result)
     else:
-        return text_message("该指令仅支持群聊或 Master 私聊执行")
+        return "该指令仅支持群聊或 Master 私聊执行"
     settings = await read_group_settings(target_group)
-    return text_message(format_group_settings(target_group, settings))
+    return format_group_settings(target_group, settings)
 
 
 frequency_limit_command = Alconna(
@@ -711,7 +688,7 @@ async def frequency_limit(
     group_id = context.channel_id
     if not state.available:
         current = "开启" if rate_limit_service.is_group_limited(group_id) else "关闭"
-        return text_message(f"当前群频率限制：{current}")
+        return f"当前群频率限制：{current}"
 
     from tenko.db.errors import DatabaseUnavailableError
     from tenko.db.repositories import group_setting_repository
@@ -720,55 +697,24 @@ async def frequency_limit(
     try:
         await group_setting_repository.set_frequency_limitation(group_id, enabled)
     except DatabaseUnavailableError:
-        return text_message("设置数据库暂不可用，请稍后再试")
+        return "设置数据库暂不可用，请稍后再试"
     rate_limit_service.set_group_limited(group_id, enabled)
-    return text_message(f"已{'开启' if enabled else '关闭'}当前群的频率限制")
+    return f"已{'开启' if enabled else '关闭'}当前群的频率限制"
 
 
-def _walk(elements: list[Element] | tuple[Element, ...]):
-    for element in elements:
-        yield element
-        yield from _walk(tuple(element.children))
+def _quoted_user_id(session: Session) -> str | None:
+    """被回复消息的发送者：Entari 已把回复解析为 ``session.quote``。"""
 
-
-def _origin_message_elements(session: Session) -> tuple[Element, ...]:
-    origin = getattr(session.event, "_origin", None)
-    message = getattr(origin, "message", None)
-    if message is None:
-        return ()
-    return tuple(getattr(message, "message", ()))
-
-
-def _quoted_message(session: Session) -> Quote | None:
-    return next(
-        (
-            element
-            for element in _walk(_origin_message_elements(session))
-            if isinstance(element, Quote)
-        ),
-        None,
-    )
-
-
-def _quoted_user_id(quote: Quote | None) -> str | None:
+    quote = session.quote
     if quote is None:
         return None
-    author = next(
-        (
-            element
-            for element in _walk(tuple(quote.children))
-            if isinstance(element, Author)
-        ),
-        None,
-    )
+    author = next(iter(select(quote, Author)), None)
     return author.id if author is not None else None
 
 
 def _value_id(value: object) -> str | None:
     if isinstance(value, At):
         return value.id
-    if isinstance(value, Quote):
-        return _quoted_user_id(value)
     normalized = str(value).strip()
     if normalized.startswith("@"):
         normalized = normalized[1:]
@@ -787,7 +733,7 @@ def _moderation_target(
     numeric_values: list[str] = []
     invalid = False
     for value in arguments:
-        if isinstance(value, At | Quote):
+        if isinstance(value, At):
             target = target or _value_id(value)
             target_from_argument = True
             if target is None:
@@ -799,7 +745,7 @@ def _moderation_target(
         else:
             numeric_values.append(candidate)
 
-    quoted_target = _quoted_user_id(_quoted_message(session))
+    quoted_target = _quoted_user_id(session)
     target = target or quoted_target
     if target is None and numeric_values:
         target = numeric_values[0]
@@ -813,10 +759,6 @@ def _moderation_target(
     return target, minutes, invalid
 
 
-def _action_error(error: ActionServiceError) -> str:
-    return action_error_message(error)
-
-
 async def _target_has_management_permission(context, target_id: str) -> bool:
     target_context = replace(context, user_id=target_id, member_role=None)
     return await permission_checker.require_perm(target_context, Permission.GroupAdmin)
@@ -828,7 +770,13 @@ _MODERATION_ARGS = Args["arguments", MultiVar(object, "*")]
 mute_command = Alconna(
     "禁言",
     _MODERATION_ARGS,
-    Option("--time", Args["time", int], alias=["-t"], default=2),
+    Option(
+        "--time",
+        Args["time", int],
+        alias=["-t"],
+        default=2,
+        help_text="禁言时长（分钟），默认 2",
+    ),
     meta=CommandMeta(
         "禁言群成员（时长单位为分钟）",
         usage="禁言 [@成员|成员ID] [分钟] [-t <分钟>]",
@@ -849,16 +797,16 @@ async def mute(
     context = context_from_session(session)
     target_id, minutes, invalid = _moderation_target(arguments.result, session, time)
     if invalid or target_id is None:
-        return text_message("请@成员、填写成员ID或回复目标消息")
+        return "请@成员、填写成员ID或回复目标消息"
     if minutes is None:
         minutes = 2
     if not 0 < minutes <= 30 * 24 * 60:
-        return text_message("时间非法!范围(分钟): `0 < time <= 43200`")
+        return "时间非法!范围(分钟): `0 < time <= 43200`"
     if target_id == context.account_id or account_registry.get(target_id):
-        return text_message("禁言bot?给你一棒槌!")
+        return "禁言bot?给你一棒槌!"
     if await _target_has_management_permission(context, target_id):
-        return text_message("bot权限不足!(目标权限>=32)")
-    try:
+        return "bot权限不足!(目标权限>=32)"
+    async with action_errors(session):
         await action_service.mute_member(
             context.account_id,
             context.channel_id,
@@ -867,10 +815,7 @@ async def mute(
             context=context,
             permission_checker=permission_checker,
         )
-    except ActionServiceError as error:
-        await report_action_error(error, session)
-        return text_message(_action_error(error))
-    return text_message(f"已设置【{target_id}】{minutes}分钟的禁言!")
+        return f"已设置【{target_id}】{minutes}分钟的禁言!"
 
 
 unmute_command = Alconna(
@@ -897,8 +842,8 @@ async def unmute(
         arguments.result, session, Match(None, False)
     )
     if invalid or target_id is None:
-        return text_message("请@成员、填写成员ID或回复目标消息")
-    try:
+        return "请@成员、填写成员ID或回复目标消息"
+    async with action_errors(session):
         await action_service.unmute_member(
             context.account_id,
             context.channel_id,
@@ -906,10 +851,7 @@ async def unmute(
             context=context,
             permission_checker=permission_checker,
         )
-    except ActionServiceError as error:
-        await report_action_error(error, session)
-        return text_message(_action_error(error))
-    return text_message(f"已解禁{target_id}!")
+        return f"已解禁{target_id}!"
 
 
 unmute_self_command = Alconna(
@@ -917,6 +859,7 @@ unmute_self_command = Alconna(
     meta=CommandMeta(
         "解除当前 BOT 在本群的禁言状态",
         usage="解禁自己",
+        example="/解禁自己",
         compact=True,
     ),
 )
@@ -927,7 +870,7 @@ unmute_self_command = Alconna(
 @require(Permission.GroupAdmin)
 async def unmute_self(session: Session):
     context = context_from_session(session)
-    try:
+    async with action_errors(session):
         await action_service.unmute_member(
             context.account_id,
             context.channel_id,
@@ -935,15 +878,14 @@ async def unmute_self(session: Session):
             context=context,
             permission_checker=permission_checker,
         )
-    except ActionServiceError as error:
-        await report_action_error(error, session)
-        return text_message(_action_error(error))
-    return text_message("已解除本BOT在当前群的禁言状态!")
+        return "已解除本BOT在当前群的禁言状态!"
 
 
 whole_mute_command = Alconna(
     "全体禁言",
-    meta=CommandMeta("开启全体禁言", usage="全体禁言", compact=False),
+    meta=CommandMeta(
+        "开启全体禁言", usage="全体禁言", example="/全体禁言", compact=False
+    ),
 )
 
 
@@ -952,7 +894,7 @@ whole_mute_command = Alconna(
 @require(Permission.GroupAdmin)
 async def mute_all(session: Session):
     context = context_from_session(session)
-    try:
+    async with action_errors(session):
         await action_service.mute_group(
             context.account_id,
             context.channel_id,
@@ -960,15 +902,17 @@ async def mute_all(session: Session):
             context=context,
             permission_checker=permission_checker,
         )
-    except ActionServiceError as error:
-        await report_action_error(error, session)
-        return text_message(_action_error(error))
-    return text_message("开启全体禁言成功!")
+        return "开启全体禁言成功!"
 
 
 whole_unmute_command = Alconna(
     "全体解禁",
-    meta=CommandMeta("关闭全体禁言", usage="全体解禁", compact=False),
+    meta=CommandMeta(
+        "关闭全体禁言",
+        usage="全体解禁",
+        example="/全体解禁\n/关闭全体禁言",
+        compact=False,
+    ),
 )
 whole_unmute_command.shortcut("关闭全体禁言", command="全体解禁", prefix=True)
 
@@ -978,17 +922,14 @@ whole_unmute_command.shortcut("关闭全体禁言", command="全体解禁", pref
 @require(Permission.GroupAdmin)
 async def unmute_all(session: Session):
     context = context_from_session(session)
-    try:
+    async with action_errors(session):
         await action_service.unmute_group(
             context.account_id,
             context.channel_id,
             context=context,
             permission_checker=permission_checker,
         )
-    except ActionServiceError as error:
-        await report_action_error(error, session)
-        return text_message(_action_error(error))
-    return text_message("关闭全体禁言成功!")
+        return "关闭全体禁言成功!"
 
 
 recall_command = Alconna(
@@ -996,6 +937,7 @@ recall_command = Alconna(
     meta=CommandMeta(
         "撤回回复的消息",
         usage="撤回（回复一条消息）",
+        example="/撤回（回复需要撤回的消息）",
         compact=False,
     ),
 )
@@ -1006,10 +948,10 @@ recall_command = Alconna(
 @require(Permission.GroupAdmin)
 async def recall(session: Session):
     context = context_from_session(session)
-    quote = _quoted_message(session)
+    quote = session.quote
     if quote is None or quote.id is None:
-        return text_message("请回复需要撤回的消息")
-    try:
+        return "请回复需要撤回的消息"
+    async with action_errors(session):
         await action_service.delete_message(
             context.account_id,
             quote.id,
@@ -1017,15 +959,11 @@ async def recall(session: Session):
             context=context,
             permission_checker=permission_checker,
         )
-    except ActionServiceError as error:
-        await report_action_error(error, session)
-        return text_message(_action_error(error))
-    return None
 
 
 essence_command = Alconna(
     "加精",
-    Args["message_id?", str],
+    Args["message_id?", r"re:\d+\b"],
     meta=CommandMeta(
         "设置回复消息或指定消息为群精华",
         usage="加精 [消息ID]（或回复消息）",
@@ -1044,23 +982,20 @@ async def set_essence(
     message_id: Query[str] = Query("message_id", None),
 ):
     context = context_from_session(session)
-    target_message_id = str(message_id.result).strip() if message_id.available else None
-    if target_message_id is None:
-        quote = _quoted_message(session)
-        target_message_id = str(quote.id).strip() if quote and quote.id else None
+    target_message_id = message_id.result if message_id.available else None
+    if target_message_id is None and session.quote:
+        target_message_id = session.quote.id
+    # 命令参数已由 Alconna 限定为数字；回复消息的 ID 来自平台，仍需确认。
     if not target_message_id or not target_message_id.isdigit():
-        return text_message("请提供数字消息ID或回复需要加精的消息")
-    try:
+        return "请提供数字消息ID或回复需要加精的消息"
+    async with action_errors(session):
         await action_service.set_essence(
             context.account_id,
             target_message_id,
             context=context,
             permission_checker=permission_checker,
         )
-    except ActionServiceError as error:
-        await report_action_error(error, session)
-        return text_message(_action_error(error))
-    return text_message("加精成功")
+        return "加精成功"
 
 
 kick_command = Alconna(
@@ -1087,12 +1022,12 @@ async def kick(
         arguments.result, session, Match(None, False)
     )
     if invalid or target_id is None:
-        return text_message("请@成员、填写成员ID或回复目标消息")
+        return "请@成员、填写成员ID或回复目标消息"
     if target_id == context.account_id or account_registry.get(target_id):
-        return text_message("不能踢出bot!")
+        return "不能踢出bot!"
     if await _target_has_management_permission(context, target_id):
-        return text_message("bot权限不足!(目标权限>=32)")
-    try:
+        return "bot权限不足!(目标权限>=32)"
+    async with action_errors(session):
         await action_service.kick_member(
             context.account_id,
             context.channel_id,
@@ -1100,7 +1035,4 @@ async def kick(
             context=context,
             permission_checker=permission_checker,
         )
-    except ActionServiceError as error:
-        await report_action_error(error, session)
-        return text_message(_action_error(error))
-    return text_message(f"已将{target_id}踢出群聊!")
+        return f"已将{target_id}踢出群聊!"

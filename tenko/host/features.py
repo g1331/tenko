@@ -287,8 +287,8 @@ def declare_feature(
 ) -> None:
     """为正在加载的第三方插件登记 Tenko 专有元数据（``tenko_api.features.declare``）。
 
-    写入宿主已有的 ``feature_scope`` / ``default_switch`` 元数据属性，以及
-    ``CommandPolicy`` 使用的 ``rate_weight`` 和 ``group_level``（插件要求的群等级）。
+    写入宿主已有的 ``feature_scope`` 元数据属性，以及 ``CommandPolicy`` 使用的
+    ``rate_weight`` 和 ``group_level``（插件要求的群等级）；``default_enabled`` 记入功能服务。
     内置插件没有这个入口，直接在 ``plugin.get_plugin().metadata`` 上设置同名属性，
     与 ``feature_scope`` 的写法一致。不提供 ``classifier``：第三方插件不能把自己
     标记为受保护的宿主插件。
@@ -310,7 +310,6 @@ def declare_feature(
         raise RuntimeError("declare() 只能在第三方插件的模块导入期间调用")
     metadata = native.metadata
     metadata.feature_scope = scope
-    metadata.default_switch = default_enabled
     metadata.rate_weight = rate_weight
     metadata.group_level = int(level)
     plugin_id = found

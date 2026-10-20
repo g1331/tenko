@@ -17,7 +17,6 @@ from loguru import logger
 from satori import EventType, LoginStatus
 from satori.client import Account
 
-from . import _process_start_monotonic
 from .config import TenkoConfig
 from .commands import configure_command_prefix
 from .connection import OneBotConnection
@@ -32,7 +31,7 @@ from .host.features import CommandPolicy, configure_feature_service
 from .host.plugins import PluginRuntime
 from .host.quote import quote_group_reply
 from .host.ratelimit import configure_rate_limiter
-from .host.startup import StartupHistory
+from .host.startup import startup_history
 from .host.updater import UpgradeManager, configure_updater
 from .render import RenderService
 from .webui import WebUIService
@@ -62,7 +61,7 @@ class TenkoRuntime:
             cooldown_seconds=config.ratelimit.cooldown_seconds,
             blacklist_seconds=config.ratelimit.blacklist_seconds,
         )
-        self.startup_history = StartupHistory()
+        startup_history.configure(None)
         stable_root = Path.cwd().resolve()
         self.updater = UpgradeManager.from_config(
             config.upgrade,
@@ -117,7 +116,7 @@ class TenkoRuntime:
             default_enabled=self.config.features.default_enabled,
         )
         self.rate_limiter.configure(rate_limit_repository, group_setting_repository)
-        self.startup_history = StartupHistory(startup_time_repository)
+        startup_history.configure(startup_time_repository)
 
     def _mark_runtime_state_unavailable(self) -> None:
         """数据库 bootstrap 失败时让运行期状态统一进入保守状态。"""
@@ -125,7 +124,7 @@ class TenkoRuntime:
         self.accounts.mark_unavailable()
         self.feature_service.mark_unavailable()
         self.rate_limiter.mark_unavailable()
-        self.startup_history.mark_unavailable()
+        startup_history.mark_unavailable()
 
     async def _initialize_runtime_state(self) -> None:
         """在数据库服务就绪后加载快照；单类失败不阻止宿主启动。"""
@@ -140,7 +139,7 @@ class TenkoRuntime:
             ),
             ("feature switches", self.feature_service.initialize),
             ("rate limit", self.rate_limiter.initialize),
-            ("startup duration history", self.startup_history.load),
+            ("startup duration history", startup_history.load),
         )
         for label, loader in state_loaders:
             try:
@@ -335,52 +334,26 @@ class TenkoRuntime:
         # 插件，因此不需要注册 Launart 组件。将其放在数据库模型和
         # RenderService 注册之后、run_async 之前。
         self.plugin_runtime = PluginRuntime()
+        # 宿主配置作为 Entari 插件配置在加载时传入，插件模块导入后即可使用。
+        notify_group = {"notify_group": self.config.notify_group}
         loaded_plugins = await self.plugin_runtime.load_all(
-            external_configs=self.config.plugin_config
+            {
+                "group_manager": notify_group,
+                "perm_manager": notify_group,
+                "startup_notify": notify_group,
+                "webui_account": {
+                    "enabled": self.config.webui.enabled,
+                    "public_url": self.config.webui.public_url,
+                },
+                "exception_catcher": {
+                    "evidence_dir": self.config.exception.evidence_dir
+                },
+            },
+            external_configs=self.config.plugin_config,
         )
         self._startup_notify_module = self._plugin_module(
             loaded_plugins, "startup_notify"
         )
-        group_manager = self._plugin_module(loaded_plugins, "group_manager")
-        configure_notify_group = getattr(group_manager, "configure_notify_group", None)
-        if callable(configure_notify_group):
-            configure_notify_group(self.config.notify_group)
-        startup_notify = self._startup_notify_module
-        if startup_notify is None:
-            startup_notify = self._plugin_module(loaded_plugins, "startup_notify")
-        configure_startup_notification = getattr(
-            startup_notify, "configure_startup_notification", None
-        )
-        if callable(configure_startup_notification):
-            recovery_notice_path = getattr(
-                self.updater.layout, "recovery_notice_file", None
-            )
-            notification_kwargs = {
-                "started_at": _process_start_monotonic,
-                "history": self.startup_history,
-            }
-            if recovery_notice_path is not None and recovery_notice_path.is_file():
-                notification_kwargs["recovery_notice_path"] = recovery_notice_path
-            configure_startup_notification(
-                self.config.notify_group, **notification_kwargs
-            )
-        permission_manager = self._plugin_module(loaded_plugins, "perm_manager")
-        configure_notify_group = getattr(
-            permission_manager, "configure_notify_group", None
-        )
-        if callable(configure_notify_group):
-            configure_notify_group(self.config.notify_group)
-        webui_account = self._plugin_module(loaded_plugins, "webui_account")
-        configure_webui = getattr(webui_account, "configure_webui", None)
-        if callable(configure_webui):
-            configure_webui(self.config.webui)
-        exception_catcher = self._plugin_module(loaded_plugins, "exception_catcher")
-        if exception_catcher is not None:
-            configure_evidence_directory = getattr(
-                exception_catcher, "configure_evidence_directory", None
-            )
-            if callable(configure_evidence_directory):
-                configure_evidence_directory(self.config.exception.evidence_dir)
         # 策略挂在 Entari 已解析出命令的 CommandParse 事件上，返回 False 即阻断；
         # 订阅在根作用域，随 Entari 清理一起释放。
         policy = CommandPolicy(

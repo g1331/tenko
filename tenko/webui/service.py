@@ -497,21 +497,8 @@ class WebUIService(Service):
 
     @staticmethod
     def _plugin_scope(info: object) -> str:
-        try:
-            from arclet.entari.plugin import get_plugins
-
-            lookup_names = set(getattr(info, "lookup_names", ()))
-            native = next(
-                (
-                    plugin
-                    for plugin in get_plugins(subplugged=True)
-                    if plugin.id in lookup_names
-                ),
-                None,
-            )
-        except (AttributeError, TypeError):
-            native = None
-        return str(getattr(getattr(native, "metadata", None), "feature_scope", "group"))
+        metadata = getattr(getattr(info, "native_plugin", None), "metadata", None)
+        return str(getattr(metadata, "feature_scope", "group"))
 
     async def features_view(self, request: Request) -> JSONResponse:
         del request

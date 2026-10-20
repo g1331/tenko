@@ -1,10 +1,9 @@
 from __future__ import annotations
 
 import asyncio
-import inspect
-from collections.abc import Mapping
+from collections.abc import Awaitable, Callable, Mapping
 from pathlib import Path
-from typing import Any
+from typing import Any, ParamSpec
 
 from launart import Launart, Service
 from loguru import logger
@@ -23,6 +22,8 @@ try:
     from playwright.async_api import async_playwright
 except ImportError:  # pragma: no cover - 运行时可选渲染
     async_playwright = None
+
+P = ParamSpec("P")
 
 
 class RenderError(RuntimeError):
@@ -372,29 +373,16 @@ class RenderService(Service):
         return md.render(md_text)
 
 
-async def render_or_none(
-    service: RenderService | None,
-    method_name: str,
-    *args: Any,
-    **kwargs: Any,
+async def try_render(
+    render: Callable[P, Awaitable[bytes]], /, *args: P.args, **kwargs: P.kwargs
 ) -> bytes | None:
-    """执行渲染操作，并将所有普通失败转换为 ``None``。
+    """执行渲染调用（如 ``service.render_template``），把所有普通失败转换为 ``None``。
 
-    ``service`` 参数被刻意显式传入，以便调用方使用 Entari 注入的服务，而不是
-    进程级渲染器。``None`` 仅保留给明确没有注入服务的工具函数或单元测试调用方。
+    调用方显式传入注入的 ``RenderService`` 的方法，渲染不可用时按 ``None`` 回退文本。
     """
 
-    if service is None or not isinstance(method_name, str):
-        return None
-    target: Any = getattr(service, method_name, None)
-
-    if not callable(target):
-        return None
-
     try:
-        result = target(*args, **kwargs)
-        if inspect.isawaitable(result):
-            result = await result
+        result = await render(*args, **kwargs)
     except asyncio.CancelledError:
         raise
     except Exception as error:
@@ -403,9 +391,22 @@ async def render_or_none(
 
     if isinstance(result, bytes) and result:
         return result
-    if result is not None:
-        logger.warning("图片渲染返回空或非 bytes 结果，回退文本输出")
+    logger.warning("图片渲染返回空或非 bytes 结果，回退文本输出")
     return None
+
+
+async def render_or_none(
+    service: RenderService | None,
+    method_name: str,
+    *args: Any,
+    **kwargs: Any,
+) -> bytes | None:
+    """按方法名分发的旧接口（``tenko_api.render`` 已发布），新代码用 :func:`try_render`。"""
+
+    target = getattr(service, method_name, None)
+    if not callable(target):
+        return None
+    return await try_render(target, *args, **kwargs)
 
 
 __all__ = [
@@ -414,4 +415,5 @@ __all__ = [
     "RenderTimeoutError",
     "RenderUnavailableError",
     "render_or_none",
+    "try_render",
 ]

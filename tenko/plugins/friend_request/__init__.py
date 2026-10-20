@@ -21,7 +21,7 @@ from tenko.host.friend_requests import (
 )
 from tenko.host.guards import private_only, require
 from tenko.host.perm import Permission, PermissionChecker
-from tenko.plugins._common import master_id_for_account, text_message
+from tenko.plugins._common import master_id_for_account
 
 
 plugin.metadata(
@@ -32,9 +32,6 @@ plugin.metadata(
     description="按全局策略处理好友申请，Master 私聊或 WebUI 可随时调整。",
     classifier=["required", "host"],
 )
-# 与其他控制平面插件一致：保留 default_switch 兼容标记，群管理员不能停用。
-plugin.get_plugin().metadata.default_switch = True
-
 
 permission_checker = PermissionChecker()
 
@@ -148,9 +145,9 @@ async def friend_request_policy(
     try:
         if not mode.available:
             current = MODE_LABELS[await get_mode(repository)]
-            return text_message(f"当前好友申请策略：{current}")
+            return f"当前好友申请策略：{current}"
         value = next(key for key, label in MODE_LABELS.items() if label == mode.result)
         await set_mode(repository, value)
     except (DatabaseUnavailableError, ValueError):
-        return text_message("设置数据库暂不可用或数据异常，请稍后再试")
-    return text_message(f"好友申请策略已设为：{MODE_LABELS[value]}")
+        return "设置数据库暂不可用或数据异常，请稍后再试"
+    return f"好友申请策略已设为：{MODE_LABELS[value]}"

@@ -2,12 +2,12 @@ from __future__ import annotations
 
 import inspect
 import sys
-from collections.abc import Mapping
+from collections.abc import AsyncIterator, Mapping
+from contextlib import asynccontextmanager
 
-from arclet.entari.config import EntariConfig
-from arclet.entari import MessageChain, Session
+from arclet.entari import BasicConfModel, MessageChain, Session
 from loguru import logger
-from satori import Text
+from satori import Image, Text
 
 from tenko.context import MessageContext
 from tenko.host.actions import (
@@ -19,6 +19,8 @@ from tenko.host.actions import (
     ActionServiceError,
     ActionTargetUnavailable,
 )
+from tenko.host.perm import superuser_ids
+from tenko.render import RenderService, try_render
 
 
 def context_from_session(session: Session) -> MessageContext:
@@ -30,36 +32,20 @@ def context_from_session(session: Session) -> MessageContext:
     return MessageContext.from_event(origin)
 
 
-def text_message(content: str) -> MessageChain:
-    """从 Satori 文本元素构造 Entari 原生消息。"""
+class NotifyGroupConfig(BasicConfModel):
+    """内置插件共用的 Entari 插件配置：管理通知的群目标，空值表示改发 Master 私聊。"""
 
-    return MessageChain(Text(content))
+    notify_group: str | int | None = None
 
 
 def master_id_for_account(account: object, permission_checker: object) -> str | None:
     """按现有通知策略解析账号对应的第一个 Master。"""
 
-    def normalize(value: object) -> str | None:
-        if value is None:
-            return None
-        normalized = str(value).strip()
-        return normalized or None
-
     registry = getattr(permission_checker, "registry", None)
-    configured_master = normalize(getattr(registry, "master_id", None))
-    if configured_master is not None:
+    configured_master = str(getattr(registry, "master_id", None) or "").strip()
+    if configured_master:
         return configured_master
-    if not EntariConfig._inited:
-        return None
-    configured = EntariConfig.instance.basic.superusers
-    platform = getattr(account, "platform", "onebot")
-    if not isinstance(configured, Mapping):
-        return None
-    for value in configured.get(platform, ()):
-        master_id = normalize(value)
-        if master_id is not None:
-            return master_id
-    return None
+    return next(iter(superuser_ids(getattr(account, "platform", "onebot"))), None)
 
 
 async def send_private_message(session: Session, user_id: str, content: str) -> bool:
@@ -114,6 +100,21 @@ def action_error_message(error: BaseException) -> str:
     if isinstance(error, ActionServiceError):
         return "平台操作失败，已通知开发者"
     return "平台操作失败，已通知开发者"
+
+
+@asynccontextmanager
+async def action_errors(session: Session) -> AsyncIterator[None]:
+    """把平台动作失败转成群内短提示，并向 superusers 上报原始错误。
+
+    成功消息写在 ``async with`` 块内 ``return``；失败时异常被吞掉、提示已经发出，
+    块后无返回，处理函数得到 ``None``（Entari 不再发送任何内容）。
+    """
+
+    try:
+        yield
+    except ActionServiceError as error:
+        await report_action_error(error, session)
+        await session.send(action_error_message(error))
 
 
 def _action_failure_fields(error: BaseException) -> tuple[object, ...]:
@@ -177,3 +178,38 @@ def normalize_targets(value: object) -> tuple[str, ...]:
     if isinstance(value, str):
         return (value,)
     return tuple(str(item) for item in value)  # type: ignore[union-attr]
+
+
+async def render_or_text(
+    render_service: RenderService,
+    template: str,
+    data: Mapping[str, object],
+    fallback: str,
+) -> MessageChain | str:
+    """渲染 HTML 模板为图片消息；渲染不可用或失败时返回文本 ``fallback``。"""
+
+    image = await try_render(render_service.render_template, template, dict(data))
+    if image is None:
+        return fallback
+    return MessageChain(Image.of(raw=image, mime="image/jpeg"))
+
+
+def list_data(
+    title: str,
+    subtitle: str,
+    badge: str,
+    summary: str,
+    items: tuple[dict[str, object], ...],
+    empty_text: str,
+) -> dict[str, object]:
+    """``list.html`` 模板的渲染数据。"""
+
+    return {
+        "title": title,
+        "subtitle": subtitle,
+        "badge": badge,
+        "summary": summary,
+        "items": items,
+        "item_count": len(items),
+        "empty_text": empty_text,
+    }

@@ -5,6 +5,7 @@ from types import SimpleNamespace
 from unittest.mock import ANY, AsyncMock
 
 import pytest
+from arclet.entari import Session
 from arclet.entari.command import Match, Query
 from arclet.entari.event.base import GuildMemberUpdatedEvent
 from satori import (
@@ -21,6 +22,7 @@ from satori import (
 from satori.model import Event, Member
 
 from tenko.host.perm import Permission, PermissionChecker, PermissionRegistry
+from tenko.plugins._common import NotifyGroupConfig
 
 
 def make_session(user_id: str, role: str):
@@ -101,6 +103,15 @@ def make_query(path: str, result):
     return query
 
 
+@pytest.mark.parametrize("loaded_plugin", ["perm_manager"], indirect=True)
+def test_permission_levels_are_validated_by_the_command_patterns(loaded_plugin) -> None:
+    assert loaded_plugin.modify_user_command.parse("/修改权限 32 123456").matched
+    assert not loaded_plugin.modify_user_command.parse("/修改权限 17 123456").matched
+    assert not loaded_plugin.modify_user_command.parse("/修改权限 320 123456").matched
+    assert loaded_plugin.modify_group_command.parse("/修改群权限 3").matched
+    assert not loaded_plugin.modify_group_command.parse("/修改群权限 4").matched
+
+
 @pytest.mark.asyncio
 @pytest.mark.parametrize("loaded_plugin", ["perm_manager"], indirect=True)
 async def test_permission_list_rejects_cross_group_target_in_group(
@@ -129,7 +140,9 @@ async def test_master_private_permission_list_can_query_requested_group(
     loaded_plugin._group_member_permissions = AsyncMock(
         return_value=[SimpleNamespace(qq=30001, perm=32)]
     )
-    monkeypatch.setattr(loaded_plugin, "render_or_none", AsyncMock(return_value=None))
+    monkeypatch.setattr(
+        "tenko.plugins._common.try_render", AsyncMock(return_value=None)
+    )
 
     result = await loaded_plugin.get_perm_list.callable_target(
         make_private_session("90001"),
@@ -180,7 +193,9 @@ async def test_sensitive_permission_lists_render_data(
         loaded_plugin._global_black_ids = AsyncMock(return_value={"20002"})
     else:
         loaded_plugin._bot_admin_ids = AsyncMock(return_value={"20003"})
-    monkeypatch.setattr(loaded_plugin, "render_or_none", AsyncMock(return_value=None))
+    monkeypatch.setattr(
+        "tenko.plugins._common.try_render", AsyncMock(return_value=None)
+    )
 
     handler = getattr(loaded_plugin, handler_name)
     private_result = await handler.callable_target(
@@ -200,7 +215,7 @@ async def test_permission_list_wraps_successful_render_as_image(
     )
     loaded_plugin._global_black_ids = AsyncMock(return_value={"20002"})
     renderer = AsyncMock(return_value=b"jpeg-bytes")
-    monkeypatch.setattr(loaded_plugin, "render_or_none", renderer)
+    monkeypatch.setattr("tenko.plugins._common.try_render", renderer)
     render_service = loaded_plugin.RenderService()
 
     result = await loaded_plugin.get_global_black_list.callable_target(
@@ -210,13 +225,12 @@ async def test_permission_list_wraps_successful_render_as_image(
 
     assert isinstance(result[0], Image)
     renderer.assert_awaited_once()
-    assert renderer.await_args.args[:3] == (
-        render_service,
-        "render_template",
+    assert renderer.await_args.args[:2] == (
+        render_service.render_template,
         "list.html",
     )
-    assert renderer.await_args.args[3]["title"] == "全局黑名单"
-    assert renderer.await_args.args[3]["items"][0]["name"] == "20002"
+    assert renderer.await_args.args[2]["title"] == "全局黑名单"
+    assert renderer.await_args.args[2]["items"][0]["name"] == "20002"
 
 
 @pytest.mark.asyncio
@@ -232,7 +246,7 @@ async def test_permission_command_reads_and_writes_real_repository(
 
     result = await loaded_plugin.change_user_perm.callable_target(
         make_session("20001", "owner"),
-        Match(32, True),
+        Match("32", True),
         Match(("30001",), True),
         Query("group.group_id"),
     )
@@ -269,7 +283,7 @@ async def test_group_permission_commands_sync_real_repository(
     await member_perm_repository.set_permission("40001", "30003", Permission.User)
 
     group_result = await loaded_plugin.change_group_perm.callable_target(
-        session, Match(2, True), Query("group.group_id")
+        session, Match("2", True), Query("group.group_id")
     )
     type_result = await loaded_plugin.change_group_perm_type.callable_target(
         session, Match("admin", True), Query("group.group_id")
@@ -316,7 +330,7 @@ async def test_permission_command_rejects_non_member_without_writing(
 
     result = await loaded_plugin.change_user_perm.callable_target(
         make_session("20001", "owner"),
-        Match(32, True),
+        Match("32", True),
         Match(("30001",), True),
         Query("group.group_id"),
     )
@@ -328,23 +342,22 @@ async def test_permission_command_rejects_non_member_without_writing(
 @pytest.mark.asyncio
 @pytest.mark.parametrize("loaded_plugin", ["perm_manager"], indirect=True)
 async def test_notify_group_protection_blocks_both_permission_commands(
-    loaded_plugin, tenko_database
+    loaded_plugin, tenko_database, monkeypatch
 ) -> None:
     del tenko_database
     loaded_plugin.permission_checker = PermissionChecker(
         registry=PermissionRegistry(bot_admin_ids=["20001"])
     )
-    loaded_plugin.configure_notify_group("40001")
-    try:
-        session = make_session("20001", "member")
-        group_result = await loaded_plugin.change_group_perm.callable_target(
-            session, Match(2, True), Query("group.group_id")
-        )
-        type_result = await loaded_plugin.change_group_perm_type.callable_target(
-            session, Match("admin", True), Query("group.group_id")
-        )
-    finally:
-        loaded_plugin.configure_notify_group(None)
+    monkeypatch.setattr(
+        loaded_plugin, "config", NotifyGroupConfig(notify_group="40001")
+    )
+    session = make_session("20001", "member")
+    group_result = await loaded_plugin.change_group_perm.callable_target(
+        session, Match("2", True), Query("group.group_id")
+    )
+    type_result = await loaded_plugin.change_group_perm_type.callable_target(
+        session, Match("admin", True), Query("group.group_id")
+    )
 
     assert str(group_result) == "无法通过该指令修改通知群(40001)权限!"
     assert str(type_result) == "无法通过该指令修改通知群(40001)权限!"
@@ -362,7 +375,7 @@ async def test_permission_write_reports_database_unavailable(
     )
     configure_session_factory(None)
     result = await loaded_plugin.change_group_perm.callable_target(
-        make_session("20001", "member"), Match(2, True), Query("group.group_id")
+        make_session("20001", "member"), Match("2", True), Query("group.group_id")
     )
 
     assert str(result) == "数据库暂不可用，修改群权限未执行"
@@ -380,15 +393,16 @@ async def test_platform_admin_demotion_keeps_tenko_permission_and_prompts_in_gro
     loaded_plugin._member_permission = AsyncMock(return_value=Permission.GroupAdmin)
     loaded_plugin._write_member_permission = AsyncMock()
 
+    event = make_member_update_event(account)
     await loaded_plugin.auto_change_member_permission.callable_target(
-        make_member_update_event(account)
+        event, Session(account, event)
     )
 
     loaded_plugin._write_member_permission.assert_not_awaited()
     assert len(account.protocol.group_messages) == 1
     notice = account.protocol.group_messages[0]
     assert "检测到群管理权限变动" in notice
-    assert "被降级管理员(30001)-&gt;16" in notice
+    assert "被降级管理员(30001)->16" in notice
     assert "/修改权限 16 30001" in notice
 
 
@@ -403,12 +417,13 @@ async def test_platform_admin_demotion_falls_back_to_master_private_notice(
     loaded_plugin._permission_type = AsyncMock(return_value="default")
     loaded_plugin._member_permission = AsyncMock(return_value=Permission.GroupOwner)
     loaded_plugin._write_member_permission = AsyncMock()
-    loaded_plugin._superuser_ids = lambda _account: ("90001",)
+    monkeypatch.setattr(loaded_plugin, "superuser_ids", lambda _platform: ("90001",))
     private_sender = AsyncMock()
     monkeypatch.setattr(loaded_plugin, "send_private_message", private_sender)
 
+    event = make_member_update_event(account, channel=False)
     await loaded_plugin.auto_change_member_permission.callable_target(
-        make_member_update_event(account, channel=False)
+        event, Session(account, event)
     )
 
     loaded_plugin._write_member_permission.assert_not_awaited()
@@ -436,7 +451,7 @@ async def test_invalid_ids_are_reported_instead_of_raised(
     )
     group = await loaded_plugin.change_group_perm.callable_target(
         make_session("20002", "member"),
-        Match(2, True),
+        Match("2", True),
         make_query("group.group_id", 10**30),
     )
 
@@ -471,7 +486,7 @@ async def test_group_blacklist_survives_leave_and_type_sync(
     event = SimpleNamespace(
         guild=Guild("40001", "Tenko"), user=User("30001"), channel=None
     )
-    await loaded_plugin.auto_delete_member_permission(event)
+    await loaded_plugin.auto_delete_member_permission(event, AsyncMock())
     assert await member_perm_repository.get_permission("40001", "30001") == 0
 
 
@@ -490,7 +505,7 @@ async def test_joining_bot_admin_gets_no_group_row(
     event = SimpleNamespace(
         guild=Guild("40001", "Tenko"), user=User("20001"), channel=None
     )
-    await loaded_plugin.auto_add_member_permission(event)
+    await loaded_plugin.auto_add_member_permission(event, AsyncMock())
 
     assert await member_perm_repository.get_permission("40001", "20001") is None
 

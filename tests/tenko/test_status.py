@@ -178,7 +178,7 @@ async def test_status_command_sends_rendered_image_when_available(
     loaded_plugin.permission_checker = PermissionChecker(registry=PermissionRegistry())
     patch_status_data(loaded_plugin, monkeypatch)
     renderer = AsyncMock(return_value=b"jpeg-bytes")
-    monkeypatch.setattr(loaded_plugin, "render_or_none", renderer)
+    monkeypatch.setattr("tenko.plugins._common.try_render", renderer)
     render_service = loaded_plugin.RenderService()
 
     result = await loaded_plugin.status.callable_target(
@@ -188,12 +188,11 @@ async def test_status_command_sends_rendered_image_when_available(
     )
 
     renderer.assert_awaited_once()
-    assert renderer.await_args.args[:3] == (
-        render_service,
-        "render_template",
+    assert renderer.await_args.args[:2] == (
+        render_service.render_template,
         "status.html",
     )
-    assert renderer.await_args.args[3]["content"].startswith("开机时间：2026年")
+    assert renderer.await_args.args[2]["content"].startswith("开机时间：2026年")
     assert isinstance(result[0], Image)
 
 
@@ -205,7 +204,7 @@ async def test_status_command_falls_back_to_text_when_rendering_fails(
     loaded_plugin.permission_checker = PermissionChecker(registry=PermissionRegistry())
     patch_status_data(loaded_plugin, monkeypatch)
     renderer = AsyncMock(return_value=None)
-    monkeypatch.setattr(loaded_plugin, "render_or_none", renderer)
+    monkeypatch.setattr("tenko.plugins._common.try_render", renderer)
     render_service = loaded_plugin.RenderService()
 
     result = await loaded_plugin.status.callable_target(
@@ -215,10 +214,9 @@ async def test_status_command_falls_back_to_text_when_rendering_fails(
     )
 
     renderer.assert_awaited_once_with(
-        render_service,
-        "render_template",
+        render_service.render_template,
         "status.html",
-        renderer.await_args.args[3],
+        renderer.await_args.args[2],
     )
     assert str(result).startswith("开机时间：2026年")
 
@@ -566,9 +564,9 @@ def test_plugin_count_only_counts_loaded_plugins(loaded_plugin, monkeypatch) -> 
 
     monkeypatch.setattr(PluginRuntime, "discover", discover)
     monkeypatch.setattr(
-        PluginRuntime,
-        "_native_plugin",
-        staticmethod(lambda info: object() if info.name != "ext_off" else None),
+        PluginInfo,
+        "native_plugin",
+        property(lambda info: object() if info.name != "ext_off" else None),
     )
 
     assert loaded_plugin._plugin_count() == 2

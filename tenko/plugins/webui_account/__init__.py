@@ -5,13 +5,11 @@ from __future__ import annotations
 from datetime import UTC, datetime
 
 from arclet.alconna import Alconna, CommandMeta
-from arclet.entari import Session, command, plugin
-from arclet.entari.plugin import PluginRole
+from arclet.entari import BasicConfModel, Session, command, plugin
+from arclet.entari.plugin import PluginRole, plugin_config
 
-from tenko.config import WebUIConfig
 from tenko.host.guards import private_only, require
 from tenko.host.perm import Permission
-from tenko.plugins._common import text_message
 from tenko.webui.auth import default_repository, reset_password
 
 
@@ -23,18 +21,16 @@ plugin.metadata(
     description="Master 在私聊中查看面板账号、重置密码并让所有登录会话下线。",
     classifier=["required", "host"],
 )
-# 与其他控制平面插件一致：保留 default_switch 兼容标记，群管理员不能停用。
-plugin.get_plugin().metadata.default_switch = True
 
 
-_webui_config: WebUIConfig | None = None
+class Config(BasicConfModel):
+    """由宿主按 ``[webui]`` 传入，用于生成回复中的面板地址。"""
+
+    enabled: bool = True
+    public_url: str | None = None
 
 
-def configure_webui(config: WebUIConfig | None) -> None:
-    """由 runtime 注入 WebUI 配置，用于生成回复中的面板地址。"""
-
-    global _webui_config
-    _webui_config = config
+config = plugin_config(Config)
 
 
 account_command = Alconna(
@@ -67,10 +63,9 @@ logout_command = Alconna(
 
 
 def _panel_url() -> str:
-    config = _webui_config
-    if config is not None and not config.enabled:
+    if not config.enabled:
         return "WebUI 未启用（在配置中设置 [webui] enabled = true 后重启）"
-    if config is not None and config.public_url:
+    if config.public_url:
         return f"{config.public_url}/webui"
     return "/webui（请在配置 [webui] 中设置 public_url 以显示完整访问地址）"
 
@@ -82,7 +77,7 @@ async def show_account(session: Session):
     repository = default_repository()
     account = await repository.get_account()
     count = await repository.count_sessions(datetime.now(UTC))
-    return text_message(
+    return (
         f"面板用户名：{account.username if account else 'master（尚未设置密码）'}\n"
         f"密码状态：{'已设置' if account else '未设置，请发送 /面板重置密码'}\n"
         f"在线会话：{count}\n"
@@ -95,7 +90,7 @@ async def show_account(session: Session):
 @require(Permission.Master)
 async def reset_account_password(session: Session):
     username, password, revoked = await reset_password()
-    return text_message(
+    return (
         "面板密码已重置，所有登录会话已下线"
         f"（{revoked} 个）。\n"
         f"用户名：{username}\n"
@@ -110,4 +105,4 @@ async def reset_account_password(session: Session):
 @require(Permission.Master)
 async def revoke_sessions(session: Session):
     count = await default_repository().delete_sessions()
-    return text_message(f"已让 {count} 个面板会话下线")
+    return f"已让 {count} 个面板会话下线"

@@ -6,7 +6,6 @@ SQLAlchemy 查询对象暴露给宿主或插件调用方。
 
 from __future__ import annotations
 
-import sqlite3
 from collections.abc import AsyncIterator, Callable, Iterable
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
@@ -14,19 +13,13 @@ from datetime import UTC, datetime
 from typing import Any
 
 from sqlalchemy import delete, func, select, update
-from sqlalchemy.exc import (
-    DBAPIError,
-    DisconnectionError,
-    InterfaceError,
-    NoSuchModuleError,
-    OperationalError,
-)
 
 from .errors import (
     DatabaseUnavailableError,
     InvalidGroupPermissionError,
     InvalidGroupSettingError,
     InvalidPermissionError,
+    is_database_unavailable,
 )
 from .ids import to_database_id
 from .models import (
@@ -49,12 +42,6 @@ _MEMBER_PERMISSIONS = frozenset({-1, 0, 16, 32, 64, 128, 256})
 _GROUP_PERMISSIONS = frozenset({0, 1, 2, 3})
 _RESPONSE_TYPES = frozenset({"random", "deterministic"})
 _PERMISSION_TYPES = frozenset({"default", "admin"})
-_UNAVAILABLE_SQLALCHEMY_ERRORS = (
-    DisconnectionError,
-    InterfaceError,
-    NoSuchModuleError,
-    OperationalError,
-)
 
 
 def configure_session_factory(factory: _SessionFactory | None) -> None:
@@ -78,27 +65,6 @@ def configure_database_service(service: Any | None) -> None:
             "官方 database service 尚未提供 get_session 工厂"
         )
     configure_session_factory(factory)
-
-
-def _is_database_unavailable(error: BaseException) -> bool:
-    if isinstance(error, DatabaseUnavailableError):
-        return True
-    if isinstance(
-        error, ConnectionError | TimeoutError | OSError | sqlite3.OperationalError
-    ):
-        return True
-    if isinstance(error, _UNAVAILABLE_SQLALCHEMY_ERRORS):
-        return True
-    if isinstance(error, DBAPIError):
-        return bool(error.connection_invalidated)
-    if isinstance(error, ImportError):
-        module_name = getattr(error, "name", None)
-        return bool(
-            module_name
-            and module_name in {"sqlalchemy", "aiosqlite"}
-            or "No module named 'sqlalchemy'" in str(error)
-        )
-    return False
 
 
 def _permission(value: int) -> int:
@@ -146,7 +112,7 @@ class _Repository:
         except DatabaseUnavailableError:
             raise
         except Exception as error:
-            if not _is_database_unavailable(error):
+            if not is_database_unavailable(error):
                 raise
             raise DatabaseUnavailableError(
                 f"Tenko 数据库不可用: {type(error).__name__}: {error}"

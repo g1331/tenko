@@ -47,7 +47,9 @@ def make_session(user_id: str, role: str):
 async def test_helper_trigger_uses_native_command_registry(
     loaded_plugin, monkeypatch
 ) -> None:
-    monkeypatch.setattr(loaded_plugin, "render_or_none", AsyncMock(return_value=None))
+    monkeypatch.setattr(
+        "tenko.plugins._common.try_render", AsyncMock(return_value=None)
+    )
 
     result = await loaded_plugin.helper.callable_target(
         make_session("20001", "member"),
@@ -101,7 +103,7 @@ def test_help_data_partitions_required_available_and_maintenance(
 
     monkeypatch.setattr(loaded_plugin.plugin_runtime, "discover", lambda: infos)
     monkeypatch.setattr(
-        loaded_plugin, "get_plugins", lambda *, subplugged: native_plugins
+        "tenko.host.plugins.get_plugins", lambda *, subplugged: native_plugins
     )
     monkeypatch.setattr(loaded_plugin, "feature_service", FakeFeatureService())
 
@@ -146,7 +148,7 @@ def test_help_marks_host_plugins_as_protected(monkeypatch, loaded_plugin):
     )
     monkeypatch.setattr(loaded_plugin.plugin_runtime, "discover", lambda: (info,))
     monkeypatch.setattr(
-        loaded_plugin, "get_plugins", lambda *, subplugged: (native_plugin,)
+        "tenko.host.plugins.get_plugins", lambda *, subplugged: (native_plugin,)
     )
 
     data = loaded_plugin.build_help_data()
@@ -163,6 +165,24 @@ def use_fake_native_commands(monkeypatch, loaded_plugin) -> None:
         loaded_plugin, "get_plugin_commands", lambda plugin: plugin._extra["commands"]
     )
     monkeypatch.setattr(loaded_plugin, "command_requirements", lambda plugin: {})
+
+
+@pytest.mark.parametrize("loaded_plugin", ["helper"], indirect=True)
+def test_command_help_lists_option_descriptions(loaded_plugin):
+    from arclet.alconna import Alconna, Args, CommandMeta, Option
+
+    command = Alconna(
+        "示例",
+        Option("--time", Args["time", int], alias=["-t"], help_text="时长（分钟）"),
+        Option("--quiet"),  # 没写说明的选项不展示
+        meta=CommandMeta("示例命令"),
+    )
+
+    text = loaded_plugin._format_command_help(command, "示例", ["/"])
+
+    assert "选项：--time/-t：时长（分钟）" in text
+    assert "--quiet" not in text
+    assert "--help" not in text
 
 
 @pytest.mark.parametrize("loaded_plugin", ["helper"], indirect=True)
@@ -255,7 +275,7 @@ def test_help_number_uses_plugin_commands_for_card_positions(
 
     monkeypatch.setattr(loaded_plugin.plugin_runtime, "discover", lambda: infos)
     monkeypatch.setattr(
-        loaded_plugin, "get_plugins", lambda *, subplugged: native_plugins
+        "tenko.host.plugins.get_plugins", lambda *, subplugged: native_plugins
     )
     monkeypatch.setattr(loaded_plugin.command_manager, "get_command", get_command)
 
@@ -372,7 +392,7 @@ def test_help_lists_loaded_external_plugins_in_their_own_section(
             return True
 
     monkeypatch.setattr(loaded_plugin.plugin_runtime, "discover", lambda: infos)
-    monkeypatch.setattr(loaded_plugin, "get_plugins", lambda *, subplugged: natives)
+    monkeypatch.setattr("tenko.host.plugins.get_plugins", lambda *, subplugged: natives)
     monkeypatch.setattr(loaded_plugin, "feature_service", FakeFeatureService())
 
     data = loaded_plugin.build_help_data("40001")
@@ -400,7 +420,9 @@ def test_help_hides_third_party_section_when_none_loaded(monkeypatch, loaded_plu
         id="mod_local", metadata=SimpleNamespace(name="本地", classifier=())
     )
     monkeypatch.setattr(loaded_plugin.plugin_runtime, "discover", lambda: (info,))
-    monkeypatch.setattr(loaded_plugin, "get_plugins", lambda *, subplugged: (native,))
+    monkeypatch.setattr(
+        "tenko.host.plugins.get_plugins", lambda *, subplugged: (native,)
+    )
     data = loaded_plugin.build_help_data()
     assert [section["key"] for section in data["sections"]] == [
         "required",

@@ -1,17 +1,15 @@
 from __future__ import annotations
 
 from arclet.alconna import Alconna, Args, CommandMeta
-from arclet.entari import MessageChain, Session, command, plugin
-from arclet.entari.command import Query
+from arclet.entari import Session, command, plugin
+from arclet.entari.command import Match, Query
 from arclet.entari.plugin import PluginRole
-from satori import Image
 
 from tenko.host.accounts import AccountRegistry, account_registry
 from tenko.host.guards import group_only, private_only, require
 from tenko.host.perm import Permission
-from tenko.plugins._common import context_from_session, text_message
+from tenko.plugins._common import context_from_session, list_data, render_or_text
 from tenko.render import RenderService
-from tenko.render import render_or_none
 
 
 plugin.metadata(
@@ -22,9 +20,6 @@ plugin.metadata(
     description="查询并管理 Tenko 多账号在线、群绑定、响应策略和禁言状态。",
     classifier=["required"],
 )
-# Entari 0.19.1 的构造函数没有 default_switch 字段。将兼容性标记保留在原生
-# metadata 上，供 host/plugins.py 和 inspectors 使用。
-plugin.get_plugin().metadata.default_switch = True
 
 
 def _mute_label(registry: AccountRegistry, account_id: str, group_id: str) -> str:
@@ -91,39 +86,6 @@ def format_online_bots(registry: AccountRegistry) -> str:
     return "\n".join(lines)
 
 
-def _list_data(
-    title: str,
-    subtitle: str,
-    badge: str,
-    summary: str,
-    items: tuple[dict[str, object], ...],
-    empty_text: str,
-) -> dict[str, object]:
-    return {
-        "title": title,
-        "subtitle": subtitle,
-        "badge": badge,
-        "summary": summary,
-        "items": items,
-        "item_count": len(items),
-        "empty_text": empty_text,
-    }
-
-
-async def _render_list(
-    render_service: RenderService, data: dict[str, object]
-) -> MessageChain | None:
-    image = await render_or_none(
-        render_service,
-        "render_template",
-        "list.html",
-        data,
-    )
-    if image is None:
-        return None
-    return MessageChain(Image.of(raw=image, mime="image/jpeg"))
-
-
 def build_group_bots_data(
     registry: AccountRegistry, group_id: str | int
 ) -> dict[str, object] | None:
@@ -144,7 +106,7 @@ def build_group_bots_data(
             "badge": "当前群",
         },
     )
-    return _list_data(
+    return list_data(
         "BOT列表",
         "当前群 · 多账号绑定数量",
         f"群 {normalized_group}",
@@ -196,7 +158,7 @@ def build_account_groups_data(
         )
     if not groups:
         items[0]["detail"] = "暂无群绑定"
-    return _list_data(
+    return list_data(
         "BOT群列表",
         "Master 私聊 · 单个 BOT 群绑定",
         f"BOT {normalized_account}",
@@ -223,7 +185,7 @@ def build_all_account_groups_data(
                 "badge": "BOT",
             }
         )
-    return _list_data(
+    return list_data(
         "BOT群列表",
         "Master 私聊 · 全部群绑定与状态",
         "MASTER",
@@ -253,7 +215,7 @@ def build_online_bots_data(
             "badge": "当前群",
         },
     )
-    return _list_data(
+    return list_data(
         "在线 BOT",
         "当前群 · 在线数量",
         f"群 {normalized_group}",
@@ -282,9 +244,8 @@ async def bot_list(session: Session, *, render_service: RenderService):
     result = format_group_bots(account_registry, context.channel_id)
     data = build_group_bots_data(account_registry, context.channel_id)
     if data is None:
-        return text_message(result)
-    image = await _render_list(render_service, data)
-    return image if image is not None else text_message(result)
+        return result
+    return await render_or_text(render_service, "list.html", data, result)
 
 
 bot_group_list_command = Alconna(
@@ -312,22 +273,22 @@ async def bot_group_list(
         result = format_account_groups(account_registry, account_id.result)
         data = build_account_groups_data(account_registry, account_id.result)
         if data is None:
-            return text_message(result)
-        image = await _render_list(render_service, data)
-        return image if image is not None else text_message(result)
+            return result
+        return await render_or_text(render_service, "list.html", data, result)
 
     if not account_registry.accounts:
-        return text_message("当前没有注册BOT")
+        return "当前没有注册BOT"
     account_ids = tuple(account_registry.accounts)
     result = "\n\n".join(
         format_account_groups(account_registry, current_id)
         for current_id in account_ids
     )
-    image = await _render_list(
+    return await render_or_text(
         render_service,
+        "list.html",
         build_all_account_groups_data(account_registry, account_ids),
+        result,
     )
-    return image if image is not None else text_message(result)
 
 
 online_bot_command = Alconna(
@@ -350,13 +311,14 @@ async def online_bot(session: Session, *, render_service: RenderService):
     bound = account_registry.bound_accounts_for_group(normalized_group)
     available = account_registry.accounts_for_group(normalized_group)
     if not bound:
-        return text_message(f"没有找到目标群:{normalized_group}")
+        return f"没有找到目标群:{normalized_group}"
     result = f"群{normalized_group}在线BOT: {len(available)}/{len(bound)}"
-    image = await _render_list(
+    return await render_or_text(
         render_service,
+        "list.html",
         build_online_bots_data(account_registry, normalized_group),
+        result,
     )
-    return image if image is not None else text_message(result)
 
 
 response_strategy_command = Alconna(
@@ -382,24 +344,23 @@ async def set_response_strategy(
     group_id = str(context.channel_id)
     current = account_registry.response_type_for_group(group_id)
     if current is None:
-        return text_message("当前群未绑定可用BOT")
+        return "当前群未绑定可用BOT"
     if not response_type.available:
-        return text_message(f"当前群响应策略：{current}")
+        return f"当前群响应策略：{current}"
 
-    requested = str(response_type.result).strip().lower()
-    if requested not in {"random", "deterministic"}:
-        return text_message("响应策略只能是 random 或 deterministic")
+    requested = response_type.result
     if requested == current:
-        return text_message("响应模式与当前相同!")
+        return "响应模式与当前相同!"
 
     account_registry.set_response_type(group_id, requested)
     await account_registry.persist_state()
-    return text_message(f"已将当前群响应策略设为 {requested}")
+    return f"已将当前群响应策略设为 {requested}"
 
 
 specified_bot_command = Alconna(
     "指定BOT",
-    Args["account_id", str],
+    # 账号 ID 是纯数字；\b 保证整词匹配（Alconna 的正则只做前缀匹配）。
+    Args["account_id", r"re:(?:\d+|清除)\b"],
     meta=CommandMeta(
         "指定或清除当前群的 deterministic 响应 BOT",
         usage="指定BOT <账号ID|清除>",
@@ -414,31 +375,27 @@ specified_bot_command = Alconna(
 @require(Permission.GroupAdmin)
 async def choose_response_bot(
     session: Session,
-    account_id: Query[str] = Query("account_id", None),
+    account_id: Match[str],
 ):
-    if not account_id.available:
-        return text_message("请提供 BOT 账号 ID 或“清除”")
     context = context_from_session(session)
     group_id = str(context.channel_id)
     if account_registry.response_type_for_group(group_id) is None:
-        return text_message("当前群未绑定可用BOT")
+        return "当前群未绑定可用BOT"
 
-    requested = str(account_id.result).strip()
+    requested = account_id.result
     if requested == "清除":
         account_registry.clear_deterministic_account(group_id)
         await account_registry.persist_state()
-        return text_message("已清除当前群指定响应BOT，恢复默认选路")
-    if not requested.isdigit():
-        return text_message("BOT账号必须为数字或“清除”")
+        return "已清除当前群指定响应BOT，恢复默认选路"
     if account_registry.get(requested) is None:
-        return text_message("当前账号列表中没有找到这个 BOT")
+        return "当前账号列表中没有找到这个 BOT"
     if requested not in {
         str(account.self_id)
         for account in account_registry.bound_accounts_for_group(group_id)
     }:
-        return text_message("这个 BOT 尚未绑定当前群")
+        return "这个 BOT 尚未绑定当前群"
 
     account_registry.set_deterministic_account(group_id, requested)
     account_registry.set_response_type(group_id, "deterministic")
     await account_registry.persist_state()
-    return text_message(f"已成功设定群指定响应BOT为{requested}")
+    return f"已成功设定群指定响应BOT为{requested}"

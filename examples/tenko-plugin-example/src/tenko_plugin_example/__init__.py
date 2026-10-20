@@ -14,7 +14,6 @@ from arclet.entari.command import Query
 
 from tenko_api.context import context_from_session
 from tenko_api.features import declare
-from tenko_api.messages import text_message
 from tenko_api.perm import Permission, require
 from tenko_api.storage import Model, Store, get_session
 
@@ -94,4 +93,4 @@ async def example(session: Session, note: Query[str] = Query("note", "")):
             await db.commit()
 
     reply = f"{config.greeting}，这是你第 {record['count']} 次使用示例命令"
-    return text_message(f"{reply}（上次备注：{previous}）" if previous else reply)
+    return f"{reply}（上次备注：{previous}）" if previous else reply

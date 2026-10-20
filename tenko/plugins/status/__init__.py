@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import importlib.metadata
 import os
 import subprocess
@@ -16,18 +17,16 @@ except ModuleNotFoundError:  # pragma: no cover - Python 3.10 回退路径
     import tomli as tomllib
 
 from arclet.alconna import Alconna, CommandMeta, Option, store_true
-from arclet.entari import MessageChain, Session, command, plugin
+from arclet.entari import Session, command, plugin
 from arclet.entari.command import Query
 from arclet.entari.plugin import PluginRole
-from satori import Image
 
 from tenko.events import MessageMetrics, message_metrics
 from tenko.host.accounts import AccountRegistry, account_registry
 from tenko.host.guards import require
 from tenko.host.perm import Permission, PermissionChecker
-from tenko.plugins._common import context_from_session, text_message
+from tenko.plugins._common import context_from_session, render_or_text
 from tenko.render import RenderService
-from tenko.render import render_or_none
 
 try:
     import psutil
@@ -43,9 +42,6 @@ plugin.metadata(
     description="查询 Tenko 当前会话、资源、消息统计和账号路由状态。",
     classifier=["required"],
 )
-# Entari 0.19.1 的构造函数没有 default_switch 字段。将兼容性标记保留在原生
-# metadata 上，供 host/plugins.py 和 inspectors 使用。
-plugin.get_plugin().metadata.default_switch = True
 
 
 permission_checker = PermissionChecker()
@@ -412,14 +408,10 @@ async def status(
         context,
         _plugin_count(),
         detailed=is_master_private,
+        # 首次调用会同步执行 git 子进程，放到线程里避免阻塞事件循环。
+        version_details=await asyncio.to_thread(get_version_details),
     )
-    if not text_mode.result:
-        image = await render_or_none(
-            render_service,
-            "render_template",
-            "status.html",
-            status_data,
-        )
-        if image is not None:
-            return MessageChain(Image.of(raw=image, mime="image/jpeg"))
-    return text_message(str(status_data["content"]))
+    text = str(status_data["content"])
+    if text_mode.result:
+        return text
+    return await render_or_text(render_service, "status.html", status_data, text)

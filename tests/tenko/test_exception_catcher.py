@@ -317,7 +317,7 @@ async def test_exception_report_prefers_rendered_markdown_image(
     origin = make_context_origin()
     origin.account.protocol = protocol
     renderer = AsyncMock(return_value=b"jpeg-bytes")
-    monkeypatch.setattr(loaded_plugin, "render_or_none", renderer)
+    monkeypatch.setattr(loaded_plugin, "try_render", renderer)
     render_service = loaded_plugin.RenderService()
     original = EntariConfig.instance.basic.superusers
     EntariConfig.instance.basic.superusers = {"onebot": ["90001"]}
@@ -331,9 +331,8 @@ async def test_exception_report_prefers_rendered_markdown_image(
         EntariConfig.instance.basic.superusers = original
 
     renderer.assert_awaited_once()
-    assert renderer.await_args.args[0] is render_service
-    assert renderer.await_args.args[1] == "render_markdown"
-    assert renderer.await_args.args[2].startswith("[Tenko 异常]")
+    assert renderer.await_args.args[0] == render_service.render_markdown
+    assert renderer.await_args.args[1].startswith("[Tenko 异常]")
     assert protocol.messages[0][0] == "90001"
     assert isinstance(protocol.messages[0][1][0], Image)
 
@@ -355,7 +354,7 @@ async def test_exception_report_falls_back_to_text_when_rendering_fails(
     origin = make_context_origin()
     origin.account.protocol = protocol
     renderer = AsyncMock(return_value=None)
-    monkeypatch.setattr(loaded_plugin, "render_or_none", renderer)
+    monkeypatch.setattr(loaded_plugin, "try_render", renderer)
     render_service = loaded_plugin.RenderService()
     original = EntariConfig.instance.basic.superusers
     EntariConfig.instance.basic.superusers = {"onebot": ["90001"]}
