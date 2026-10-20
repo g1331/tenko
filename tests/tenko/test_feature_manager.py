@@ -249,3 +249,9 @@ async def test_clear_plugin_data_asks_for_confirmation(
     assert await clear("是") == "已清除插件<demo>的数据"
     assert not data.exists()
     assert "只能清除" in await clear("是", "missing")
+    # 已卸载的插件没有入口了，保留的数据仍可清除。
+    gone = tmp_path / ".tenko" / "plugin-data" / "gone"
+    gone.mkdir()
+    assert await clear("是", "gone") == "已清除插件<gone>的数据"
+    assert not gone.exists()
+    assert "只能清除" in await clear("是", "../demo")

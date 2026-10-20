@@ -255,7 +255,7 @@ class PluginRuntime:
             external[name] = PluginInfo(name, None, False, module, "external")
         return external
 
-    def _read_state(self) -> dict[str, Any]:
+    def read_state(self) -> dict[str, Any]:
         """读取状态文件；缺失视为空，损坏时记录错误并按“全部未启用”处理。"""
 
         try:
@@ -278,20 +278,30 @@ class PluginRuntime:
             return {"enabled": []}
 
     def _enabled_external_ids(self) -> frozenset[str]:
-        return frozenset(self._read_state()["enabled"])
+        return frozenset(self.read_state()["enabled"])
+
+    def write_state(self, state: Mapping[str, Any]) -> None:
+        """原子写入状态文件（先写同目录临时文件再 ``os.replace``）。"""
+
+        self.state_file.parent.mkdir(parents=True, exist_ok=True)
+        temp = self.state_file.with_name(f"{self.state_file.name}.tmp")
+        temp.write_text(json.dumps(state, indent=2) + "\n", encoding="utf-8")
+        os.replace(temp, self.state_file)
 
     def _write_external_enabled(self, name: str, enabled: bool) -> None:
-        state = self._read_state()
+        state = self.read_state()
         ids = set(state["enabled"])
         if enabled:
             ids.add(name)
         else:
             ids.discard(name)
         state["enabled"] = sorted(ids)
-        self.state_file.parent.mkdir(parents=True, exist_ok=True)
-        temp = self.state_file.with_name(f"{self.state_file.name}.tmp")
-        temp.write_text(json.dumps(state, indent=2) + "\n", encoding="utf-8")
-        os.replace(temp, self.state_file)
+        self.write_state(state)
+
+    def builtin_names(self) -> frozenset[str]:
+        """内置插件的 ID；第三方插件不能与它们重名。"""
+
+        return frozenset(self._discover_builtin())
 
     def _info(self, plugin: str | PluginInfo) -> PluginInfo:
         if isinstance(plugin, PluginInfo):

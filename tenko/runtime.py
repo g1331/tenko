@@ -28,6 +28,7 @@ from .host.accounts import account_registry
 from .host.account_management import AccountManagement
 from .host.actions import action_service
 from .host.features import CommandPolicy, configure_feature_service
+from .host.plugin_manager import get_plugin_manager
 from .host.plugins import PluginRuntime
 from .host.quote import quote_group_reply
 from .host.ratelimit import configure_rate_limiter
@@ -96,6 +97,20 @@ class TenkoRuntime:
             self._initialize_runtime_state,
             self._flush_runtime_state,
         )
+
+    async def _check_plugin_environment(self) -> None:
+        """环境与插件锁不一致（例如执行了 uv sync）时告警，不自动联网安装。"""
+
+        try:
+            drift = await asyncio.to_thread(get_plugin_manager().drift)
+        except Exception as error:  # noqa: BLE001 - uv 缺失等不应阻止启动
+            logger.warning("无法核对插件环境: {}", error)
+            return
+        if drift:
+            logger.warning(
+                "插件环境与 plugins.lock 不一致（{}），Master 可执行 /同步插件环境 恢复",
+                "、".join(drift),
+            )
 
     def _configure_database_repositories(self) -> None:
         """将官方 database service 接入六类运行期状态。"""
@@ -334,6 +349,7 @@ class TenkoRuntime:
         # 插件，因此不需要注册 Launart 组件。将其放在数据库模型和
         # RenderService 注册之后、run_async 之前。
         self.plugin_runtime = PluginRuntime()
+        await self._check_plugin_environment()
         # 宿主配置作为 Entari 插件配置在加载时传入，插件模块导入后即可使用。
         notify_group = {"notify_group": self.config.notify_group}
         loaded_plugins = await self.plugin_runtime.load_all(

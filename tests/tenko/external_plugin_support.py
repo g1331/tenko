@@ -59,3 +59,48 @@ def make_group_context(group_id: str, text: str = "hello") -> MessageContext:
         text=text,
         image_urls=(),
     )
+
+
+def build_wheel(
+    directory: Path,
+    dist: str,
+    version: str,
+    *,
+    module: str | None = None,
+    plugin_id: str | None = None,
+    requires: tuple[str, ...] = (),
+    source: str = "VALUE = 1\n",
+) -> Path:
+    """在 ``directory`` 手工打一个最小 wheel（本地 find-links 索引用，不需要网络）。
+
+    ``plugin_id`` 为 ``None`` 时不声明 ``tenko.plugins`` 入口（模拟宿主自带的包）。
+    """
+
+    import base64
+    import hashlib
+    import zipfile
+
+    norm = dist.replace("-", "_")
+    module = module or norm
+    info = f"{norm}-{version}.dist-info"
+    metadata = f"Metadata-Version: 2.1\nName: {dist}\nVersion: {version}\n"
+    metadata += "".join(f"Requires-Dist: {item}\n" for item in requires)
+    files = {
+        f"{module}/__init__.py": source,
+        f"{info}/METADATA": metadata,
+        f"{info}/WHEEL": "Wheel-Version: 1.0\nGenerator: test\n"
+        "Root-Is-Purelib: true\nTag: py3-none-any\n",
+    }
+    if plugin_id:
+        files[f"{info}/entry_points.txt"] = f"[tenko.plugins]\n{plugin_id} = {module}\n"
+    record = []
+    for name, text in files.items():
+        digest = hashlib.sha256(text.encode()).digest()
+        encoded = base64.urlsafe_b64encode(digest).rstrip(b"=").decode()
+        record.append(f"{name},sha256={encoded},{len(text.encode())}")
+    files[f"{info}/RECORD"] = "\n".join([*record, f"{info}/RECORD,,"]) + "\n"
+    path = directory / f"{norm}-{version}-py3-none-any.whl"
+    with zipfile.ZipFile(path, "w") as archive:
+        for name, text in files.items():
+            archive.writestr(name, text)
+    return path

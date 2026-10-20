@@ -1732,6 +1732,36 @@ async def test_failed_dependency_sync_keeps_running_version_and_restores_deps(
 
 
 @pytest.mark.asyncio
+async def test_incompatible_plugins_stop_upgrade_but_never_block_rollback(
+    tmp_path: Path,
+) -> None:
+    manager, _source, _checker, _config_path, _data_dir = make_manager(
+        tmp_path, health=[True] * 5
+    )
+    broken = True
+
+    async def plugin_sync(release: Path) -> None:
+        if broken:
+            raise RuntimeError("tenko-plugin-x 要求 tenko-api<0.2")
+
+    manager.plugin_sync = plugin_sync
+    await manager.prepare()
+    result = await manager.activate_pending()
+    assert not result.success and result.rolled_back
+    assert "tenko-plugin-x" in result.reason
+
+    broken = False
+    await manager.prepare()
+    assert (await manager.activate_pending()).success
+    broken = True  # 回滚是紧急出口：插件不兼容只记审计，不能阻止回滚
+    await manager.rollback()
+    rolled = await manager.apply_handoff()
+    assert rolled.success
+    audit = manager.audit.path.read_text(encoding="utf-8")
+    assert '"action": "plugin-sync"' in audit
+
+
+@pytest.mark.asyncio
 async def test_import_check_failure_blocks_post_switch_only(tmp_path: Path) -> None:
     candidate = tmp_path / "candidate"
     (candidate / "tenko").mkdir(parents=True)

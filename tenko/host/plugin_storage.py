@@ -86,6 +86,7 @@ def prepare_plugin_db(plugin_id: str, version: str) -> Path:
         with closing(sqlite3.connect(database)) as src:
             with closing(sqlite3.connect(target)) as dst:
                 src.backup(dst)
+        _restore_requested_backup(folder, database, version)
         for stale in sorted(backups.glob("*.db"))[:-DB_BACKUPS_KEEP]:
             stale.unlink()
         logger.info(
@@ -97,6 +98,35 @@ def prepare_plugin_db(plugin_id: str, version: str) -> Path:
         )
     marker.write_text(version + "\n", encoding="utf-8")
     return database
+
+
+def request_db_restore(plugin_id: str, version: str) -> bool:
+    """插件回滚到 ``version`` 时调用：下次启动该版本时，用升级前备份的库覆盖当前库。
+
+    回滚后的旧版本不应该读新版本迁移过的库。真正的还原发生在
+    :func:`prepare_plugin_db`（库尚未被打开），当前库会先备份。目录不存在时返回 ``False``。
+    """
+
+    folder = PLUGIN_DATA_ROOT / plugin_id
+    if not folder.is_dir():
+        return False
+    (folder / "restore-db-to").write_text(version + "\n", encoding="utf-8")
+    return True
+
+
+def _restore_requested_backup(folder: Path, database: Path, version: str) -> None:
+    request = folder / "restore-db-to"
+    if not request.is_file():
+        return
+    wanted = request.read_text(encoding="utf-8").strip()
+    request.unlink()
+    saved = sorted((folder / "backups").glob(f"*-v{wanted}.db"))
+    if wanted != version or not saved:
+        return
+    for suffix in ("-wal", "-shm"):
+        database.with_name(database.name + suffix).unlink(missing_ok=True)
+    shutil.copy2(saved[-1], database)
+    logger.info("插件数据库已还原为 v{} 时的备份 {}", version, saved[-1].name)
 
 
 def clear_plugin_data(plugin_id: str) -> bool:

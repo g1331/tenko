@@ -36,6 +36,13 @@ def build_parser() -> argparse.ArgumentParser:
         "--config", type=Path, default=argparse.SUPPRESS, help="TOML 配置文件路径"
     )
     passwd.add_argument("--username", help="同时修改面板用户名（默认保持不变）")
+    plugins = subcommands.add_parser("plugins", help="第三方插件环境管理")
+    plugins.add_argument(
+        "--config", type=Path, default=argparse.SUPPRESS, help="TOML 配置文件路径"
+    )
+    plugins.add_subparsers(dest="plugins_command", required=True).add_parser(
+        "sync", help="按 .tenko/plugins/plugins.lock 重装缺失的插件包（uv sync 之后用）"
+    )
     return parser
 
 
@@ -179,6 +186,17 @@ def main(argv: Sequence[str] | None = None) -> int:
         except ValueError as error:
             print(f"错误：{error}", file=sys.stderr)
             return 2
+        return 0
+
+    if args.command == "plugins":
+        from .host.plugin_manager import PluginManagerError, get_plugin_manager
+
+        try:
+            repaired = asyncio.run(get_plugin_manager().sync_env())
+        except PluginManagerError as error:
+            print(f"错误：{error}", file=sys.stderr)
+            return 1
+        print("已重装：" + "、".join(repaired) if repaired else "插件环境与插件锁一致")
         return 0
 
     if args.dry_run:

@@ -169,8 +169,22 @@ config/tenko.toml.example    # 配置模板
   再定义模型会直接报错。插件里直接继承 `BaseOrm` 等绑定到主库的模型在加载时报错，该插件加载失败。
   迁移走官方迁移器和上面的“只前进”保护，显式 `register_custom_migration` 照常可用。插件版本
   （分发包版本）相比上次启动变化时，先把库备份到 `backups/<时间>-v<旧版本>.db`（保留最近 3 份）；
-  上次版本记在 `db-version`。目前没有 `/卸载插件`：`/清除插件数据 <插件ID>`（Master，二次确认）
-  删除整个数据目录，要求插件当前未加载（先停用并重启）。
+  上次版本记在 `db-version`。`/清除插件数据 <插件ID>`（Master，二次确认）
+  删除整个数据目录，要求插件当前未加载（先停用并重启）；卸载默认保留数据。
+- 安装与管理（`tenko/host/plugin_manager.py`，命令在 `tenko/plugins/plugin_manager/`）：
+  `.tenko/plugins/plugins.lock` 是以宿主 `uv.lock` 加宿主实际 `tenko-api` 版本为约束的
+  `uv pip compile --generate-hashes` 输出，已排除宿主的包；插件记录（分发名、版本、来源、
+  哈希或提交号、安装人和时间）在同目录 `state.json` 的 `plugins` 节。安装、更新、卸载、回滚走
+  `PluginManager._transaction`：解析（环境不动）→ 备份到 `history/`（保留 5 份）→ 应用（卸载
+  只在旧锁里的包，再 `uv pip install -r 锁 --no-deps`，从不碰宿主的包）→ 校验（环境符合锁、
+  入口和版本或提交号、`DefaultHealthChecker` 的子进程导入检查并额外导入目标插件）→ 提交；
+  失败即按旧锁恢复。来源由 `parse_source` 解析为 `PluginSource`，P3 的插件目录只需产出带
+  `trust`、`expected_id` 的同一结构。命令仅限 Master（群聊私聊均可），未收录来源二次确认，
+  确认只接受同一人同一会话的回复。WebUI 直接调用 `PluginManager` 的公开方法。变更不热加载，
+  重启后生效。宿主升级时 `UpgradeManager.plugin_sync`（即 `PluginManager.reconcile`）在
+  依赖同步后补回缺失的插件包并 `uv pip check`：升级严格（不兼容则失败并恢复旧版本），回滚只记审计。
+  插件回滚到旧版本时通过 `request_db_restore` 让插件库在下次启动前还原为旧版本的备份。
+  测试用本地 wheel 目录加 `UV_FIND_LINKS` / `UV_NO_INDEX`（`external_plugin_support.build_wheel`），不访问网络。
 - 插件不得删除表、删除列或修改列类型：宿主在官方迁移器上安装了“Schema 只前进”
   保护，遇到这类变更会回滚该模块的结构迁移并拒绝删表（实现见 `tenko/db/migration.py`）。
 - 开发第三方插件时可用 `pip install "tenko @ git+https://github.com/g1331/tenko@<tag>"`

@@ -152,6 +152,41 @@ _POSITIVE_CASES: dict[str, dict[str, tuple[str, ...]]] = {
         "positive": ("/指定BOT 10001", "/指定BOT 清除"),
         "boundary": ("/指定BOT-1", "/ 指定BOT"),
     },
+    "安装插件": {
+        "positive": (
+            "/安装插件 tenko-plugin-example",
+            "/安装插件 https://github.com/o/r@v1",
+        ),
+        "boundary": ("/安装插件-1", "/ 安装插件"),
+    },
+    "更新插件": {
+        "positive": ("/更新插件", "/更新插件 example"),
+        "boundary": ("/更新插件-1", "/ 更新插件"),
+    },
+    "卸载插件": {
+        "positive": ("/卸载插件 example", "/卸载插件 example 清除数据"),
+        "boundary": ("/卸载插件-1", "/ 卸载插件"),
+    },
+    "回滚插件": {
+        "positive": ("/回滚插件",),
+        "boundary": ("/回滚插件-1", "/ 回滚插件"),
+    },
+    "同步插件环境": {
+        "positive": ("/同步插件环境",),
+        "boundary": ("/同步插件环境-1", "/ 同步插件环境"),
+    },
+    "插件列表": {
+        "positive": ("/插件列表",),
+        "boundary": ("/插件列表-1", "/ 插件列表"),
+    },
+    "启用插件": {
+        "positive": ("/启用插件 example",),
+        "boundary": ("/启用插件-1", "/ 启用插件"),
+    },
+    "停用插件": {
+        "positive": ("/停用插件 example",),
+        "boundary": ("/停用插件-1", "/ 停用插件"),
+    },
 }
 
 
@@ -176,6 +211,7 @@ def _commands_for_loaded_plugin() -> Iterable[Alconna]:
         "announcement",
         "feature_manager",
         "response_manager",
+        "plugin_manager",
     ],
     indirect=True,
 )

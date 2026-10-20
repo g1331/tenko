@@ -1458,10 +1458,21 @@ class DefaultHealthChecker:
             return HealthCheckResult(False, f"Python 编译冒烟失败: {output[:500]}")
         return HealthCheckResult(True, "tenko 包入口和 Python 编译冒烟通过")
 
-    def _import_check_sync(self, candidate: Path) -> HealthCheckResult:
+    def _import_check_sync(
+        self, candidate: Path, plugin_ids: Sequence[str] = ()
+    ) -> HealthCheckResult:
+        """子进程导入宿主、内置插件和已启用的第三方插件；``plugin_ids`` 额外导入
+        这些尚未启用的第三方插件（安装、更新插件时用）。"""
+
         try:
             completed = subprocess.run(
-                [self.python_executable, "-c", _IMPORT_CHECK_SCRIPT, str(candidate)],
+                [
+                    self.python_executable,
+                    "-c",
+                    _IMPORT_CHECK_SCRIPT,
+                    str(candidate),
+                    *plugin_ids,
+                ],
                 check=False,
                 capture_output=True,
                 text=True,
@@ -1510,9 +1521,14 @@ EntariConfig(Path(".tenko/entari-boot.yaml"))
 import tenko.runtime
 from tenko.host.plugins import PluginRuntime
 runtime = PluginRuntime()
-enabled = runtime._enabled_external_ids()
-failed = []
-for info in runtime.discover():
+enabled = runtime._enabled_external_ids() | set(sys.argv[2:])
+infos = runtime.discover()
+failed = [
+    f"{name}: 没有发现这个第三方插件"
+    for name in sys.argv[2:]
+    if name not in {info.name for info in infos}
+]
+for info in infos:
     if info.source == "external" and info.name not in enabled:
         continue
     result = load_plugin(info.qualified_name)
@@ -1524,6 +1540,15 @@ if failed:
 """.strip()
 
 _DEPENDENCY_SYNC_TIMEOUT = 600
+
+
+def find_uv(explicit: str | None = None) -> str:
+    """定位 uv 可执行文件：显式指定、环境变量 ``UV``，最后是 PATH。"""
+
+    uv = explicit or os.environ.get("UV") or shutil.which("uv")
+    if not uv:
+        raise DependencySyncError("找不到 uv 可执行文件（可用环境变量 UV 指定）")
+    return uv
 
 
 class UvDependencySync:
@@ -1553,11 +1578,8 @@ class UvDependencySync:
             # 早于 uv 迁移的旧版本没有锁文件，保持环境现状。
             logger.warning("Tenko 版本 {} 没有 uv.lock，跳过依赖同步", release_root)
             return
-        uv = self.uv or os.environ.get("UV") or shutil.which("uv")
-        if not uv:
-            raise DependencySyncError("找不到 uv 可执行文件（可用环境变量 UV 指定）")
         command = [
-            uv,
+            find_uv(self.uv),
             "sync",
             "--frozen",
             "--inexact",
@@ -2162,6 +2184,7 @@ class UpgradeManager:
         compatibility_checker: ConfigCompatibilityChecker | None = None,
         health_checker: Any | None = None,
         dependency_sync: Callable[[Path], Awaitable[None]] | None = None,
+        plugin_sync: Callable[[Path], Awaitable[None]] | None = None,
         audit: AuditLogger | None = None,
         shutdown_callback: Callable[[], bool] | None = None,
     ) -> None:
@@ -2208,6 +2231,8 @@ class UpgradeManager:
         )
         # 切换到某个版本目录前后，把共享虚拟环境同步到该目录的锁文件。
         self.dependency_sync = dependency_sync
+        # 宿主依赖同步之后重新应用并校验插件锁（见 PluginManager.reconcile）。
+        self.plugin_sync = plugin_sync
         self.audit = audit or AuditLogger(self.layout.audit_file)
         self._shutdown_callback = shutdown_callback
         self._operation_lock = asyncio.Lock()
@@ -2654,17 +2679,32 @@ class UpgradeManager:
         if not _health_ok(result):
             raise HealthCheckFailed(_health_reason(result))
 
-    async def _sync_dependencies(self, release: Path) -> None:
-        if self.dependency_sync is None:
+    async def _sync_dependencies(self, release: Path, *, strict: bool = True) -> None:
+        """同步宿主依赖，再重新应用并校验插件锁。
+
+        ``strict`` 时插件环境不兼容会让切换失败并恢复旧版本（升级的默认行为）；
+        回滚是紧急出口，不能被插件挡住，所以只记录审计，由 Master 事后处理。
+        """
+
+        if self.dependency_sync is not None:
+            logger.info("Tenko 正在按 {} 的 uv.lock 同步依赖", release)
+            await self.dependency_sync(release)
+        if self.plugin_sync is None:
             return
-        logger.info("Tenko 正在按 {} 的 uv.lock 同步依赖", release)
-        await self.dependency_sync(release)
+        try:
+            await self.plugin_sync(release)
+        except Exception as exc:
+            reason = _redact_text(str(exc) or exc.__class__.__name__)
+            if strict:
+                raise DependencySyncError(f"插件环境检查失败: {reason}") from exc
+            logger.error("插件环境检查失败（已忽略，请执行 /同步插件环境）: {}", reason)
+            self.audit.record("plugin-sync", result="failed", error=reason)
 
     async def _restore_dependencies(self, release: Path) -> str:
         """切换失败后尽力把依赖恢复到仍在运行的版本；返回要追加到原因里的说明。"""
 
         try:
-            await self._sync_dependencies(release)
+            await self._sync_dependencies(release, strict=False)
         except Exception as exc:
             error = _redact_text(str(exc) or exc.__class__.__name__)
             logger.error(
@@ -2995,7 +3035,7 @@ class UpgradeManager:
         try:
             if not already_active:
                 self.layout.write_pointer(previous.path, previous.version)
-            await self._sync_dependencies(previous.path)
+            await self._sync_dependencies(previous.path, strict=False)
             await self._health(previous.path, phase="rollback")
         except Exception as exc:
             self.layout.write_pointer(source.path, source.version)
@@ -3231,7 +3271,15 @@ class UpgradeManager:
             database_backup_enabled=database_backup_enabled,
             health_checker=health_checker,
             dependency_sync=UvDependencySync(),
+            plugin_sync=_plugin_environment_sync(),
         )
+
+
+def _plugin_environment_sync() -> Callable[[Path], Awaitable[None]]:
+    # plugin_manager 依赖本模块，延迟导入避免循环。
+    from .plugin_manager import PluginManager
+
+    return PluginManager().reconcile
 
 
 def spawn_restart_watcher(
