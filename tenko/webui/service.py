@@ -19,6 +19,7 @@ from satori.server import Server
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
 from starlette.responses import FileResponse, JSONResponse, Response
+from starlette.staticfiles import StaticFiles
 
 from ..config import WebUIConfig, TenkoConfig
 from ..db.errors import DatabaseError
@@ -36,7 +37,21 @@ from ..host.accounts import AccountRegistry, account_registry
 from ..host.features import FeatureService, feature_service as default_feature_service
 from ..host.plugins import PluginRuntime
 
-_STATIC_INDEX = Path(__file__).parent / "static" / "index.html"
+_STATIC_DIR = Path(__file__).parent / "static"
+_STATIC_INDEX = _STATIC_DIR / "index.html"
+_STATIC_ASSETS = _STATIC_DIR / "assets"
+_ASSETS_PATH = f"{WEBUI_PATH}/assets"
+_ASSET_CACHE = "public, max-age=31536000, immutable"
+
+
+class _HashedAssets(StaticFiles):
+    """前端构建产物：文件名带内容哈希，可长期缓存；路径穿越由 StaticFiles 拒绝。"""
+
+    async def get_response(self, path: str, scope: Any) -> Response:
+        response = await super().get_response(path, scope)
+        if response.status_code in {200, 304}:
+            response.headers["Cache-Control"] = _ASSET_CACHE
+        return response
 
 
 def _is_webui_path(path: str) -> bool:
@@ -64,6 +79,9 @@ class WebUIAuthMiddleware(BaseHTTPMiddleware):
     @staticmethod
     def _is_public(request: Request) -> bool:
         path = request.url.path
+        # 静态资源不含数据，登录页也需要加载；来源 IP 仍由上游校验。
+        if request.method in {"GET", "HEAD"} and path.startswith(f"{_ASSETS_PATH}/"):
+            return True
         if request.method == "GET":
             return path in {
                 WEBUI_PATH,
@@ -113,7 +131,10 @@ class WebUIAuthMiddleware(BaseHTTPMiddleware):
                 != "application/json"
             ):
                 return _error_response("invalid_request", "请使用 JSON 请求体", 415)
-        if path in {WEBUI_PATH, f"{WEBUI_PATH}/"}:
+        if path in {WEBUI_PATH, f"{WEBUI_PATH}/"} or path.startswith(
+            f"{_ASSETS_PATH}/"
+        ):
+            # 入口页和静态资源由各自的处理器设置缓存头。
             return await call_next(request)
         try:
             response = await call_next(request)
@@ -193,11 +214,17 @@ class WebUIService(Service):
             methods=["GET"],
             name="webui-api-features",
         )(self.features_view)
-        self.server.asgi_route(
-            WEBUI_PATH,
-            methods=["GET"],
-            name="webui-index",
-        )(self.index)
+        for index_path in (WEBUI_PATH, f"{WEBUI_PATH}/"):
+            self.server.asgi_route(
+                index_path,
+                methods=["GET"],
+                name="webui-index" if index_path == WEBUI_PATH else None,
+            )(self.index)
+        self.server.app.mount(
+            _ASSETS_PATH,
+            _HashedAssets(directory=_STATIC_ASSETS, check_dir=False),
+            name="webui-assets",
+        )
         routes = (
             ("/api/auth/state", ["GET"], self.auth.state),
             ("/api/auth/login", ["POST"], self.auth.login),
@@ -220,8 +247,6 @@ class WebUIService(Service):
         )
         for path, methods, handler in routes:
             self.server.asgi_route(f"{WEBUI_PATH}{path}", methods=methods)(handler)
-        if self.config.enabled:
-            self.server.mount(WEBUI_PATH, _STATIC_INDEX)
 
     async def _read(
         self,

@@ -501,7 +501,8 @@ HTTPS 配置；密码只通过 cookie 会话使用，不要放在 URL 中。
 | 插件市场 | 占位入口；外部插件仓库设计见 #200 |
 
 明暗／系统主题切换和 GitHub 仓库入口位于侧边栏底部（手机端位于顶部）。
-正文数据通过“连接 / 刷新”手动同步，管理操作成功后自动同步；实时日志单独每 3 秒更新。
+页面数据每 30 秒自动刷新（标签页隐藏时暂停），也可用页头的刷新按钮立即同步，
+管理操作成功后自动同步；实时日志单独每 3 秒更新。
 
 账户是协议端连接后自动出现的，不由面板主动创建。当前账户写操作支持 OneBot 11；
 其他平台显示为只读。停用同时阻止消息处理和重新接入，并在重启后保持。踢下线仅
@@ -525,6 +526,25 @@ HTTPS 配置；密码只通过 cookie 会话使用，不要放在 URL 中。
 最多扫描 8 MiB，返回最多 500 条匹配，达到上限会明确提示截断。管理审计进入
 宿主日志，包含操作目标、来源和响应状态，不记录请求凭据；需要跨重启保留审计
 时应开启日志落盘。
+
+### 前端开发
+
+WebUI 前端是 `webui/` 下的 Vue 3 + TypeScript + Vite + Element Plus 工程（需要
+Node `^22.18` 或 `>=24.12`，使用 npm）：
+
+    cd webui
+    npm ci
+    TENKO_BACKEND=http://127.0.0.1:8081 npm run dev    # http://localhost:5173/webui/
+
+开发服务器把 `/webui/api` 代理到 `TENKO_BACKEND`（默认 `http://127.0.0.1:8081`，
+即宿主的监听端口，且需开启 `[webui]` 并用 `python -m tenko webui-passwd` 取得
+密码），代理会去掉 `Origin` 请求头以通过后端的同源校验。常用脚本：
+`npm run type-check`、`npm run lint`、`npm run format`。
+
+`npm run build` 会把产物直接写入 `tenko/webui/static/`（`index.html` 与
+`assets/`）。该目录是**提交进仓库的构建产物**——基于 Git tag 的自更新直接发布
+它，宿主也只读取它——所以每次修改 `webui/` 后都必须重新构建并一起提交；CI 会
+重新构建并在产物有差异时失败。不要手工编辑 `tenko/webui/static/`。
 
 ## 开发环境搭建
 

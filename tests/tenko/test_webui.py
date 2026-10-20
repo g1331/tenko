@@ -81,7 +81,6 @@ async def test_webui_requires_session_cookie_and_allowed_ip(tenko_database):
     server, service = _service(WebUIConfig(enabled=True))
 
     assert service.required == {"satori-python.server"}
-    assert "/webui" in server.resources
 
     missing = await _get(server.app, "/webui/api/accounts")
     page = await _get(server.app, "/webui")
@@ -111,11 +110,77 @@ async def test_webui_requires_session_cookie_and_allowed_ip(tenko_database):
     assert query_token.status_code == 401
     assert remote_api.status_code == 401
     assert "Tenko WebUI" in page.text
+    assert page.headers["cache-control"] == "no-store"
     assert allowed.json() == {"ok": True, "data": {"accounts": []}}
     assert missing.json() == {
         "ok": False,
         "error": {"code": "unauthorized", "message": "Unauthorized"},
     }
+
+
+@pytest.fixture
+def static_site(tmp_path, monkeypatch):
+    """隔离的前端构建产物：一个入口页、一个资源和一个位于 assets 之外的文件。"""
+
+    from tenko.webui import service
+
+    (tmp_path / "assets").mkdir()
+    (tmp_path / "index.html").write_text("<title>Tenko WebUI</title>")
+    (tmp_path / "assets" / "app-abc123.js").write_text("console.log('tenko')")
+    (tmp_path / "secret.txt").write_text("outside-assets")
+    monkeypatch.setattr(service, "_STATIC_INDEX", tmp_path / "index.html")
+    monkeypatch.setattr(service, "_STATIC_ASSETS", tmp_path / "assets")
+    return tmp_path
+
+
+@pytest.mark.asyncio
+async def test_webui_serves_index_and_hashed_assets_without_session(static_site):
+    server, _service_instance = _service(WebUIConfig(enabled=True))
+
+    index = await _get(server.app, "/webui")
+    slash = await _get(server.app, "/webui/")
+    asset = await _get(server.app, "/webui/assets/app-abc123.js")
+    missing = await _get(server.app, "/webui/assets/missing.js")
+
+    assert index.status_code == slash.status_code == 200
+    assert slash.text == index.text
+    assert index.headers["cache-control"] == "no-store"
+    assert asset.status_code == 200
+    assert asset.text == "console.log('tenko')"
+    assert asset.headers["cache-control"] == "public, max-age=31536000, immutable"
+    assert missing.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_webui_assets_respect_enabled_and_allowed_ips(static_site):
+    server, _service_instance = _service(WebUIConfig(enabled=True))
+    remote = await _get(
+        server.app, "/webui/assets/app-abc123.js", client_host="192.0.2.10"
+    )
+    disabled_server, _disabled = _service(WebUIConfig())
+    disabled = await _get(disabled_server.app, "/webui/assets/app-abc123.js")
+
+    assert remote.status_code == 401
+    assert "console.log" not in remote.text
+    assert disabled.status_code == 404
+    assert "console.log" not in disabled.text
+
+
+@pytest.mark.asyncio
+async def test_webui_assets_refuse_path_traversal(static_site):
+    server, _service_instance = _service(WebUIConfig(enabled=True))
+
+    # httpx 会先规范化 `..`，这里用百分号编码把穿越路径原样交给服务端。
+    responses = [
+        await _get(server.app, "/webui/assets/%2e%2e/secret.txt"),
+        await _get(server.app, "/webui/assets/..%2fsecret.txt"),
+        await _get(server.app, "/webui/assets/%2e%2e/index.html"),
+    ]
+
+    for response in responses:
+        assert response.status_code == 404
+        assert "outside-assets" not in response.text
+        assert "Tenko WebUI" not in response.text
 
 
 @pytest.mark.asyncio

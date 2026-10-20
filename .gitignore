@@ -218,3 +218,6 @@ alembic.ini
 HANDOFF_BF_MANAGER.md
 
 .serena/
+
+# WebUI 前端依赖（构建产物 tenko/webui/static 需要提交）
+webui/node_modules

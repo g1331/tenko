@@ -1,0 +1,285 @@
+/*
+ * Tenko WebUI 主题：品牌色与语义 token（--tk-*），并映射到 Element Plus 的 CSS 变量。
+ * 深色主题由 <html class="dark"> 切换，Element Plus 自带的 dark/css-vars.css 先加载，这里再覆盖。
+ * 覆盖选择器用 `:root:root` / `html.dark:root` 提高优先级，避免被按需引入的组件样式
+ * 里同级的 `:root { ... }` 默认变量盖掉，与 CSS 加载顺序无关。
+ */
+
+:root {
+  /* 品牌色，与 README 视觉稿同源 */
+  --tk-ink: #2d4a6b;
+  --tk-navy: #1e3a52;
+  --tk-paper: #f5f1e8;
+  --tk-coral: #d96b5b;
+  --tk-gold: #c7a45b;
+  --tk-sky: #4a94d8;
+
+  --tk-bg: #f5f1e8;
+  --tk-surface: #ffffff;
+  --tk-surface-2: #faf7f0;
+  --tk-line: rgba(45, 74, 107, 0.16);
+  --tk-line-strong: rgba(45, 74, 107, 0.36);
+  --tk-text: #34465a;
+  --tk-muted: #566677;
+  --tk-heading: #2d4a6b;
+  --tk-rule: #1e3a52;
+  --tk-navy-solid: #1e3a52;
+  --tk-on-navy: #f5f1e8;
+  --tk-ok: #1f7a4a;
+  --tk-ok-solid: #2e8b57;
+  --tk-ok-bg: rgba(31, 122, 74, 0.12);
+  --tk-warn: #7a5b14;
+  --tk-warn-bg: rgba(199, 164, 91, 0.22);
+  --tk-danger: #a8392d;
+  --tk-danger-bg: rgba(217, 107, 91, 0.14);
+  --tk-off: #5f6b77;
+  --tk-off-bg: rgba(139, 149, 161, 0.18);
+  --tk-switch-off: #7b8794;
+  --tk-kicker: #b04a3b;
+  --tk-badge-navy: #1e3a52;
+  --tk-badge-coral: #bf4e3e;
+  --tk-sidebar-bg: #1e3a52;
+  --tk-shadow: 0 1px 2px rgba(26, 26, 30, 0.08), 0 6px 18px rgba(26, 26, 30, 0.07);
+  --tk-mix-light: #fff;
+  --tk-mix-dark: #000;
+  --tk-font: 'PingFang SC', 'Microsoft YaHei', 'Noto Sans CJK SC', sans-serif;
+  --tk-font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+
+html.dark {
+  --tk-bg: #182b3c;
+  --tk-surface: #21394e;
+  --tk-surface-2: #1c3144;
+  --tk-line: rgba(192, 213, 231, 0.16);
+  --tk-line-strong: rgba(192, 213, 231, 0.38);
+  --tk-text: #d3dde6;
+  --tk-muted: #a9b7c4;
+  --tk-heading: #c9dcec;
+  --tk-rule: #8fb0cc;
+  --tk-navy-solid: #bdd4e7;
+  --tk-on-navy: #152c40;
+  --tk-ok: #6fd09a;
+  --tk-ok-solid: #3fa46c;
+  --tk-ok-bg: rgba(111, 208, 154, 0.14);
+  --tk-warn: #e6c77f;
+  --tk-warn-bg: rgba(199, 164, 91, 0.2);
+  --tk-danger: #f3a18f;
+  --tk-danger-bg: rgba(217, 107, 91, 0.2);
+  --tk-off: #b7c2cd;
+  --tk-off-bg: rgba(183, 194, 205, 0.14);
+  --tk-switch-off: #6c7f90;
+  --tk-kicker: #d96b5b;
+  --tk-badge-navy: #2f5373;
+  --tk-badge-coral: #bf4e3e;
+  --tk-sidebar-bg: #102233;
+  --tk-shadow: 0 1px 2px rgba(0, 0, 0, 0.3), 0 6px 18px rgba(0, 0, 0, 0.22);
+  --tk-mix-light: #21394e;
+  --tk-mix-dark: #0d1a26;
+}
+
+/* ---------------- Element Plus 变量映射 ---------------- */
+:root:root,
+html.dark:root {
+  --el-font-family: var(--tk-font);
+  --el-font-size-base: 14px;
+  --el-border-radius-base: 4px;
+  --el-border-radius-small: 3px;
+  --el-bg-color: var(--tk-surface);
+  --el-bg-color-page: var(--tk-bg);
+  --el-bg-color-overlay: var(--tk-surface);
+  --el-text-color-primary: var(--tk-heading);
+  --el-text-color-regular: var(--tk-text);
+  --el-text-color-secondary: var(--tk-muted);
+  --el-text-color-placeholder: color-mix(in srgb, var(--tk-muted) 70%, transparent);
+  --el-text-color-disabled: color-mix(in srgb, var(--tk-muted) 55%, transparent);
+  --el-border-color: var(--tk-line-strong);
+  --el-border-color-light: var(--tk-line);
+  --el-border-color-lighter: var(--tk-line);
+  --el-border-color-extra-light: var(--tk-line);
+  --el-border-color-dark: var(--tk-line-strong);
+  --el-border-color-darker: var(--tk-rule);
+  --el-fill-color: var(--tk-off-bg);
+  --el-fill-color-light: var(--tk-surface-2);
+  --el-fill-color-lighter: var(--tk-surface-2);
+  --el-fill-color-extra-light: var(--tk-surface-2);
+  --el-fill-color-dark: var(--tk-off-bg);
+  --el-fill-color-darker: var(--tk-off-bg);
+  --el-fill-color-blank: var(--tk-surface);
+  --el-box-shadow-light: var(--tk-shadow);
+  --el-color-white: #fff;
+}
+
+:root:root {
+  /* 主色=海军蓝，危险/强调=珊瑚，警告=金，成功=绿 */
+  --el-color-primary: #2d4a6b;
+  --el-color-success: #2a7f4f;
+  --el-color-warning: #c7a45b;
+  --el-color-danger: #bf4e3e;
+  --el-color-error: #bf4e3e;
+  --el-color-info: #5f6b77;
+}
+
+html.dark:root {
+  --el-color-primary: #c0d5e7;
+  --el-color-success: #4fb982;
+  --el-color-warning: #d9b866;
+  --el-color-danger: #e38472;
+  --el-color-error: #e38472;
+  --el-color-info: #8fa1b1;
+  --el-mask-color: rgba(10, 22, 32, 0.7);
+}
+
+:root:root,
+html.dark:root {
+  --el-color-primary-light-3: color-mix(in srgb, var(--el-color-primary) 70%, var(--tk-mix-light));
+  --el-color-primary-light-5: color-mix(in srgb, var(--el-color-primary) 50%, var(--tk-mix-light));
+  --el-color-primary-light-7: color-mix(in srgb, var(--el-color-primary) 30%, var(--tk-mix-light));
+  --el-color-primary-light-8: color-mix(in srgb, var(--el-color-primary) 20%, var(--tk-mix-light));
+  --el-color-primary-light-9: color-mix(in srgb, var(--el-color-primary) 10%, var(--tk-mix-light));
+  --el-color-primary-dark-2: color-mix(in srgb, var(--el-color-primary) 80%, var(--tk-mix-dark));
+  --el-color-success-light-3: color-mix(in srgb, var(--el-color-success) 70%, var(--tk-mix-light));
+  --el-color-success-light-5: color-mix(in srgb, var(--el-color-success) 50%, var(--tk-mix-light));
+  --el-color-success-light-7: color-mix(in srgb, var(--el-color-success) 30%, var(--tk-mix-light));
+  --el-color-success-light-8: color-mix(in srgb, var(--el-color-success) 20%, var(--tk-mix-light));
+  --el-color-success-light-9: color-mix(in srgb, var(--el-color-success) 10%, var(--tk-mix-light));
+  --el-color-success-dark-2: color-mix(in srgb, var(--el-color-success) 80%, var(--tk-mix-dark));
+  --el-color-warning-light-3: color-mix(in srgb, var(--el-color-warning) 70%, var(--tk-mix-light));
+  --el-color-warning-light-5: color-mix(in srgb, var(--el-color-warning) 50%, var(--tk-mix-light));
+  --el-color-warning-light-7: color-mix(in srgb, var(--el-color-warning) 30%, var(--tk-mix-light));
+  --el-color-warning-light-8: color-mix(in srgb, var(--el-color-warning) 20%, var(--tk-mix-light));
+  --el-color-warning-light-9: color-mix(in srgb, var(--el-color-warning) 10%, var(--tk-mix-light));
+  --el-color-warning-dark-2: color-mix(in srgb, var(--el-color-warning) 80%, var(--tk-mix-dark));
+  --el-color-danger-light-3: color-mix(in srgb, var(--el-color-danger) 70%, var(--tk-mix-light));
+  --el-color-danger-light-5: color-mix(in srgb, var(--el-color-danger) 50%, var(--tk-mix-light));
+  --el-color-danger-light-7: color-mix(in srgb, var(--el-color-danger) 30%, var(--tk-mix-light));
+  --el-color-danger-light-8: color-mix(in srgb, var(--el-color-danger) 20%, var(--tk-mix-light));
+  --el-color-danger-light-9: color-mix(in srgb, var(--el-color-danger) 10%, var(--tk-mix-light));
+  --el-color-danger-dark-2: color-mix(in srgb, var(--el-color-danger) 80%, var(--tk-mix-dark));
+  --el-color-info-light-3: color-mix(in srgb, var(--el-color-info) 70%, var(--tk-mix-light));
+  --el-color-info-light-5: color-mix(in srgb, var(--el-color-info) 50%, var(--tk-mix-light));
+  --el-color-info-light-7: color-mix(in srgb, var(--el-color-info) 30%, var(--tk-mix-light));
+  --el-color-info-light-8: color-mix(in srgb, var(--el-color-info) 20%, var(--tk-mix-light));
+  --el-color-info-light-9: color-mix(in srgb, var(--el-color-info) 10%, var(--tk-mix-light));
+  --el-color-info-dark-2: color-mix(in srgb, var(--el-color-info) 80%, var(--tk-mix-dark));
+}
+
+/*
+ * 按钮文字色：实心填充与“悬停后填充”的朴素按钮，需要在填充色上取对比度足够的文字色。
+ * 金色（warning）两个主题下都用深色字；深色主题里其余类型的填充色偏亮，同样用深色字。
+ * 朴素 / 文字 / 链接按钮平时的文字色沿用 Element Plus（填充色本身），不在这里覆盖。
+ */
+.el-button--warning:not(.is-plain, .is-text, .is-link),
+.el-button--warning.is-plain {
+  --el-button-text-color: #3a2e14;
+  --el-button-hover-text-color: #3a2e14;
+  --el-button-active-text-color: #3a2e14;
+}
+.el-button--warning.is-plain,
+.el-button--warning.is-text,
+.el-button--warning.is-link {
+  --el-button-text-color: var(--tk-warn);
+}
+html.dark
+  .el-button:is(.el-button--primary, .el-button--success, .el-button--danger, .el-button--info) {
+  --el-button-hover-text-color: #152c40;
+  --el-button-active-text-color: #152c40;
+}
+html.dark
+  .el-button:is(.el-button--primary, .el-button--success, .el-button--danger, .el-button--info):not(
+    .is-plain,
+    .is-text,
+    .is-link
+  ) {
+  --el-button-text-color: #152c40;
+}
+.el-tag--warning.el-tag--dark {
+  --el-tag-text-color: #3a2e14;
+}
+html.dark .el-tag--dark {
+  --el-tag-text-color: #152c40;
+}
+
+/* ---------------- 全局基础样式 ---------------- */
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+html {
+  min-width: 320px;
+}
+body {
+  min-height: 100vh;
+  margin: 0;
+  background: var(--tk-bg);
+  color: var(--tk-text);
+  font-family: var(--tk-font);
+  font-size: 14px;
+  line-height: 1.5;
+}
+a {
+  color: inherit;
+  text-decoration: none;
+}
+code {
+  color: var(--tk-muted);
+  font-family: var(--tk-font-mono);
+}
+:focus-visible {
+  outline: 2px solid var(--el-color-primary);
+  outline-offset: 2px;
+}
+.tk-mono {
+  color: var(--tk-heading);
+  font-family: var(--tk-font-mono);
+  font-size: 12px;
+}
+.tk-link {
+  color: var(--tk-heading);
+  font-size: 12px;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+@keyframes tk-page-in {
+  from {
+    opacity: 0;
+    transform: translateY(5px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation: none !important;
+    transition: none !important;
+  }
+}
+
+/*
+ * 分段控件 / 单选按钮组：选中项用主色填充，文字取与填充对比度足够的颜色
+ * （浅色主题主色为深蓝配白字，深色主题主色偏亮需配深色字）。
+ */
+:root:root {
+  --tk-on-primary: #fff;
+}
+html.dark:root {
+  --tk-on-primary: #152c40;
+}
+:root:root .el-segmented {
+  --el-segmented-bg-color: var(--tk-off-bg);
+  --el-segmented-color: var(--tk-text);
+  --el-segmented-item-hover-color: var(--tk-heading);
+  --el-segmented-item-hover-bg-color: var(--tk-line);
+  --el-segmented-item-selected-color: var(--tk-on-primary);
+  --el-segmented-item-selected-bg-color: var(--el-color-primary);
+  --el-segmented-item-selected-disabled-bg-color: var(--tk-switch-off);
+}
+:root:root .el-radio-button {
+  --el-radio-button-checked-text-color: var(--tk-on-primary);
+  --el-radio-button-checked-bg-color: var(--el-color-primary);
+  --el-radio-button-checked-border-color: var(--el-color-primary);
+}

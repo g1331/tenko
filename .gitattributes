@@ -3,3 +3,5 @@
 
 # 设置批处理脚本使用 CRLF 结尾
 *.bat text eol=crlf
+# 前端构建产物（提交以供基于 Git tag 的自更新发布），在差异中折叠
+tenko/webui/static/** linguist-generated

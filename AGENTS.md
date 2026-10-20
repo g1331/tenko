@@ -25,7 +25,9 @@ tenko/
 ├── db/                      # 模型、迁移、数据库启动和 repositories
 ├── host/                    # 账号、权限、功能、限流和升级服务
 ├── plugins/                 # Tenko 原生插件
-└── templates/               # 离线渲染模板和资源
+├── templates/               # 离线渲染模板和资源
+└── webui/                   # WebUI 后端；static/ 是前端构建产物（勿手改）
+webui/                        # WebUI 前端工程（Vue 3 + TS + Vite + Element Plus）
 tests/tenko/                  # 单元测试和集成式调用点测试
 config/tenko.toml.example    # 配置模板
 requirements-entari.txt      # pip 兼容出口（锁定版本快照，主路径是 uv.lock）
@@ -57,6 +59,20 @@ requirements-entari.txt      # pip 兼容出口（锁定版本快照，主路径
   ```text
   ./.venv-entari/bin/python -m tenko --dry-run
   ```
+
+- WebUI 前端在 `webui/`，用 npm（Node `^22.18` 或 `>=24.12`）：
+
+  ```text
+  cd webui && npm ci
+  TENKO_BACKEND=http://127.0.0.1:8081 npm run dev   # 开发服务器 http://localhost:5173/webui/，代理 /webui/api
+  npm run type-check && npm run lint && npm run build
+  ```
+
+  `npm run build` 的产物写入 `tenko/webui/static/`，**该目录提交进仓库**（自更新
+  按 Git tag 发布它）。修改 `webui/` 后必须重新构建并一并提交，CI 在产物有差异时
+  失败；不要手工编辑 `tenko/webui/static/`。浏览器测试
+  （`tests/tenko/test_webui_browser*.py`）加载的是该构建产物。需要 Playwright 的
+  Chromium，缺失时自动跳过；可用 `TENKO_WEBUI_STATIC=<目录>` 指向私有构建目录。
 
 - 全量钩子检查使用 `pre-commit run --all-files`。测试默认只收集
   `tests/tenko`，新增测试应放在该目录并保持测试可重复、无真实外部连接。

@@ -1,4 +1,5 @@
 from required_plugin_support import entari_plugin_host, loaded_plugin  # noqa: F401
+from webui_browser_support import browser, open_panel  # noqa: F401
 
 from pathlib import Path
 

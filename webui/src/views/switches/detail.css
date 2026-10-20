@@ -1,0 +1,77 @@
+/* 群详情与插件详情共用的版式（非 scoped，类名统一带 sw- 前缀）；由 SwitchesView 引入。 */
+.page-panel.sw-panel.sw-panel {
+  --el-card-padding: 0;
+}
+.sw-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px 16px;
+  padding: 16px 20px 12px;
+}
+.sw-kicker {
+  color: var(--tk-kicker);
+  font-size: 10px;
+  font-style: italic;
+  font-weight: 700;
+  letter-spacing: 3px;
+}
+.sw-head h2 {
+  margin: 2px 0 0;
+  color: var(--tk-heading);
+  font-size: 17px;
+  overflow-wrap: anywhere;
+}
+.sw-id {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 8px;
+  margin-top: 4px;
+  color: var(--tk-muted);
+  font-size: 12px;
+}
+.sw-summary {
+  color: var(--tk-muted);
+  font-size: 12px;
+  text-align: right;
+}
+.sw-summary b {
+  color: var(--tk-heading);
+  font-size: 20px;
+  font-variant-numeric: tabular-nums;
+}
+.sw-items {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.sw-note {
+  margin: 0;
+  padding: 0 20px 14px;
+  color: var(--tk-muted);
+  font-size: 12px;
+  line-height: 1.7;
+}
+.tag-icon {
+  margin-right: 3px;
+  vertical-align: -2px;
+}
+
+@media (max-width: 700px) {
+  .page-panel.sw-panel.sw-panel .el-card__header,
+  .sw-head,
+  .sw-note {
+    padding-inline: 14px;
+  }
+  .sw-summary {
+    text-align: left;
+  }
+}
+
+/* 开关沿用“绿开灰关”的语义色，而不是主题主色 */
+.sw-panel .el-switch {
+  --el-switch-on-color: var(--tk-ok-solid);
+  --el-switch-off-color: var(--tk-switch-off);
+}

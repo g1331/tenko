@@ -307,7 +307,8 @@ async def test_run_async_registers_webui_only_when_enabled(monkeypatch) -> None:
         "/webui/api/manage/settings",
         "/webui/api/manage/accounts/{platform}/{account_id}/{action}",
     } <= paths
-    connection.server.mount.assert_called_once()
+    connection.server.app.mount.assert_called_once()
+    assert connection.server.app.mount.call_args.args[0] == "/webui/assets"
 
 
 @pytest.mark.asyncio
