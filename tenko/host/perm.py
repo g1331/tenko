@@ -183,9 +183,9 @@ class PermissionRegistry:
 class PermissionChecker:
     """基于消息上下文执行成员和群权限判断。
 
-    `database` 需要提供 ``get_member_permission``、``get_group_permission``
-    和 ``get_bot_admin_ids`` 异步方法。未显式注入数据库且未提供注册表时，
-    实际检查才延迟导入 Tenko repository；本类只调用读取方法，不执行写入。
+    `database` 需要提供 ``get_member_permission`` 和 ``get_group_permission``
+    异步方法；全局 BotAdmin 就是 ``group_id=0`` 的 128 记录。未显式注入
+    数据库且未提供注册表时，实际检查才延迟导入 Tenko repository；本类只调用读取方法，不执行写入。
     """
 
     def __init__(
@@ -196,10 +196,7 @@ class PermissionChecker:
         self.registry = registry or PermissionRegistry()
         self._database_enabled = database is not None or registry is None
         self._database = database
-        self._bot_admins_from_database: set[str] | None = None
-        self._database_unavailable = False
-        self._database_failure_reason: str | None = None
-        self._database_warning_groups: set[str] = set()
+        self._database_failing = False
 
     def _get_database(self) -> Any:
         if self._database is None and self._database_enabled:
@@ -210,24 +207,16 @@ class PermissionChecker:
             raise RuntimeError("权限检查未配置数据库或运行时权限来源")
         return self._database
 
-    def _warn_database_fallback(self, group_id: str | int) -> None:
-        normalized_group_id = _key(group_id)
-        if normalized_group_id in self._database_warning_groups:
-            return
-        self._database_warning_groups.add(normalized_group_id)
-        reason = self._database_failure_reason or "数据库读取失败"
-        logger.warning(
-            f"权限数据库不可用，群 {normalized_group_id} 回退到默认权限等级 "
-            f"{int(GroupPermission.ActiveGroup)}；原因：{reason}"
-        )
+    def _record_database_failure(self, error: BaseException) -> None:
+        """每次故障周期只告警一次；下一次读取成功即视为恢复。"""
 
-    def _record_database_failure(
-        self, group_id: str | int, error: BaseException
-    ) -> None:
-        self._database_unavailable = True
-        if self._database_failure_reason is None:
-            self._database_failure_reason = f"{type(error).__name__}: {error}"
-        self._warn_database_fallback(group_id)
+        if self._database_failing:
+            return
+        self._database_failing = True
+        logger.warning(
+            "权限数据库不可用，将按失败关闭处理（用户视为全局黑名单、群视为"
+            f"未启用），数据库恢复后自动生效；原因：{type(error).__name__}: {error}"
+        )
 
     async def _call_database(self, method_name: str, *values: object) -> object:
         method = getattr(self._get_database(), method_name)
@@ -239,9 +228,6 @@ class PermissionChecker:
     async def _database_member_level(
         self, group_id: str | int, user_id: str | int
     ) -> int | None:
-        if self._database_unavailable:
-            self._warn_database_fallback(group_id)
-            return None
         try:
             result = await self._call_database(
                 "get_member_permission", group_id, user_id
@@ -249,42 +235,25 @@ class PermissionChecker:
         except Exception as error:
             if not _is_database_unavailable(error):
                 raise
-            self._record_database_failure(group_id, error)
-            return None
+            self._record_database_failure(error)
+            # 读不到数据库时无法确认该用户是否在黑名单，回退到角色权限会让
+            # 黑名单用户重新获得访问；与健康数据库可能拒绝的结果保持一致，
+            # 按黑名单处理。
+            return Permission.GlobalBlack
+        self._database_failing = False
         return _level(result)
 
     async def _database_group_level(self, group_id: str | int) -> int | None:
-        if self._database_unavailable:
-            self._warn_database_fallback(group_id)
-            return GroupPermission.ActiveGroup
         try:
             result = await self._call_database("get_group_permission", group_id)
         except Exception as error:
             if not _is_database_unavailable(error):
                 raise
-            self._record_database_failure(group_id, error)
-            # 这是旧版 core/control.py 对没有 GroupPerm 记录的群所采用的行为：
-            # 数据库不可用时，其权限语义与缺少该记录相同，因此命令仍可使用。
-            return GroupPermission.ActiveGroup
+            self._record_database_failure(error)
+            # 同上：无法确认群是否被停用，按未启用处理，不放行。
+            return GroupPermission.InactiveGroup
+        self._database_failing = False
         return _level(result)
-
-    async def _database_bot_admin_ids(self) -> set[str]:
-        if self._database_unavailable:
-            self._warn_database_fallback(0)
-            return self._bot_admins_from_database or set()
-        if self._bot_admins_from_database is None:
-            try:
-                rows = await self._call_database("get_bot_admin_ids")
-            except Exception as error:
-                if not _is_database_unavailable(error):
-                    raise
-                self._bot_admins_from_database = set()
-                self._record_database_failure(0, error)
-                return self._bot_admins_from_database
-            self._bot_admins_from_database = {
-                _key(value) for row in rows if (value := _scalar(row)) is not None
-            }
-        return self._bot_admins_from_database
 
     @staticmethod
     def _is_native_superuser(context: MessageContext, user_id: str) -> bool:
@@ -324,9 +293,6 @@ class PermissionChecker:
             return Permission.Master
         if user_id in self.registry.bot_admin_ids:
             return Permission.BotAdmin
-        if self._database_enabled:
-            if user_id in await self._database_bot_admin_ids():
-                return Permission.BotAdmin
 
         if context.chat_type == "group":
             role = (context.member_role or "member").lower()
@@ -340,8 +306,7 @@ class PermissionChecker:
             return GroupPermission.ActiveGroup
         group_id = context.channel_id
         if self._database_enabled:
-            # 数据库可用时保持记录优先的原有行为；数据库不可用时，读取路径
-            # 返回旧实现“无群记录”的 ActiveGroup 默认值，命令继续正常执行。
+            # 数据库记录优先；读取失败时返回 InactiveGroup（见 _database_group_level）。
             database_level = await self._database_group_level(group_id)
             if database_level is not None:
                 return database_level

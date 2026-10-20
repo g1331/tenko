@@ -247,3 +247,47 @@ def test_clear_deterministic_account_restores_group_default() -> None:
 
     assert registry.deterministic_account_for_group(100) == "10001"
     assert registry.select_account(100) is first
+
+
+@pytest.mark.asyncio
+async def test_account_write_failure_keeps_routes_and_next_persist_recovers() -> None:
+    from tenko.db.repositories import AccountStateSnapshot
+
+    class FlakyRepository:
+        def __init__(self) -> None:
+            self.fail = True
+            self.routes: tuple = ()
+
+        async def load_state(self):
+            return AccountStateSnapshot(routes=(), responses=())
+
+        async def replace_state(self, routes, responses):
+            del responses
+            if self.fail:
+                raise RuntimeError("database write failed")
+            self.routes = tuple(routes)
+
+    repository = FlakyRepository()
+    registry = AccountRegistry(repository)
+    await registry.initialize()
+    account = FakeAccount("10001")
+    registry.register(account, groups=[100])
+    await registry.flush_persistence()
+
+    assert registry.ready
+    assert registry.select_account(100) is account
+
+    repository.fail = False
+    await registry.persist_state()
+    assert len(repository.routes) == 1
+
+
+def test_select_for_event_without_source_is_deterministic() -> None:
+    first, second = FakeAccount("10002"), FakeAccount("10001")
+    registry = AccountRegistry()
+    registry.register(first, groups=[100])
+    registry.register(second, groups=[100])
+
+    picks = [registry.select_for_event(100, source_id=None) for _ in range(20)]
+
+    assert all(pick is first for pick in picks)

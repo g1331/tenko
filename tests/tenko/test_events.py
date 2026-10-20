@@ -508,7 +508,7 @@ async def test_command_guard_blocks_disabled_plugin_and_allows_after_enable() ->
         def command_owner(self, text: str):
             return (
                 type("Owner", (), {"name": "demo", "display_name": "演示"})()
-                if text.startswith("/演示")
+                if text.startswith("演示")
                 else None
             )
 

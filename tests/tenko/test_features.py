@@ -95,3 +95,33 @@ async def test_feature_database_failure_does_not_silently_accept_writes() -> Non
 
     with pytest.raises(DatabaseUnavailableError, match="数据库不可用"):
         await service.persist_state()
+
+
+@pytest.mark.asyncio
+async def test_feature_write_failure_keeps_state_and_next_persist_recovers() -> None:
+    class FlakyRepository:
+        def __init__(self) -> None:
+            self.fail = True
+            self.saved: tuple = ()
+
+        async def list_states(self):
+            return ()
+
+        async def replace_states(self, records):
+            if self.fail:
+                raise RuntimeError("database write failed")
+            self.saved = tuple(records)
+
+    repository = FlakyRepository()
+    service = FeatureService(repository)
+    await service.initialize()
+    service.disable("demo", "40001")
+
+    with pytest.raises(RuntimeError, match="write failed"):
+        await service.persist_state()
+    assert service.ready
+    assert not service.is_enabled("demo", "40001")
+
+    repository.fail = False
+    await service.persist_state()
+    assert len(repository.saved) == 1

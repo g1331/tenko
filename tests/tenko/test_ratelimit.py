@@ -85,25 +85,76 @@ async def test_rate_limit_database_failure_intercepts_commands() -> None:
 
 
 @pytest.mark.asyncio
-async def test_rate_limit_write_failure_intercepts_the_current_command() -> None:
+async def test_rate_limit_write_failure_keeps_memory_state_and_retries() -> None:
     from tenko.db.repositories import RateLimitStateSnapshot
 
-    class FailingRepository:
+    class FlakyRepository:
+        def __init__(self) -> None:
+            self.fail = True
+            self.writes = 0
+
         async def load_state(self):
             return RateLimitStateSnapshot(events=(), subjects=())
 
         async def replace_state(self, events, subjects):
             del events, subjects
-            raise RuntimeError("database write failed")
+            if self.fail:
+                raise RuntimeError("database write failed")
+            self.writes += 1
 
-    service = RateLimitService(FailingRepository())
+    repository = FlakyRepository()
+    service = RateLimitService(
+        repository,
+        max_weight=2,
+        cooldown_seconds=0,
+        blacklist_seconds=30,
+        clock=lambda: 100.0,
+    )
     await service.initialize()
 
-    decision = await service.check_and_persist("40001", "20001")
+    assert (await service.check_and_persist("40001", "20001")).allowed
+    limited = await service.check_and_persist("40001", "20001")
 
-    assert not decision.allowed
-    assert "暂不可用" in (decision.message or "")
-    assert not service.ready
+    # 写失败不让服务整体失效，黑名单仍在内存中生效。
+    assert service.ready
+    assert not limited.allowed
+    assert service.is_blacklisted("40001", "20001")
+
+    repository.fail = False
+    await service.check_and_persist("40001", "20001")
+    assert repository.writes == 1
+    await service.check_and_persist("40001", "20001")
+    assert repository.writes == 1
+
+
+@pytest.mark.asyncio
+async def test_rate_limit_prunes_idle_users_and_skips_plain_command_writes() -> None:
+    from tenko.db.repositories import RateLimitStateSnapshot
+
+    class CountingRepository:
+        def __init__(self) -> None:
+            self.writes = 0
+
+        async def load_state(self):
+            return RateLimitStateSnapshot(events=(), subjects=())
+
+        async def replace_state(self, events, subjects):
+            del events, subjects
+            self.writes += 1
+
+    now = [100.0]
+    repository = CountingRepository()
+    service = RateLimitService(
+        repository, window_seconds=5, max_weight=10, clock=lambda: now[0]
+    )
+    await service.initialize()
+
+    await service.check_and_persist("40001", "idle")
+    now[0] += 6
+    await service.check_and_persist("40001", "active")
+
+    assert ("40001", "idle") not in service._events
+    assert repository.writes == 0
 
 
 @pytest.mark.asyncio

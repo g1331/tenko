@@ -204,7 +204,7 @@ async def test_response_strategy_handler_reads_and_persists_current_group_only(
 async def test_response_strategy_handler_rejects_private_and_unbound_contexts(
     loaded_plugin,
 ) -> None:
-    loaded_plugin.permission_checker = PermissionChecker()
+    loaded_plugin.permission_checker = PermissionChecker(registry=PermissionRegistry())
     loaded_plugin.account_registry = AccountRegistry()
 
     private = await loaded_plugin.set_response_strategy.callable_target(

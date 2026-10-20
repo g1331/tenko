@@ -515,6 +515,31 @@ class ActionService:
             for phrase in ("connection timed out", "network unavailable", "暂时不可用")
         )
 
+    @staticmethod
+    def _is_unsupported_failure(failure: ActionFailure) -> bool:
+        """只识别协议端明确表示“不支持该 action”的失败（OneBot 1404 等）。
+
+        目标不存在（如撤回已删除的消息）、参数错误等同样是平台失败，但不说明
+        账号缺少该能力，不能据此永久关闭它。
+        """
+
+        if str(failure.retcode) == "1404" or isinstance(
+            failure.raw, NotImplementedError
+        ):
+            return True
+        error_type = (failure.error_type or "").lower()
+        if "methodnotallowed" in error_type or "notimplemented" in error_type:
+            return True
+        details = " ".join(
+            value.lower()
+            for value in (failure.message, failure.wording, failure.detail)
+            if value
+        )
+        return any(
+            phrase in details
+            for phrase in ("unsupported action", "unknown action", "不支持")
+        )
+
     def _remember_failure(self, failure: ActionFailure) -> None:
         self._failures.append(failure)
         key = (failure.account_id, failure.capability)
@@ -524,7 +549,11 @@ class ActionService:
             # learned=False，让下一次有权限的调用重新探测该能力。
             if key not in self._overrides:
                 self._learned.pop(key, None)
-        elif key not in self._overrides and not self._is_transient_failure(failure):
+        elif (
+            key not in self._overrides
+            and not self._is_transient_failure(failure)
+            and self._is_unsupported_failure(failure)
+        ):
             self._learned[key] = False
         logger.warning(
             "platform action failed: account={} capability={} action={} "

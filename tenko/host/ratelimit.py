@@ -5,6 +5,8 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
+from loguru import logger
+
 if TYPE_CHECKING:
     from ..db.repositories import RateLimitRepository
 
@@ -72,6 +74,8 @@ class RateLimitService:
         self._cooldowns: dict[tuple[str, str], float] = {}
         self._blacklist: dict[tuple[str, str], float] = {}
         self._ready = repository is None
+        # 冷却/黑名单有未写入数据库的变化；事件窗口只有 15 秒，不单独落盘。
+        self._dirty = False
 
     @staticmethod
     def _validate_positive(value: object, label: str, *, allow_zero: bool) -> None:
@@ -87,7 +91,7 @@ class RateLimitService:
         self._events = {}
         self._cooldowns = {}
         self._blacklist = {}
-
+        self._dirty = False
         self._ready = repository is None
 
     @property
@@ -139,8 +143,16 @@ class RateLimitService:
     def _state_key(group_id: str | int, user_id: str | int) -> tuple[str, str]:
         return _key(group_id, "群 ID"), _key(user_id, "用户 ID")
 
+    def _prune_all(self, now: float) -> None:
+        """清理所有已过期的事件、冷却和黑名单，避免空闲用户的状态堆积。"""
+
+        for key in {*self._events, *self._cooldowns, *self._blacklist}:
+            self._prune(key, now)
+
     def _state_records(self) -> tuple[tuple[object, ...], tuple[object, ...]]:
         from ..db.repositories import RateLimitEventRecord, RateLimitSubjectRecord
+
+        self._prune_all(self.clock())
 
         events = tuple(
             RateLimitEventRecord(
@@ -177,24 +189,23 @@ class RateLimitService:
 
             raise DatabaseUnavailableError(_DATABASE_UNAVAILABLE_MESSAGE)
         events, subjects = self._state_records()
-        try:
-            await self._repository.replace_state(events, subjects)
-        except Exception:
-            self.mark_unavailable()
-            raise
+        # 写失败时保留内存状态并保持 dirty，下一次判定会重试。
+        await self._repository.replace_state(events, subjects)
+        self._dirty = False
 
     async def check_and_persist(self, *args, **kwargs) -> RateLimitDecision:
-        """完成一次判定并确保限流状态写入数据库。"""
+        """完成一次判定；冷却或黑名单变化时同步写入数据库。"""
 
         if self._repository is not None and not self._ready:
             return RateLimitDecision(False, _DATABASE_UNAVAILABLE_MESSAGE)
         decision = self.check(*args, **kwargs)
         if self._repository is None:
             return decision
-        try:
-            await self.persist_state()
-        except Exception:
-            return RateLimitDecision(False, _DATABASE_UNAVAILABLE_MESSAGE)
+        if self._dirty:
+            try:
+                await self.persist_state()
+            except Exception as error:
+                logger.warning("限流状态保存失败，将在下次状态变化时重试: {}", error)
         return decision
 
     def _prune(self, key: tuple[str, str], now: float) -> bool:
@@ -217,6 +228,7 @@ class RateLimitService:
             if expiry is not None and expiry <= now:
                 del mapping[key]
                 changed = True
+                self._dirty = True
         return changed
 
     def is_blacklisted(
@@ -236,6 +248,7 @@ class RateLimitService:
         self._events.pop(key, None)
         self._cooldowns.pop(key, None)
         self._blacklist.pop(key, None)
+        self._dirty = True
 
     reset = clear
 
@@ -264,7 +277,7 @@ class RateLimitService:
 
         key = self._state_key(group_id, user_id)
         current = self.clock() if now is None else float(now)
-        self._prune(key, current)
+        self._prune_all(current)
         blacklist_until = self._blacklist.get(key)
         if blacklist_until is not None and blacklist_until > current:
             return RateLimitDecision(
@@ -289,6 +302,7 @@ class RateLimitService:
                 self._cooldowns[key] = current + self.cooldown_seconds
             if self.blacklist_seconds > 0:
                 self._blacklist[key] = current + self.blacklist_seconds
+            self._dirty = True
             retry_after = max(
                 self._cooldowns.get(key, current) - current,
                 self._blacklist.get(key, current) - current,

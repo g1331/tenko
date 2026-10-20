@@ -133,7 +133,7 @@ class AccountRegistry:
         self._ready = repository is None
 
     def mark_unavailable(self) -> None:
-        """清空不可用数据库状态，阻止故障时继续使用账号路由。"""
+        """清空不可用数据库状态，阻止故障时继续使用账号路由（仅用于加载失败）。"""
 
         self._groups = {}
         self._response_types = {}
@@ -231,11 +231,8 @@ class AccountRegistry:
             self._persist_lock = asyncio.Lock()
         async with self._persist_lock:
             routes, responses = self._state_records()
-            try:
-                await self._repository.replace_state(routes, responses)
-            except Exception:
-                self.mark_unavailable()
-                raise
+            # 写失败时保留内存状态；快照是整表替换，下一次持久化会补写。
+            await self._repository.replace_state(routes, responses)
 
     def _request_persist(self) -> None:
         """在同步事件入口之后安排一次异步快照刷新。"""
@@ -703,7 +700,9 @@ class AccountRegistry:
         if self._response_types.get(normalized_group, "random") == "deterministic":
             return self.select_account(normalized_group)
         if source_id is None:
-            return random.choice(available)
+            # 无消息 ID（通知事件）时每个账号会各自选路，随机会让事件被 0 或多个
+            # 账号处理；取共享的绑定顺序首位，使所有账号得出同一结论。
+            return available[0]
 
         selection_key = (normalized_group, str(source_id))
         selected_id = self._event_selections.get(selection_key)

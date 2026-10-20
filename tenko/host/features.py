@@ -72,7 +72,7 @@ class FeatureService:
         return self._ready
 
     def mark_unavailable(self) -> None:
-        """将数据库读写失败转换为功能关闭的保守状态。"""
+        """将数据库加载失败转换为功能关闭的保守状态。"""
 
         self._plugins = {}
         self._ready = False
@@ -148,12 +148,9 @@ class FeatureService:
             from ..db.errors import DatabaseUnavailableError
 
             raise DatabaseUnavailableError("功能状态数据库尚未就绪")
-        try:
-            async with self._persist_lock:
-                await self._repository.replace_states(self._state_records())
-        except Exception:
-            self.mark_unavailable()
-            raise
+        # 写失败时保留内存状态；快照整表替换，下一次持久化会补写。
+        async with self._persist_lock:
+            await self._repository.replace_states(self._state_records())
 
     def _plugin_state(self, plugin: object) -> dict[str, Any]:
         plugin_name = _key(plugin, "插件名")
@@ -329,7 +326,10 @@ class CommandPolicy:
             return None
         if context.chat_type != "group" or not context.text:
             return None
-        owner = self._owner(context.text)
+        if not context.text.startswith(self.command_prefix):
+            return None
+        # Entari 官方前缀模式下命令不带前缀，按去掉前缀后的文本解析归属。
+        owner = self._owner(context.text[len(self.command_prefix) :])
         if owner is None:
             return None
         if not self.feature_service.ready:

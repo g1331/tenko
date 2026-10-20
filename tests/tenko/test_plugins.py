@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from unittest.mock import AsyncMock, Mock, call
 
@@ -159,3 +159,39 @@ async def test_reload_uses_native_unload_and_load(monkeypatch, tmp_path: Path) -
     assert await runtime.reload("file_plugin") is second
     assert unload_plugin.call_args.args == ("tenko.plugins.file_plugin",)
     assert load_plugin.call_args_list[-1].args == ("tenko.plugins.file_plugin",)
+
+
+@pytest.mark.asyncio
+async def test_command_owner_resolves_real_plugins_in_entari_prefix_mode(
+    entari_plugin_host, monkeypatch
+) -> None:
+    from tenko.commands import configure_command_prefix
+    from tenko.host.features import CommandPolicy, FeatureService
+
+    runtime = PluginRuntime()
+    configure_command_prefix("/", use_entari_prefix=True)
+    try:
+        for name in ("group_manager", "perm_manager"):
+            await runtime.load(name)
+        # 生产环境 Entari 命令记录的 Alconna 前缀为空，文本已去掉 “/”。
+        assert runtime.command_owner("禁言 @1 2").name == "group_manager"
+        assert runtime.command_owner("关闭全体禁言").name == "group_manager"
+        assert runtime.command_owner("修改权限16 123").name == "perm_manager"
+        assert runtime.command_owner("全局黑添加123").name == "perm_manager"
+        assert runtime.command_owner("禁言x") is None
+        assert runtime.command_owner("普通消息") is None
+
+        features = FeatureService()
+        features.disable("group_manager", "40001")
+        policy = CommandPolicy(features, plugin_runtime=runtime)
+        context = make_group_context("40001")
+        for text, notice in (("/禁言 @1 2", True), ("禁言 @1 2", False)):
+            context = replace(make_group_context("40001"), text=text)
+            monkeypatch.setattr(
+                MessageContext, "from_event", staticmethod(lambda _e, c=context: c)
+            )
+            assert (await policy.check(object(), object()) is not None) is notice
+    finally:
+        for name in ("group_manager", "perm_manager"):
+            runtime.unload(name)
+        configure_command_prefix("/")

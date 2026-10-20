@@ -30,7 +30,8 @@ async def test_member_repository_round_trip_and_lists(repositories) -> None:
     await member.set_permission(0, "30002", 128)
     await member.set_permission(10001, "30003", 0)
     assert await member.list_global_blacklist() == (30001,)
-    assert await member.list_bot_admins() == (20016, 30002)
+    # 只有全局（group_id=0）的 128 记录才是 BotAdmin，群内 128 不算。
+    assert await member.list_bot_admins() == (30002,)
     assert await member.list_group_blacklist(10001) == (20012, 30003)
 
     assert await member.delete_permission(10001, 99999) is False

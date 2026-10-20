@@ -10,6 +10,7 @@ from arclet.entari.config import EntariConfig
 
 import tenko.host.perm as perm_module
 from tenko.context import MessageContext
+from tenko.db.errors import DatabaseUnavailableError
 from tenko.host.perm import (
     GroupPermission,
     Permission,
@@ -22,7 +23,6 @@ from tenko.host.perm import (
 class FakeDatabase:
     member_levels: dict[tuple[int | str, int | str], int] = field(default_factory=dict)
     group_levels: dict[int | str, int] = field(default_factory=dict)
-    bot_admin_ids: tuple[int, ...] = ()
     queries: list[tuple] = field(default_factory=list)
 
     @staticmethod
@@ -41,10 +41,6 @@ class FakeDatabase:
     async def get_group_permission(self, group_id: int | str) -> int | None:
         self.queries.append(("group_perm", group_id))
         return self.group_levels.get(self._database_id(group_id))
-
-    async def get_bot_admin_ids(self) -> tuple[int, ...]:
-        self.queries.append(("bot_admins",))
-        return self.bot_admin_ids
 
 
 def make_context(
@@ -98,9 +94,9 @@ async def test_database_levels_override_context_defaults_and_are_read_only() -> 
         member_levels={
             (0, 20001): Permission.GlobalBlack,
             (10001, 20002): Permission.GroupBlack,
+            (0, 20003): Permission.BotAdmin,
         },
         group_levels={10001: GroupPermission.VipGroup},
-        bot_admin_ids=(20003,),
     )
     checker = PermissionChecker(database=database)
 
@@ -117,10 +113,7 @@ async def test_database_levels_override_context_defaults_and_are_read_only() -> 
     assert await checker.get_group_perm(normal) == GroupPermission.VipGroup
     assert await checker.require_group_perm(normal, GroupPermission.VipGroup)
     assert not await checker.require_group_perm(normal, GroupPermission.TestGroup)
-    assert all(
-        query[0] in {"member_perm", "group_perm", "bot_admins"}
-        for query in database.queries
-    )
+    assert all(query[0] in {"member_perm", "group_perm"} for query in database.queries)
 
 
 @pytest.mark.asyncio
@@ -142,9 +135,7 @@ async def test_permission_checker_reads_real_repository(tenko_database) -> None:
 
 
 @pytest.mark.asyncio
-async def test_missing_sqlalchemy_uses_default_group_permission_and_warns_once(
-    monkeypatch,
-) -> None:
+async def test_missing_sqlalchemy_fails_closed_and_warns_once(monkeypatch) -> None:
     warning = Mock()
     monkeypatch.setattr(perm_module.logger, "warning", warning)
 
@@ -156,14 +147,51 @@ async def test_missing_sqlalchemy_uses_default_group_permission_and_warns_once(
 
     monkeypatch.setattr(checker, "_call_database", missing_sqlalchemy)
 
-    assert await checker.require_group_perm(context, GroupPermission.ActiveGroup)
-    assert not await checker.require_group_perm(context, GroupPermission.VipGroup)
-    assert await checker.get_group_perm(context) == GroupPermission.ActiveGroup
+    assert not await checker.require_group_perm(context, GroupPermission.ActiveGroup)
+    assert await checker.get_group_perm(context) == GroupPermission.InactiveGroup
 
     warning.assert_called_once()
-    message = warning.call_args.args[0]
-    assert "10001" in message
-    assert "sqlalchemy" in message
+    assert "sqlalchemy" in warning.call_args.args[0]
+
+
+@pytest.mark.asyncio
+async def test_checker_recovers_and_never_upgrades_blacklist_during_db_error() -> None:
+    database = FakeDatabase(
+        member_levels={(0, 20001): Permission.GlobalBlack},
+        group_levels={10001: GroupPermission.VipGroup},
+    )
+    checker = PermissionChecker(database=database)
+    blacklisted = make_context("20001", member_role="owner")
+    outage = DatabaseUnavailableError("down")
+    real_member = database.get_member_permission
+    real_group = database.get_group_permission
+
+    async def broken(*_args):
+        raise outage
+
+    database.get_member_permission = broken  # type: ignore[method-assign]
+    database.get_group_permission = broken  # type: ignore[method-assign]
+    assert await checker.get_user_perm(blacklisted) == Permission.GlobalBlack
+    assert await checker.get_group_perm(blacklisted) == GroupPermission.InactiveGroup
+
+    database.get_member_permission = real_member  # type: ignore[method-assign]
+    database.get_group_permission = real_group  # type: ignore[method-assign]
+    assert await checker.get_user_perm(blacklisted) == Permission.GlobalBlack
+    assert await checker.get_group_perm(blacklisted) == GroupPermission.VipGroup
+    assert await checker.get_user_perm(make_context("20002")) == Permission.User
+
+
+@pytest.mark.asyncio
+async def test_bot_admin_revocation_is_visible_to_every_checker() -> None:
+    database = FakeDatabase(member_levels={(0, 20003): Permission.BotAdmin})
+    checkers = [PermissionChecker(database=database) for _ in range(2)]
+    context = make_context("20003")
+    for checker in checkers:
+        assert await checker.get_user_perm(context) == Permission.BotAdmin
+
+    del database.member_levels[(0, 20003)]
+    for checker in checkers:
+        assert await checker.get_user_perm(context) == Permission.User
 
 
 @pytest.mark.asyncio

@@ -164,6 +164,10 @@ class TenkoRuntime:
             await self.accounts.flush_persistence()
         except Exception as error:
             logger.error("Could not flush Tenko account route state: {}", error)
+        try:
+            await self.rate_limiter.persist_state()
+        except Exception as error:
+            logger.error("Could not flush Tenko rate limit state: {}", error)
 
     @staticmethod
     def _plugin_module(loaded_plugins: object, name: str) -> object | None:

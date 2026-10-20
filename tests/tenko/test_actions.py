@@ -403,12 +403,15 @@ async def test_permission_failure_does_not_contaminate_another_group() -> None:
 
 
 @pytest.mark.asyncio
-async def test_platform_failed_receipt_latches_capability_unavailable() -> None:
+async def test_platform_failed_receipt_latches_capability_only_when_unsupported() -> (
+    None
+):
     protocol = FakeProtocol(
         responses={
             "guild_member_mute": {
                 "status": "failed",
-                "retcode": 1200,
+                "retcode": 1404,
+                "message": "unsupported action",
                 "data": None,
             }
         }
@@ -422,6 +425,26 @@ async def test_platform_failed_receipt_latches_capability_unavailable() -> None:
     with pytest.raises(ActionCapabilityUnavailable):
         await service.mute_member(account, "40001", "20002", 90, context=context)
     assert len(protocol.calls) == 1
+
+
+@pytest.mark.asyncio
+async def test_target_not_found_failure_does_not_latch_capability() -> None:
+    protocol = FakeProtocol(
+        responses={
+            "guild_member_mute": {
+                "status": "failed",
+                "retcode": 100,
+                "message": "message not found",
+                "data": None,
+            }
+        }
+    )
+    service, account, context, _ = make_service(protocol)
+
+    with pytest.raises(ActionExecutionError):
+        await service.mute_member(account, "40001", "20002", 90, context=context)
+
+    assert service.capability_status("10001", ActionCapability.MEMBER_MUTE) is None
 
 
 @pytest.mark.asyncio

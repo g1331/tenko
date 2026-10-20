@@ -180,7 +180,10 @@ class PluginRuntime:
         return self._native_plugin(self._info(plugin)) is not None
 
     @staticmethod
-    def _command_matches(text: str, candidate: str) -> bool:
+    def _command_matches(text: str, candidate: str, compact: bool) -> bool:
+        if compact:
+            # compact 命令允许参数紧跟命令头，如“修改权限16 123”。
+            return text.startswith(candidate)
         return text == candidate or (
             text.startswith(candidate)
             and len(text) > len(candidate)
@@ -206,6 +209,8 @@ class PluginRuntime:
     def command_owner(self, text: str) -> PluginInfo | None:
         """按当前 Entari 注册命令返回其插件目录项。
 
+        ``text`` 是已去掉 Entari 命令前缀的消息文本；Entari 官方前缀模式下
+        命令记录的 Alconna 前缀为空，所以直接用裸命令名和裸 shortcut 匹配。
         ``get_plugin_commands`` 是 Entari 保存的插件归属索引；命令 shortcut
         则从对应的原生 Alconna 对象读取，因此 ``/状态`` 这类别名也会落到
         正确插件。无法识别的消息返回 ``None``，不阻断 Entari 原生命令链。
@@ -224,16 +229,21 @@ class PluginRuntime:
             command_names = {
                 str(command_name) for _prefixes, command_name in plugin_commands
             }
-            command_candidates: set[str] = set()
+            # 候选 -> 是否 compact
+            command_candidates: dict[str, bool] = {}
             for prefixes, command_name in plugin_commands:
-                for prefix in prefixes or ():
-                    command_candidates.add(f"{prefix}{command_name}")
+                for prefix in prefixes or ("",):
+                    command_candidates[f"{prefix}{command_name}"] = False
             for native_command in native_commands:
-                if getattr(native_command, "command", None) in command_names:
-                    command_candidates.update(self._shortcut_candidates(native_command))
+                name = getattr(native_command, "command", None)
+                if name not in command_names:
+                    continue
+                compact = bool(getattr(native_command.meta, "compact", False))
+                for candidate in (name, *self._shortcut_candidates(native_command)):
+                    command_candidates[candidate] = compact
             if not any(
-                self._command_matches(text, candidate)
-                for candidate in command_candidates
+                self._command_matches(text, candidate, compact)
+                for candidate, compact in command_candidates.items()
             ):
                 continue
             for info in self._discovered.values():

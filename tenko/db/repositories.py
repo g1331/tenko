@@ -211,11 +211,22 @@ class MemberPermRepository(_Repository):
             )
             return tuple(result.all())
 
+    async def delete_bot_admin(self, user_id: str | int) -> bool:
+        """删除用户所有 128 权限行，包括旧版本写入的群内 BotAdmin 行。"""
+
+        user = to_database_id(user_id, "用户 ID")
+        async with self._session() as session:
+            result = await session.execute(
+                delete(MemberPerm).where(MemberPerm.qq == user, MemberPerm.perm == 128)
+            )
+            await session.commit()
+            return bool(result.rowcount)
+
     async def list_bot_admins(self) -> tuple[int, ...]:
         async with self._session() as session:
             result = await session.scalars(
                 select(MemberPerm.qq)
-                .where(MemberPerm.perm == 128)
+                .where(MemberPerm.group_id == 0, MemberPerm.perm == 128)
                 .order_by(MemberPerm.qq)
             )
             return tuple(result.all())
@@ -675,10 +686,6 @@ async def get_group_permission(group_id: str | int) -> int | None:
     return await group_perm_repository.get_permission(group_id)
 
 
-async def get_bot_admin_ids() -> tuple[int, ...]:
-    return await member_perm_repository.list_bot_admins()
-
-
 __all__ = [
     "GroupPermRepository",
     "GroupSettingRepository",
@@ -698,7 +705,6 @@ __all__ = [
     "configure_database_service",
     "configure_session_factory",
     "feature_state_repository",
-    "get_bot_admin_ids",
     "get_group_permission",
     "get_member_permission",
     "group_perm_repository",
