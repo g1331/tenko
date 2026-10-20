@@ -483,6 +483,8 @@ async def change_group_perm(
         )
     except DatabaseUnavailableError as error:
         return _database_error_message(error, action="修改群权限")
+    except ValueError as error:
+        return text_message(f"群号无效，未修改群权限: {error}")
     return text_message(f"已修改群{target_group}权限为{perm.result}")
 
 
@@ -519,6 +521,8 @@ async def change_group_perm_type(
         for member in members:
             member_id = _member_id(member)
             current_permission = await _member_permission(target_group, member_id)
+            if current_permission == Permission.GroupBlack:
+                continue
             if permission_type.result == "admin":
                 if current_permission < Permission.GroupAdmin:
                     await _write_member_permission(
@@ -659,6 +663,8 @@ async def change_global_black(
                 except DatabaseUnavailableError as error:
                     logger.warning("全局黑名单写入失败: {}", error)
                     failures.append((target, "数据库暂不可用，未写入权限"))
+                except ValueError as error:
+                    failures.append((target, str(error)))
         elif target not in black_list:
             failures.append((target, f"{target}不在全局黑名单内!"))
         else:
@@ -667,6 +673,8 @@ async def change_global_black(
             except DatabaseUnavailableError as error:
                 logger.warning("全局黑名单删除失败: {}", error)
                 failures.append((target, "数据库暂不可用，未删除权限"))
+            except ValueError as error:
+                failures.append((target, str(error)))
     return text_message(_failure_summary(targets, failures))
 
 
@@ -720,14 +728,18 @@ async def change_bot_admin(
                 except DatabaseUnavailableError as error:
                     logger.warning("BOT 管理员写入失败: {}", error)
                     failures.append((target, "数据库暂不可用，未写入权限"))
-        elif target not in admin_ids:
-            failures.append((target, f"{target}还不是BOT管理哦!"))
+                except ValueError as error:
+                    failures.append((target, str(error)))
         else:
             try:
-                await _delete_member_permission(0, target)
+                # 同时清掉旧版本写入的群内 128 行，否则撤销后该群仍保留权限。
+                if not await _member_repository().delete_bot_admin(target):
+                    failures.append((target, f"{target}还不是BOT管理哦!"))
             except DatabaseUnavailableError as error:
                 logger.warning("BOT 管理员删除失败: {}", error)
                 failures.append((target, "数据库暂不可用，未删除权限"))
+            except ValueError as error:
+                failures.append((target, str(error)))
     return text_message(_failure_summary(targets, failures))
 
 
@@ -757,6 +769,9 @@ async def auto_delete_member_permission(event: GuildMemberRemovedEvent):
         return
     try:
         previous = await _member_permission(event.guild.id, event.user.id)
+        # 群黑名单记录需要在退群后保留，避免重新入群即被洗白。
+        if previous == Permission.GroupBlack:
+            return
         await _delete_member_permission(event.guild.id, event.user.id)
     except DatabaseUnavailableError as error:
         logger.warning("退群成员 {} 的权限清理失败: {}", event.user.id, error)
@@ -783,8 +798,7 @@ async def auto_add_member_permission(event: GuildMemberAddedEvent):
             permission = Permission.GroupAdmin
         elif permission_checker.registry.master_id == event.user.id:
             permission = Permission.Master
-        elif event.user.id in await _bot_admin_ids():
-            permission = Permission.BotAdmin
+        # BotAdmin 只在全局（群 0）记录，不写入群成员行。
         if permission is not None:
             await _write_member_permission(group_id, event.user.id, permission)
             if event.channel and permission == Permission.GroupAdmin:

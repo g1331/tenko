@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import sys
 from datetime import datetime
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
@@ -75,20 +76,23 @@ async def test_exception_event_trigger_reports_once(loaded_plugin) -> None:
 @pytest.mark.parametrize("loaded_plugin", ["exception_catcher"], indirect=True)
 async def test_exception_cooldown_filters_duplicate_error(loaded_plugin) -> None:
     loaded_plugin.last_error_time.clear()
-    loaded_plugin.send_error_report = AsyncMock()
-    event = make_exception_event("same error")
-
-    render_service = loaded_plugin.RenderService()
-    await loaded_plugin.except_handle.callable_target(
-        event,
-        render_service=render_service,
+    sent: list[str] = []
+    event = ExceptionEvent(
+        origin=_delivering_origin(sent),
+        subscriber=SimpleNamespace(spec=Subscriber),
+        exception=RuntimeError("same error"),
     )
-    await loaded_plugin.except_handle.callable_target(
-        event,
-        render_service=render_service,
-    )
+    original = EntariConfig.instance.basic.superusers
+    EntariConfig.instance.basic.superusers = {"onebot": ["90001"]}
+    try:
+        for _ in range(2):
+            await loaded_plugin.except_handle.callable_target(
+                event, render_service=loaded_plugin.RenderService()
+            )
+    finally:
+        EntariConfig.instance.basic.superusers = original
 
-    loaded_plugin.send_error_report.assert_awaited_once()
+    assert sent == ["90001"]
 
 
 @pytest.mark.asyncio
@@ -523,3 +527,47 @@ def test_error_report_uses_configured_default_recent_message_limit(
     assert "text=message-1\n" not in report
     assert "message-2" in report
     assert "message-11" in report
+
+
+def _delivering_origin(sent: list[str]):
+    class Protocol:
+        async def send_private_message(self, user_id, content):
+            sent.append(user_id)
+
+    account = SimpleNamespace(self_id="10001", platform="onebot", protocol=Protocol())
+    return SimpleNamespace(account=account)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("loaded_plugin", ["exception_catcher"], indirect=True)
+async def test_action_error_path_respects_cooldown(loaded_plugin, monkeypatch) -> None:
+    monkeypatch.setitem(sys.modules, "tenko.plugins.exception_catcher", loaded_plugin)
+    from tenko.plugins._common import report_action_error
+
+    loaded_plugin.last_error_time.clear()
+    sent: list[str] = []
+    origin = _delivering_origin(sent)
+    original = EntariConfig.instance.basic.superusers
+    EntariConfig.instance.basic.superusers = {"onebot": ["90001"]}
+    try:
+        for _ in range(3):
+            await report_action_error(RuntimeError("same failure"), origin)
+    finally:
+        EntariConfig.instance.basic.superusers = original
+
+    assert sent == ["90001"]
+
+
+@pytest.mark.parametrize("loaded_plugin", ["exception_catcher"], indirect=True)
+def test_evidence_and_cooldown_records_are_pruned(loaded_plugin, tmp_path) -> None:
+    loaded_plugin.MAX_EVIDENCE_FILES = 3
+    for index in range(5):
+        loaded_plugin._write_local_evidence(
+            RuntimeError(f"e{index}"), "report", evidence_dir=tmp_path
+        )
+    assert len(tuple(tmp_path.glob("*.log"))) == 3
+
+    loaded_plugin.last_error_time.clear()
+    loaded_plugin.last_error_time["old"] = -1000.0
+    assert not loaded_plugin._in_cooldown(RuntimeError("fresh"))
+    assert "old" not in loaded_plugin.last_error_time

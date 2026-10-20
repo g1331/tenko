@@ -88,6 +88,11 @@ async def _change(session: Session, operation: str, feature: Match[str]):
         return text_message(f"无法操作必须插件<{target_name}>")
 
     is_global = _is_global_feature(info)
+    # 全局功能影响所有群，只能由 BotAdmin 切换。
+    if is_global and not await permission_checker.require_perm(
+        context, Permission.BotAdmin
+    ):
+        return text_message("权限不足")
     enabled = (
         feature_service.is_enabled(info.name)
         if is_global

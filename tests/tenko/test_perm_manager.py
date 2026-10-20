@@ -468,3 +468,108 @@ async def test_platform_admin_demotion_falls_back_to_master_private_notice(
     private_sender.assert_awaited_once()
     assert "检测到群管理权限变动" in private_sender.await_args.args[2]
     assert "群 40001" in private_sender.await_args.args[2]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("loaded_plugin", ["perm_manager"], indirect=True)
+async def test_invalid_ids_are_reported_instead_of_raised(
+    loaded_plugin, tenko_database
+) -> None:
+    del tenko_database
+    loaded_plugin.permission_checker = PermissionChecker(
+        registry=PermissionRegistry(master_id="20001", bot_admin_ids=["20002"])
+    )
+    huge = "9" * 30
+
+    black = await loaded_plugin.change_global_black.callable_target(
+        make_session("20002", "member"), Match("添加", True), Match((huge,), True)
+    )
+    admin = await loaded_plugin.change_bot_admin.callable_target(
+        make_session("20001", "member"), Match("添加", True), Match(("abc",), True)
+    )
+    group = await loaded_plugin.change_group_perm.callable_target(
+        make_session("20002", "member"),
+        Match(2, True),
+        make_query("group.group_id", 10**30),
+    )
+
+    assert "1个失败" in str(black)
+    assert "1个失败" in str(admin)
+    assert "群号无效" in str(group)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("loaded_plugin", ["perm_manager"], indirect=True)
+async def test_group_blacklist_survives_leave_and_type_sync(
+    loaded_plugin, tenko_database
+) -> None:
+    del tenko_database
+    from tenko.db.repositories import member_perm_repository
+
+    loaded_plugin.permission_checker = PermissionChecker(
+        registry=PermissionRegistry(bot_admin_ids=["20001"])
+    )
+    await member_perm_repository.set_permission("40001", "30001", Permission.GroupBlack)
+    loaded_plugin._target_members = AsyncMock(
+        return_value=({"user_id": "30001", "permission": "member"},)
+    )
+    session = make_session("20001", "member")
+
+    for mode in ("admin", "default"):
+        await loaded_plugin.change_group_perm_type.callable_target(
+            session, Match(mode, True), Query("group.group_id")
+        )
+        assert await member_perm_repository.get_permission("40001", "30001") == 0
+
+    event = SimpleNamespace(
+        guild=Guild("40001", "Tenko"), user=User("30001"), channel=None
+    )
+    await loaded_plugin.auto_delete_member_permission(event)
+    assert await member_perm_repository.get_permission("40001", "30001") == 0
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("loaded_plugin", ["perm_manager"], indirect=True)
+async def test_joining_bot_admin_gets_no_group_row(
+    loaded_plugin, tenko_database
+) -> None:
+    del tenko_database
+    from tenko.db.repositories import member_perm_repository
+
+    loaded_plugin.permission_checker = PermissionChecker(
+        registry=PermissionRegistry(bot_admin_ids=["20001"])
+    )
+    await member_perm_repository.set_permission("0", "20001", Permission.BotAdmin)
+    event = SimpleNamespace(
+        guild=Guild("40001", "Tenko"), user=User("20001"), channel=None
+    )
+    await loaded_plugin.auto_add_member_permission(event)
+
+    assert await member_perm_repository.get_permission("40001", "20001") is None
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("loaded_plugin", ["perm_manager"], indirect=True)
+async def test_bot_admin_removal_clears_legacy_group_rows(
+    loaded_plugin, tenko_database
+) -> None:
+    del tenko_database
+    from tenko.db.repositories import member_perm_repository
+
+    loaded_plugin.permission_checker = PermissionChecker(
+        registry=PermissionRegistry(master_id="20001")
+    )
+    await member_perm_repository.set_permission(0, "30002", Permission.BotAdmin)
+    await member_perm_repository.set_permission("40001", "30002", Permission.BotAdmin)
+    await member_perm_repository.set_permission("40001", "30003", Permission.GroupAdmin)
+
+    result = await loaded_plugin.change_bot_admin.callable_target(
+        make_session("20001", "member"),
+        Match("删除", True),
+        Match(("30002", "30003"), True),
+    )
+
+    assert "1个失败" in str(result)
+    assert await member_perm_repository.get_permission(0, "30002") is None
+    assert await member_perm_repository.get_permission("40001", "30002") is None
+    assert await member_perm_repository.get_permission("40001", "30003") == 32

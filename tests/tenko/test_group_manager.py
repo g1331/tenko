@@ -1180,3 +1180,29 @@ async def test_expired_pending_invite_is_rejected_with_legacy_comment(
     assert protocol.group_messages == [
         ("40002", "入群邀请 request-1 已超过 1 小时，已自动拒绝。"),
     ]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("loaded_plugin", ["group_manager"], indirect=True)
+async def test_mute_and_kick_refuse_other_tenko_accounts(
+    loaded_plugin, monkeypatch
+) -> None:
+    protocol = install_action_service(loaded_plugin)
+    monkeypatch.setattr(
+        loaded_plugin.account_registry,
+        "get",
+        lambda account_id: object() if str(account_id) == "20002" else None,
+    )
+
+    muted = await loaded_plugin.mute.callable_target(
+        make_session("20001", "admin"),
+        Match((At("20002"), "5"), True),
+        Match(None, False),
+    )
+    kicked = await loaded_plugin.kick.callable_target(
+        make_session("20001", "admin"), Match((At("20002"),), True)
+    )
+
+    assert str(muted) == "禁言bot?给你一棒槌!"
+    assert str(kicked) == "不能踢出bot!"
+    assert protocol.calls == []

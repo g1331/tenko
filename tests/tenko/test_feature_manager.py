@@ -136,10 +136,18 @@ async def test_feature_commands_toggle_global_feature(loaded_plugin, monkeypatch
     monkeypatch.setattr(loaded_plugin, "get_plugins", lambda *, subplugged: (native,))
     service = FeatureService()
     monkeypatch.setattr(loaded_plugin, "feature_service", service)
-    loaded_plugin.permission_checker = PermissionChecker(registry=PermissionRegistry())
+    loaded_plugin.permission_checker = PermissionChecker(
+        registry=PermissionRegistry(bot_admin_ids=["20001"])
+    )
+
+    refused = await loaded_plugin.disable.callable_target(
+        make_session("20002"), Match("startup_notify", True)
+    )
+    assert refused.extract_plain_text() == "权限不足"
+    assert service.is_enabled("startup_notify", "40001")
 
     result = await loaded_plugin.disable.callable_target(
-        make_session(), Match("startup_notify", True)
+        make_session("20001"), Match("startup_notify", True)
     )
 
     assert result.extract_plain_text() == "功能<startup_notify>已关闭~"

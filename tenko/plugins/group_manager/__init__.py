@@ -855,7 +855,7 @@ async def mute(
         minutes = 2
     if not 0 < minutes <= 30 * 24 * 60:
         return text_message("时间非法!范围(分钟): `0 < time <= 43200`")
-    if target_id == context.account_id:
+    if target_id == context.account_id or account_registry.get(target_id):
         return text_message("禁言bot?给你一棒槌!")
     if await _target_has_management_permission(context, target_id):
         return text_message("bot权限不足!(目标权限>=32)")
@@ -1096,7 +1096,7 @@ async def kick(
     )
     if invalid or target_id is None:
         return text_message("请@成员、填写成员ID或回复目标消息")
-    if target_id == context.account_id:
+    if target_id == context.account_id or account_registry.get(target_id):
         return text_message("不能踢出bot!")
     if await _target_has_management_permission(context, target_id):
         return text_message("bot权限不足!(目标权限>=32)")

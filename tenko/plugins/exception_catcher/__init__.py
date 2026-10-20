@@ -42,6 +42,7 @@ plugin.get_plugin().metadata.default_switch = True
 ERROR_COOLDOWN = 30.0
 last_error_time: dict[str, float] = {}
 EVIDENCE_DIR = Path(".tenko/exceptions")
+MAX_EVIDENCE_FILES = 200
 _IGNORED_EXCEPTION_NAMES = frozenset(
     {"AccountMuted", "UnknownTarget", "ActionTargetUnavailable"}
 )
@@ -238,7 +239,32 @@ def _write_local_evidence(
         logger.error("异常取证报告内容如下:\n{}", report)
         return None
     logger.warning("异常报告已落盘: {}", path)
+    _prune_evidence(directory)
     return path
+
+
+def _prune_evidence(directory: Path) -> None:
+    """只保留最新的取证文件；文件名以时间戳开头，按名称排序即按时间排序。"""
+
+    try:
+        stale = sorted(directory.glob("*.log"))[:-MAX_EVIDENCE_FILES]
+        for old in stale:
+            old.unlink(missing_ok=True)
+    except OSError:
+        logger.exception("清理异常取证文件失败: {}", directory)
+
+
+def _in_cooldown(exception: BaseException) -> bool:
+    """同一异常在冷却期内只报告一次，并顺带清理过期记录。"""
+
+    now = time.monotonic()
+    for key in [k for k, t in last_error_time.items() if now - t >= ERROR_COOLDOWN]:
+        del last_error_time[key]
+    error_hash = get_error_hash(exception)
+    if error_hash in last_error_time:
+        return True
+    last_error_time[error_hash] = now
+    return False
 
 
 def _superuser_ids(account: Any) -> tuple[str, ...]:
@@ -265,7 +291,7 @@ async def send_error_report(
     服务实例。
     """
 
-    if is_ignored_exception(exception):
+    if is_ignored_exception(exception) or _in_cooldown(exception):
         return
     report = generate_error_report(exception, origin)
     account = getattr(origin, "account", None)
@@ -324,12 +350,6 @@ async def except_handle(
         return
     if is_ignored_exception(event.exception):
         return
-    error_hash = get_error_hash(event.exception)
-    now = time.monotonic()
-    last_time = last_error_time.get(error_hash)
-    if last_time is not None and now - last_time < ERROR_COOLDOWN:
-        return
-    last_error_time[error_hash] = now
     await send_error_report(
         event.exception,
         event.origin,
