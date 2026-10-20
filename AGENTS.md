@@ -33,7 +33,7 @@ requirements-entari.txt      # pip 兼容出口（锁定版本快照，主路径
 
 ## 开发环境与命令
 
-- 支持 Python `>=3.10,<3.13`。
+- 支持 Python `>=3.11,<3.14`。
 - 依赖管理使用 uv（pyproject.toml 声明依赖，uv.lock 锁定版本）。
   在项目根目录执行 `uv sync` 创建/更新环境，随后用 `uv run <命令>` 执行
   （例如 `uv run pytest -q`、`uv run python -m tenko --dry-run`）。
