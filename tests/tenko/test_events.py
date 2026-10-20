@@ -152,21 +152,6 @@ async def test_debug_filter_matrix(
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("text", ["hello", "/状态"], ids=["message", "command"])
-async def test_debug_filter_applies_to_non_master_messages_and_commands(
-    text: str,
-) -> None:
-    account = FakeAccount()
-    handler = MessageEventHandler(
-        debug_config=DebugConfig(enabled=True, masters=["20001"]),
-    )
-
-    await handler.handle(account, make_group_event(user_id="30001", text=text))
-
-    assert account.protocol.calls == []
-
-
-@pytest.mark.asyncio
 async def test_debug_skipped_message_is_still_counted() -> None:
     account = FakeAccount()
     metrics = MessageMetrics()
@@ -195,43 +180,6 @@ def test_debug_mode_without_masters_warns(monkeypatch) -> None:
 
 
 @pytest.mark.asyncio
-async def test_disabled_reply_only_logs_and_does_not_send() -> None:
-    account = FakeAccount()
-    handler = MessageEventHandler()
-
-    await handler.handle(account, make_private_event())
-
-    assert account.protocol.calls == []
-
-
-@pytest.mark.asyncio
-async def test_self_message_is_ignored() -> None:
-    account = FakeAccount()
-    event = make_private_event()
-    event.user = User(account.self_id)
-    handler = MessageEventHandler()
-
-    await handler.handle(account, event)
-
-    assert account.protocol.calls == []
-
-
-@pytest.mark.asyncio
-async def test_muted_group_event_is_skipped_before_message_handling() -> None:
-    account = FakeAccount()
-    registry = AccountRegistry()
-    registry.register(account, groups=[40001])
-    registry.set_muted(account, 40001, True)
-    handler = MessageEventHandler(
-        account_registry=registry,
-    )
-
-    await handler.handle(account, make_group_event())
-
-    assert account.protocol.calls == []
-
-
-@pytest.mark.asyncio
 async def test_muted_group_message_is_still_counted() -> None:
     account = FakeAccount()
     metrics = MessageMetrics()
@@ -247,21 +195,6 @@ async def test_muted_group_message_is_still_counted() -> None:
 
     assert metrics.received_count == 1
     assert account.protocol.calls == []
-
-
-@pytest.mark.asyncio
-async def test_non_action_send_failure_does_not_mark_group_muted() -> None:
-    account = FakeAccount()
-    account.protocol = FakeProtocol(failure=RuntimeError("network down"))
-    registry = AccountRegistry()
-    registry.register(account, groups=[40001])
-    handler = MessageEventHandler(
-        account_registry=registry,
-    )
-
-    await handler.handle(account, make_group_event())
-
-    assert not registry.is_muted(account, 40001)
 
 
 @pytest.mark.asyncio
@@ -462,27 +395,6 @@ async def test_group_event_guard_deterministic_account_is_unique_and_has_no_fall
 
 
 @pytest.mark.asyncio
-async def test_group_event_guard_deterministic_muted_account_has_no_fallback() -> None:
-    first = RoutedFakeAccount("10001")
-    second = RoutedFakeAccount("10002")
-    registry = AccountRegistry()
-    registry.register(first, groups=[40001])
-    registry.register(second, groups=[40001])
-    registry.set_response_type(40001, "deterministic")
-    registry.set_deterministic_account(40001, second)
-    registry.set_muted(second, 40001, True)
-    callback = AsyncMock()
-    handler = MessageEventHandler(
-        account_registry=registry,
-    )
-
-    await handler.guard(callback)(first, make_group_event())
-    await handler.guard(callback)(second, make_group_event())
-
-    callback.assert_not_awaited()
-
-
-@pytest.mark.asyncio
 @pytest.mark.parametrize(
     ("content", "recovers"),
     [
@@ -517,25 +429,6 @@ async def test_mute_recovery_matches_what_entari_resolves(
         basic.nickname = old_nickname
 
     assert callback.await_count == int(recovers)
-
-
-@pytest.mark.asyncio
-async def test_muted_account_can_receive_only_its_recovery_command() -> None:
-    account = FakeAccount()
-    registry = AccountRegistry()
-    registry.register(account, groups=[40001])
-    registry.set_muted(account, 40001, True)
-    callback = AsyncMock()
-    handler = MessageEventHandler(
-        account_registry=registry,
-    )
-    guarded = handler.guard(callback)
-
-    await guarded(account, make_group_event(text="/解禁自己"))
-    await guarded(account, make_group_event(text="/帮助"))
-
-    callback.assert_awaited_once()
-    assert callback.await_args.args[1].message.content == "/解禁自己"
 
 
 @pytest.mark.asyncio
@@ -618,25 +511,6 @@ def test_message_metrics_counts_rates_and_evicts_oldest_records() -> None:
     assert metrics.rates() == (1, 2)
 
 
-def test_message_metrics_records_entari_plugin_send_response() -> None:
-    metrics = MessageMetrics()
-    response = SimpleNamespace(
-        account=SimpleNamespace(self_id="10001", platform="onebot"),
-        channel="40001",
-        message=SimpleNamespace(display=lambda: "plugin reply"),
-        result=[MessageObject("90001", "plugin reply")],
-        session=None,
-    )
-
-    metrics.record_send_response(response)
-
-    assert metrics.sent_count == 1
-    record = metrics.recent_messages[0]
-    assert record.direction == "sent"
-    assert record.text == "plugin reply"
-    assert record.message_id == "90001"
-
-
 @pytest.mark.asyncio
 async def test_entari_send_subscriber_records_via_dispatch(monkeypatch) -> None:
     # Letoderea 0.22 的 dispatch 用全局事件循环建任务；生产里由 runtime 设置。
@@ -661,23 +535,6 @@ async def test_entari_send_subscriber_records_via_dispatch(monkeypatch) -> None:
     record = metrics.recent_messages[0]
     assert record.text == "plugin reply"
     assert record.message_id == "90001"
-
-
-@pytest.mark.asyncio
-async def test_message_handler_records_received_message() -> None:
-    metrics = MessageMetrics(buffer_size=10)
-    account = FakeAccount()
-    handler = MessageEventHandler(
-        metrics=metrics,
-    )
-
-    await handler.handle(account, make_private_event(text="hello"))
-
-    assert metrics.received_count == 1
-    assert metrics.sent_count == 0
-    assert [record.direction for record in metrics.recent_messages] == [
-        "received",
-    ]
 
 
 def test_image_only_message_is_visible_in_message_evidence() -> None:

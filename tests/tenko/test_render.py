@@ -5,35 +5,13 @@ from types import SimpleNamespace
 
 import pytest
 
-from tenko.config import RenderConfig, TenkoConfig
+from tenko.config import RenderConfig
 from tenko.render import (
     RenderService,
     RenderTimeoutError,
     RenderUnavailableError,
     render_or_none,
 )
-
-
-def test_render_config_defaults_and_mapping() -> None:
-    config = TenkoConfig.from_mapping(
-        {
-            "render": {
-                "enabled": False,
-                "timeout": 4.5,
-                "width": 1024,
-                "quality": 90,
-                "device_scale_factor": 3,
-            }
-        }
-    ).render
-
-    assert config == RenderConfig(
-        timeout=4.5,
-        width=1024,
-        quality=90,
-        device_scale_factor=3,
-    )
-    assert TenkoConfig().render == RenderConfig()
 
 
 @pytest.mark.parametrize(

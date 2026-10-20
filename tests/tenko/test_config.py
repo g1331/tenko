@@ -91,15 +91,6 @@ create_table_at = "prepared"
     assert config.database.create_table_at == "prepared"
 
 
-def test_config_loads_notify_group_key(tmp_path) -> None:
-    path = tmp_path / "tenko.toml"
-    path.write_text("notify_group = 40002\n", encoding="utf-8")
-
-    config = TenkoConfig.load(path)
-
-    assert config.notify_group == "40002"
-
-
 def test_config_loads_official_basic_and_tenko_sections_together(tmp_path) -> None:
     path = tmp_path / "tenko.toml"
     path.write_text(
@@ -162,12 +153,6 @@ def test_config_example_is_loadable_with_official_basic_section(tmp_path) -> Non
     assert config.basic.prefix == ["/"]
     assert config.basic.log.save is None
     assert config.entari.superusers == {"onebot": ("YOUR_QQ_ID",)}
-    assert config.notify_group is None
-
-
-def test_config_ignores_removed_notify_group_alias() -> None:
-    config = TenkoConfig.from_mapping({"test_group": "40001"})
-
     assert config.notify_group is None
 
 

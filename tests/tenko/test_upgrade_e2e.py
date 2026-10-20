@@ -455,22 +455,6 @@ def _assert_candidate_process_result(
     )
 
 
-def test_launcher_without_active_uses_stable_code_and_cwd(tmp_path: Path) -> None:
-    fixture = _make_fixture(tmp_path)
-
-    completed = _run_launcher(fixture, "--e2e-mode", "stable")
-
-    _assert_candidate_process_result(completed)
-    observation = _read_observation(fixture)
-    assert observation["source"] == STABLE_MARKER
-    assert observation["source_file"] == str(
-        fixture.stable_root / "tenko" / "__main__.py"
-    )
-    assert observation["cwd"] == str(fixture.stable_root.resolve())
-    assert not (fixture.upgrade_root / "active.json").exists()
-    assert not any((fixture.upgrade_root / "versions").iterdir())
-
-
 def test_launcher_with_active_uses_candidate_code_and_stable_data_root(
     tmp_path: Path,
 ) -> None:

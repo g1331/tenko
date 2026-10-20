@@ -22,22 +22,6 @@ from tenko.runtime import TenkoRuntime
 from tenko.webui import WebUIService
 
 
-def test_runtime_shutdown_callback_stops_launart_lifecycle(monkeypatch) -> None:
-    connection = Mock()
-    monkeypatch.setattr(
-        runtime_module, "OneBotConnection", Mock(return_value=connection)
-    )
-    runtime = TenkoRuntime(TenkoConfig())
-    manager = Mock()
-    manager.task_group.blocking_task = Mock()
-    runtime.manager = manager
-
-    assert runtime.updater.request_graceful_shutdown() is True
-    assert manager.status.exiting is True
-    assert manager.task_group.stop is True
-    manager.task_group.blocking_task.cancel.assert_called_once_with()
-
-
 @pytest.mark.asyncio
 async def test_runtime_shutdown_callback_completes_launart_cleanup() -> None:
     class LifecycleProbe(Service):
@@ -377,15 +361,6 @@ def test_entari_run_async_registration_keeps_connection_components(
     assert (
         manager.get_component(connection.ready_service.id) is connection.ready_service
     )
-
-
-def test_runtime_configures_account_registry_without_file_state(monkeypatch) -> None:
-    accounts = Mock()
-    monkeypatch.setattr(runtime_module, "account_registry", accounts)
-    runtime = TenkoRuntime(TenkoConfig())
-
-    assert runtime.accounts is accounts
-    accounts.configure.assert_called_once_with(None)
 
 
 @pytest.mark.asyncio

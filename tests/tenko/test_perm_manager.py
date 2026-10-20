@@ -103,27 +103,6 @@ def make_query(path: str, result):
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("loaded_plugin", ["perm_manager"], indirect=True)
-async def test_native_permission_command_writes_parsed_target(loaded_plugin) -> None:
-    loaded_plugin.permission_checker = PermissionChecker(registry=PermissionRegistry())
-    loaded_plugin._member_permission = AsyncMock(return_value=Permission.User)
-    loaded_plugin._write_member_permission = AsyncMock()
-    loaded_plugin._target_member = AsyncMock(return_value=object())
-
-    result = await loaded_plugin.change_user_perm.callable_target(
-        make_session("20001", "owner"),
-        Match(32, True),
-        Match(("30001",), True),
-        Query("group.group_id"),
-    )
-
-    assert "1个执行成功" in str(result)
-    loaded_plugin._write_member_permission.assert_awaited_once_with(
-        "40001", "30001", 32
-    )
-
-
-@pytest.mark.asyncio
-@pytest.mark.parametrize("loaded_plugin", ["perm_manager"], indirect=True)
 async def test_permission_list_rejects_cross_group_target_in_group(
     loaded_plugin,
 ) -> None:

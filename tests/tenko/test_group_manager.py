@@ -477,8 +477,11 @@ async def test_management_commands_call_action_service(loaded_plugin) -> None:
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("private", [False, True], ids=["group", "private"])
 @pytest.mark.parametrize("loaded_plugin", ["group_manager"], indirect=True)
-async def test_master_can_make_a_designated_bot_leave_a_group(loaded_plugin) -> None:
+async def test_master_can_make_a_designated_bot_leave_a_group(
+    loaded_plugin, private
+) -> None:
     protocol = FakeProtocol()
     account = FakeAccount(protocol)
     accounts = AccountRegistry()
@@ -487,38 +490,12 @@ async def test_master_can_make_a_designated_bot_leave_a_group(loaded_plugin) -> 
     loaded_plugin.permission_checker = checker
     loaded_plugin.account_registry = accounts
     loaded_plugin.action_service = ActionService(accounts, checker)
-
-    result = await loaded_plugin.leave_group.callable_target(
-        make_session("20001", "member"),
-        Match("40002", True),
-        Match("10001", True),
+    session = (
+        make_private_session("20001") if private else make_session("20001", "member")
     )
 
-    assert str(result) == "BOT10001已退出群40002!"
-    assert protocol.calls == [
-        (
-            "internal",
-            ("set_group_leave",),
-            {"group_id": 40002, "is_dismiss": False},
-        )
-    ]
-
-
-@pytest.mark.asyncio
-@pytest.mark.parametrize("loaded_plugin", ["group_manager"], indirect=True)
-async def test_master_can_make_a_designated_bot_leave_from_private_chat(
-    loaded_plugin,
-) -> None:
-    protocol = FakeProtocol()
-    account = FakeAccount(protocol)
-    accounts = AccountRegistry()
-    accounts.register(account, groups=["40002"])
-    checker = PermissionChecker(registry=PermissionRegistry(master_id="20001"))
-    loaded_plugin.permission_checker = checker
-    loaded_plugin.action_service = ActionService(accounts, checker)
-
     result = await loaded_plugin.leave_group.callable_target(
-        make_private_session("20001"),
+        session,
         Match("40002", True),
         Match("10001", True),
     )
@@ -897,8 +874,11 @@ async def test_privileged_invite_is_kept_pending_when_auto_approval_fails(
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("role", ["member", "admin"])
 @pytest.mark.parametrize("loaded_plugin", ["group_manager"], indirect=True)
-async def test_group_admin_cannot_approve_pending_invite(loaded_plugin) -> None:
+async def test_group_members_and_admins_cannot_approve_pending_invite(
+    loaded_plugin, role
+) -> None:
     protocol = InviteProtocol()
     account = InviteAccount(protocol)
     install_invite_action_service(loaded_plugin, account, PermissionRegistry())
@@ -914,7 +894,7 @@ async def test_group_admin_cannot_approve_pending_invite(loaded_plugin) -> None:
     )
 
     result = await loaded_plugin.approve_invite.callable_target(
-        make_session("20002", "admin"), Match("request-1", True)
+        make_session("20002", role), Match("request-1", True)
     )
 
     assert str(result) == "权限不足"
@@ -1044,32 +1024,6 @@ async def test_master_can_approve_pending_invite_from_private_chat(
     assert str(result) == "已同意邀请 request-1"
     assert protocol.approvals == [("request-1", True, "已同意您的邀请~")]
     assert loaded_plugin.pending_invites == {}
-
-
-@pytest.mark.asyncio
-@pytest.mark.parametrize("loaded_plugin", ["group_manager"], indirect=True)
-async def test_normal_group_member_cannot_review_pending_invite(loaded_plugin) -> None:
-    protocol = InviteProtocol()
-    account = InviteAccount(protocol)
-    loaded_plugin.permission_checker = PermissionChecker(registry=PermissionRegistry())
-    loaded_plugin.pending_invites["request-1"] = loaded_plugin.PendingInvite(
-        request_id="request-1",
-        account=account,
-        group_id="40001",
-        group_name="审核群",
-        inviter_id="20001",
-        inviter_name="邀请人",
-        comment="",
-        created_at=0,
-    )
-
-    result = await loaded_plugin.approve_invite.callable_target(
-        make_session("20002", "member"), Match("request-1", True)
-    )
-
-    assert str(result) == "权限不足"
-    assert protocol.approvals == []
-    loaded_plugin.pending_invites.clear()
 
 
 @pytest.mark.asyncio

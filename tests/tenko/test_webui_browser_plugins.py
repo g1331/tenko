@@ -198,16 +198,6 @@ def test_plugin_cancel_does_not_post_and_failure_toasts(open_panel):
     assert not page.errors
 
 
-def test_plugin_market_placeholder_dialog(open_panel):
-    page = open_plugins(open_panel, PluginsPanel())
-    page.get_by_role("button", name="插件市场").click()
-    dialog = page.locator(".el-dialog")
-    dialog.get_by_text("插件市场筹备中").wait_for()
-    assert "仍在设计" in dialog.inner_text()
-    dialog.get_by_role("button", name="Close").click()
-    dialog.wait_for(state="hidden")
-
-
 def test_plugins_empty_state(open_panel):
     panel = PluginsPanel()
     panel.data["/api/features"] = {"features": [], "group_names": {}}

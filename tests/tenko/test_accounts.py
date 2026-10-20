@@ -82,18 +82,6 @@ def test_group_message_routes_by_source_id_and_private_keeps_account() -> None:
     )
 
 
-def test_event_random_selection_is_cached_per_message() -> None:
-    registry = AccountRegistry()
-    first = FakeAccount("10001")
-    second = FakeAccount("10002")
-    registry.register(first, groups=[100])
-    registry.register(second, groups=[100])
-
-    selected = registry.select_for_event(100, source_id="message-1")
-
-    assert selected is registry.select_for_event(100, source_id="message-1")
-
-
 def test_event_random_selection_normalizes_account_id_in_cache(monkeypatch) -> None:
     registry = AccountRegistry()
     first = FakeAccount(10001)

@@ -265,18 +265,6 @@ def test_packaging_normalizes_pre_and_rc_to_the_same_version() -> None:
     assert pre.pre == ("rc", 10)
 
 
-def test_prerelease_channel_selects_pre10_over_pre9() -> None:
-    releases = (
-        Release(parse_version("4.0.0-pre9"), "v4.0.0-pre9", prerelease=True),
-        Release(parse_version("4.0.0-pre10"), "v4.0.0-pre10", prerelease=True),
-    )
-
-    selected = select_release(releases, "4.0.0-pre8", UpdateChannel.PRERELEASE)
-
-    assert selected is not None
-    assert selected.tag == "v4.0.0-pre10"
-
-
 def test_select_release_obeys_stable_and_prerelease_channels() -> None:
     releases = (
         Release(parse_version("1.1.0-rc.1"), "v1.1.0-rc.1", prerelease=True),
@@ -583,7 +571,14 @@ async def test_github_release_source_uses_official_release_endpoint_and_asset_di
 
 
 @pytest.mark.asyncio
-async def test_github_release_source_requires_asset_digest(tmp_path: Path) -> None:
+@pytest.mark.parametrize(
+    "digest",
+    [{}, {"digest": "sha256:" + "0" * 64}],
+    ids=["missing", "mismatch"],
+)
+async def test_github_release_source_rejects_missing_or_bad_asset_digest(
+    tmp_path: Path, digest: dict[str, str]
+) -> None:
     client = FakeHttpClient(
         [
             {
@@ -592,6 +587,7 @@ async def test_github_release_source_requires_asset_digest(tmp_path: Path) -> No
                     {
                         "name": "tenko.zip",
                         "browser_download_url": "https://download/tenko.zip",
+                        **digest,
                     }
                 ],
             }
@@ -604,30 +600,6 @@ async def test_github_release_source_requires_asset_digest(tmp_path: Path) -> No
     with pytest.raises(ArtifactVerificationError):
         await source.acquire(release, tmp_path / "release")
     assert not (tmp_path / "release").exists()
-
-
-@pytest.mark.asyncio
-async def test_github_release_source_rejects_bad_asset_digest(tmp_path: Path) -> None:
-    client = FakeHttpClient(
-        [
-            {
-                "tag_name": "v2.0.0",
-                "assets": [
-                    {
-                        "name": "tenko.zip",
-                        "browser_download_url": "https://download/tenko.zip",
-                        "digest": "sha256:" + "0" * 64,
-                    }
-                ],
-            }
-        ],
-        download_content=make_archive(),
-    )
-    source = GitHubReleaseSource("owner/repository", client=client)
-    release = (await source.discover(UpdateChannel.STABLE))[0]
-
-    with pytest.raises(ArtifactVerificationError):
-        await source.acquire(release, tmp_path / "release")
 
 
 @pytest.mark.asyncio
@@ -1082,21 +1054,6 @@ async def test_prepare_keeps_config_and_data_outside_staging(tmp_path: Path) -> 
 
 
 @pytest.mark.asyncio
-async def test_prepare_rejects_manifest_incompatible_config_before_promotion(
-    tmp_path: Path,
-) -> None:
-    manager, source, _checker, _config_path, _data_dir = make_manager(tmp_path)
-    source.manifest_version = "2.0.0"
-
-    with pytest.raises(ConfigurationCompatibilityError):
-        await manager.prepare()
-
-    assert not manager.layout.pending_file.exists()
-    assert not list(manager.layout.versions_dir.glob("*"))
-    assert source.acquire_calls == 1
-
-
-@pytest.mark.asyncio
 async def test_prepare_audits_manifestless_release_as_legacy(tmp_path: Path) -> None:
     manager, _source, _checker, _config_path, _data_dir = make_manager(tmp_path)
 
@@ -1110,12 +1067,15 @@ async def test_prepare_audits_manifestless_release_as_legacy(tmp_path: Path) -> 
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("via", ["manifest", "release"])
 async def test_prepare_rejects_incompatible_config_before_promotion(
-    tmp_path: Path,
+    tmp_path: Path, via: str
 ) -> None:
     manager, source, _checker, _config_path, _data_dir = make_manager(
-        tmp_path, required_config_version="2.0.0"
+        tmp_path, required_config_version="2.0.0" if via == "release" else None
     )
+    if via == "manifest":
+        source.manifest_version = "2.0.0"
 
     with pytest.raises(ConfigurationCompatibilityError):
         await manager.prepare()

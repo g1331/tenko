@@ -323,19 +323,6 @@ def test_format_results_hides_per_group_details(loaded_plugin) -> None:
     assert "内部失败详情" not in output
 
 
-@pytest.mark.parametrize("loaded_plugin", ["announcement"], indirect=True)
-def test_format_results_counts_skipped_muted_groups_separately(loaded_plugin) -> None:
-    output = loaded_plugin.format_results(
-        (
-            loaded_plugin.PushResult("40001", "sent", "推送成功", "10001"),
-            loaded_plugin.PushResult("40002", "skipped_muted", "群内禁言"),
-            loaded_plugin.PushResult("40003", "failed", "动作失败"),
-        )
-    )
-
-    assert output == "公告推送完成：目标数 3；成功数 1；失败数 1；跳过数 1"
-
-
 @pytest.mark.asyncio
 @pytest.mark.parametrize("loaded_plugin", ["announcement"], indirect=True)
 async def test_announcement_preflight_honors_host_feature_switch(

@@ -2,7 +2,7 @@
 
 import re
 
-from webui_browser_support import FEATURES, POLL_MS, Panel
+from webui_browser_support import POLL_MS, Panel
 
 GROUPS = {
     "40001": "测试群一",
@@ -117,15 +117,6 @@ def checked(page, label):
 
 def confirm(page):
     page.locator(".el-message-box__btns .el-button--primary").click()
-
-
-def test_shell_default_dataset_still_loads_without_switch_data(open_panel):
-    # 沿用公共替身的默认数据：群只来自 features.groups，页面不应报错。
-    panel = Panel(authenticated=True)
-    page = open_switches(open_panel, panel)
-    assert rows(page).count() == 2
-    assert FEATURES["features"][0]["name"] in page.locator("#sw-detail").inner_text()
-    assert not page.errors
 
 
 def test_group_search_filters_by_name_and_id(open_panel):

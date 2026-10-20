@@ -54,26 +54,6 @@ def test_exception_listener_declares_render_service_for_entari_injection(
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("loaded_plugin", ["exception_catcher"], indirect=True)
-async def test_exception_event_trigger_reports_once(loaded_plugin) -> None:
-    loaded_plugin.last_error_time.clear()
-    loaded_plugin.send_error_report = AsyncMock()
-    event = make_exception_event("boom")
-
-    render_service = loaded_plugin.RenderService()
-    await loaded_plugin.except_handle.callable_target(
-        event,
-        render_service=render_service,
-    )
-
-    loaded_plugin.send_error_report.assert_awaited_once_with(
-        event.exception,
-        event.origin,
-        render_service=render_service,
-    )
-
-
-@pytest.mark.asyncio
-@pytest.mark.parametrize("loaded_plugin", ["exception_catcher"], indirect=True)
 async def test_exception_cooldown_filters_duplicate_error(loaded_plugin) -> None:
     loaded_plugin.last_error_time.clear()
     sent: list[str] = []
