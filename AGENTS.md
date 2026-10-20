@@ -94,6 +94,11 @@ config/tenko.toml.example    # 配置模板
    插件的群等级（默认 `ActiveGroup`，低于它的群里命令被静默忽略）由 `CommandPolicy`
    集中检查，不要在处理函数里再判断；内置插件需要别的等级时，在
    `plugin.get_plugin().metadata.group_level` 上设置，与 `feature_scope` 的写法一致。
+   群聊回复默认引用触发消息：`tenko/host/quote.py` 挂在 Entari 的 `SendRequest` 上，给
+   `session.send` 发往触发它的群的回复自动补 `Quote`，插件不用自己写 `reply_to`。已含 `Quote`
+   或 `<message>`（合并转发/多条消息）的内容、私聊、以及不经 session 的主动发送
+   （`action_service`、`account.protocol.send_message` 等：公告、通知、定时任务）都不加；
+   想让某条回复不带引用，用后者发送。
 3. 平台动作通过宿主动作服务执行，先确认账号能力、目标可用性和权限，再处理
    失败结果；不要在插件中复制协议层调用或吞掉未知异常。
 4. 配置从 `tenko.config` 读取，数据库操作通过 `tenko.db.repositories` 等现有

@@ -8,7 +8,7 @@ from collections.abc import Mapping
 from pathlib import Path
 
 import arclet.letoderea as le
-from arclet.entari import Entari
+from arclet.entari import Entari, SendRequest
 from arclet.entari.event.command import CommandParse
 from arclet.letoderea.utils import set_event_loop
 from creart import it
@@ -30,6 +30,7 @@ from .host.account_management import AccountManagement
 from .host.actions import action_service
 from .host.features import CommandPolicy, configure_feature_service
 from .host.plugins import PluginRuntime
+from .host.quote import quote_group_reply
 from .host.ratelimit import configure_rate_limiter
 from .host.startup import StartupHistory
 from .host.updater import UpgradeManager, configure_updater
@@ -390,6 +391,7 @@ class TenkoRuntime:
             rate_limit_override_permission=self.config.ratelimit.override_permission,
         )
         le.on(CommandParse, policy.enforce, priority=0)
+        le.on(SendRequest, quote_group_reply)
         if self.config.webui.enabled:
             feature_repository = None
             group_repository = None
