@@ -39,6 +39,7 @@ class ActionCapability(str, Enum):
     GROUP_ESSENCE = "group_essence"
     GROUP_LEAVE = "group_leave"
     GROUP_INVITE_APPROVAL = "group_invite_approval"
+    FRIEND_REQUEST_APPROVAL = "friend_request_approval"
     GROUP_LIST = "group_list"
 
 
@@ -58,6 +59,7 @@ _ONEBOT_ACTIONS = {
     ActionCapability.GROUP_ESSENCE: "set_essence_msg",
     ActionCapability.GROUP_LEAVE: "set_group_leave",
     ActionCapability.GROUP_INVITE_APPROVAL: "set_group_add_request",
+    ActionCapability.FRIEND_REQUEST_APPROVAL: "set_friend_add_request",
     ActionCapability.GROUP_LIST: "get_group_list",
 }
 
@@ -1209,6 +1211,25 @@ class ActionService:
             context=context,
             required=None if system else Permission.BotAdmin,
             permission_checker=permission_checker,
+        )
+
+    async def approve_friend_request(
+        self,
+        account_or_id: Account | str | int,
+        request_id: str,
+        approved: bool,
+    ) -> ActionReceipt:
+        """处理好友申请；仅供宿主按好友申请策略调用，不带用户权限上下文。"""
+
+        request = _key(request_id, "请求 ID")
+        if type(approved) is not bool:
+            raise TypeError("approved 必须是布尔值")
+        return await self._invoke(
+            account_or_id,
+            ActionCapability.FRIEND_REQUEST_APPROVAL,
+            lambda protocol: protocol.friend_approve(request, approved, ""),
+            context=None,
+            required=None,
         )
 
     async def send_private_message(

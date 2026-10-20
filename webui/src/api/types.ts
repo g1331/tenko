@@ -172,12 +172,15 @@ export interface FeatureToggleResult {
   state: { maintenance?: boolean; global_enabled?: boolean; groups?: Record<string, boolean> }
 }
 
+export type FriendRequestMode = 'off' | 'admins' | 'all'
 export interface SettingsData {
   default_enabled: boolean
   stored: boolean
+  friend_request_mode: FriendRequestMode
 }
 export interface SettingsBody {
-  default_enabled: boolean
+  default_enabled?: boolean
+  friend_request_mode?: FriendRequestMode
 }
 
 export type LogLevel = 'INFO' | 'SUCCESS' | 'WARNING' | 'ERROR' | 'CRITICAL'

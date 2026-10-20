@@ -104,7 +104,11 @@ DATA = {
     "/api/accounts": ACCOUNTS,
     "/api/features": FEATURES,
     "/api/manage/accounts": {"accounts": [], "capabilities": []},
-    "/api/manage/settings": {"default_enabled": True, "stored": True},
+    "/api/manage/settings": {
+        "default_enabled": True,
+        "stored": True,
+        "friend_request_mode": "admins",
+    },
 }
 
 

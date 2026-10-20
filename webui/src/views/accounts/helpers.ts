@@ -29,5 +29,6 @@ export const CAPABILITY_LABELS: Record<string, string> = {
   group_essence: '消息加精',
   group_leave: '退出群组',
   group_invite_approval: '邀请审批',
+  friend_request_approval: '好友申请审批',
   group_list: '读取群列表',
 }

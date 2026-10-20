@@ -24,6 +24,11 @@ from starlette.staticfiles import StaticFiles
 from ..config import WebUIConfig, TenkoConfig
 from ..db.errors import DatabaseError
 from ..host.account_management import AccountManagement
+from ..host.friend_requests import (
+    MODE_LABELS,
+    get_mode as get_friend_request_mode,
+    set_mode as set_friend_request_mode,
+)
 from .auth import (
     WEBUI_PATH,
     WebUIAuth,
@@ -832,18 +837,31 @@ class WebUIService(Service):
             repository = self._management().repository
             if request.method == "POST":
                 body = await self._body(request)
+                if not body or not set(body) <= {
+                    "default_enabled",
+                    "friend_request_mode",
+                }:
+                    raise ValueError("只能设置 default_enabled 或 friend_request_mode")
                 if (
-                    set(body) != {"default_enabled"}
-                    or type(body["default_enabled"]) is not bool
+                    "default_enabled" in body
+                    and type(body["default_enabled"]) is not bool
                 ):
                     raise ValueError("default_enabled 必须是布尔值")
-                await repository.save_setting(
-                    "feature-default", body["default_enabled"]
-                )
-                self.feature_service.default_enabled = body["default_enabled"]
+                if body.get("friend_request_mode", "admins") not in MODE_LABELS:
+                    raise ValueError("friend_request_mode 必须是 off、admins 或 all")
+                if "default_enabled" in body:
+                    await repository.save_setting(
+                        "feature-default", body["default_enabled"]
+                    )
+                    self.feature_service.default_enabled = body["default_enabled"]
+                if "friend_request_mode" in body:
+                    await set_friend_request_mode(
+                        repository, body["friend_request_mode"]
+                    )
             return {
                 "default_enabled": self.feature_service.default_enabled,
                 "stored": await repository.setting("feature-default") is not None,
+                "friend_request_mode": await get_friend_request_mode(repository),
             }
 
         return await self._manage(request, action)

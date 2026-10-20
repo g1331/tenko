@@ -2,6 +2,7 @@
 import { nextTick, onMounted, ref } from 'vue'
 import { useRoute } from 'vue-router'
 import PageContainer from '@/components/PageContainer.vue'
+import FriendRequestSettings from './settings/FriendRequestSettings.vue'
 import AccountForm from './settings/AccountForm.vue'
 import RuntimeSettings from './settings/RuntimeSettings.vue'
 import SessionList from './settings/SessionList.vue'
@@ -22,7 +23,10 @@ onMounted(async () => {
   <PageContainer>
     <section class="section" aria-labelledby="sec-runtime">
       <h2 id="sec-runtime">运行设置<small>RUNTIME</small></h2>
-      <RuntimeSettings />
+      <div class="stack">
+        <RuntimeSettings />
+        <FriendRequestSettings />
+      </div>
     </section>
 
     <section id="account-security" ref="security" class="section" aria-labelledby="sec-security">
@@ -55,6 +59,10 @@ onMounted(async () => {
   font-style: italic;
   font-weight: 400;
   letter-spacing: 3px;
+}
+.stack {
+  display: grid;
+  gap: 16px;
 }
 .grid {
   display: grid;

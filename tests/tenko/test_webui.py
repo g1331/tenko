@@ -504,6 +504,16 @@ async def test_management_auth_persistence_and_failure_boundaries(
             )
         ).status_code == 200
         assert not service.feature_service.default_enabled
+        settings_url = "/webui/api/manage/settings"
+        assert (await client.get(settings_url)).json()["data"][
+            "friend_request_mode"
+        ] == "admins"
+        saved = await client.post(settings_url, json={"friend_request_mode": "all"})
+        assert saved.json()["data"]["friend_request_mode"] == "all"
+        assert not service.feature_service.default_enabled
+        for bad in ({"friend_request_mode": "everyone"}, {}):
+            assert (await client.post(settings_url, json=bad)).status_code == 400
+        assert await ManagementRepository().setting("friend-request-mode") == "all"
 
     restored = AccountManagement(AccountRegistry(), ActionService())
     restored.repository = ManagementRepository()

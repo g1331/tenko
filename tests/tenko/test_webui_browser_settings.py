@@ -63,6 +63,21 @@ def test_default_policy_save_posts_body_and_shows_toast(open_panel):
     assert not page.errors
 
 
+def test_friend_request_policy_save_posts_only_the_mode(open_panel):
+    panel, page = open_settings(open_panel)
+    save = page.get_by_role("button", name="保存好友申请策略")
+    assert save.is_disabled()
+
+    page.get_by_label("处理策略").click()
+    page.get_by_role("option", name="所有人").click()
+    save.click()
+    page.get_by_text("好友申请策略已保存").wait_for()
+    assert panel.calls("POST", "/api/manage/settings")[0][3] == {
+        "friend_request_mode": "all"
+    }
+    assert not page.errors
+
+
 def test_sessions_list_marks_current_and_disables_its_revoke(open_panel):
     _panel, page = open_settings(open_panel)
     items = page.locator(".item")
