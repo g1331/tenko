@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+from types import SimpleNamespace
 
 import pytest
 
@@ -205,3 +206,45 @@ async def test_placeholder_templates_render_to_jpeg() -> None:
     assert markdown_image.startswith(b"\xff\xd8")
     assert help_image.startswith(b"\xff\xd8")
     assert list_image.startswith(b"\xff\xd8")
+
+
+@pytest.mark.asyncio
+async def test_start_relaunches_disconnected_browser(monkeypatch) -> None:
+    class Browser:
+        def __init__(self, connected: bool) -> None:
+            self.connected = connected
+            self.closed = False
+
+        def is_connected(self) -> bool:
+            return self.connected
+
+        async def close(self) -> None:
+            self.closed = True
+
+    class Playwright:
+        def __init__(self, browser: Browser) -> None:
+            self.chromium = self
+            self.browser = browser
+
+        async def launch(self) -> Browser:
+            return self.browser
+
+        async def stop(self) -> None:
+            pass
+
+    fresh = Browser(True)
+    monkeypatch.setattr(
+        "tenko.render.async_playwright",
+        lambda: SimpleNamespace(start=lambda: _async(Playwright(fresh))),
+    )
+    service = RenderService()
+    dead = service.browser = Browser(False)
+
+    assert await service.start() is True
+    assert dead.closed and service.browser is fresh
+    assert await service.start() is True
+    assert service.browser is fresh
+
+
+async def _async(value):
+    return value

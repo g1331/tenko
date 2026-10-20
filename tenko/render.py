@@ -110,7 +110,7 @@ class RenderService(Service):
     async def start(self) -> bool:
         """启动共享的 Playwright 浏览器，并返回其是否已就绪。"""
 
-        if self.browser is not None:
+        if self.browser is not None and self.browser.is_connected():
             return True
         if self._startup_error is not None:
             raise RenderUnavailableError("Chromium 不可用") from self._startup_error
@@ -121,7 +121,11 @@ class RenderService(Service):
 
         async with self._get_start_lock():
             if self.browser is not None:
-                return True
+                if self.browser.is_connected():
+                    return True
+                # Chromium 崩溃或被 OOM 终止后，清理旧句柄并重新启动。
+                logger.warning("Chromium 已断开，正在重新启动")
+                await self.close()
             if self._startup_error is not None:
                 raise RenderUnavailableError("Chromium 不可用") from self._startup_error
 

@@ -40,6 +40,7 @@ notify_group = 40001
 listen_host = "0.0.0.0"
 listen_port = 9000
 access_token = "secret"
+satori_token = "satori-secret"
 satori_host = "127.0.0.1"
 
 [onebot.capability_overrides."10001"]
@@ -316,3 +317,21 @@ def test_webui_management_credentials_are_independent():
                 },
             }
         )
+
+
+def test_non_loopback_bind_requires_custom_tokens() -> None:
+    from tenko.config import OneBotConfig
+
+    for onebot in (
+        OneBotConfig(listen_host="0.0.0.0"),
+        OneBotConfig(listen_host="0.0.0.0", access_token="a"),
+        OneBotConfig(listen_host="::", satori_token="s"),
+    ):
+        with pytest.raises(ValueError, match="listen_host"):
+            TenkoConfig(onebot=onebot)
+
+    TenkoConfig(onebot=OneBotConfig(listen_host="::1"))
+    TenkoConfig(onebot=OneBotConfig(listen_host="localhost"))
+    TenkoConfig(
+        onebot=OneBotConfig(listen_host="0.0.0.0", access_token="a", satori_token="s")
+    )

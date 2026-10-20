@@ -81,32 +81,48 @@ class LogReader:
             reverse=True,
         )
 
+    @staticmethod
+    def _tail(stream, maximum: int) -> tuple[bytes, bool]:
+        """流式读取并只保留最后 maximum 字节，返回数据与是否发生丢弃。"""
+
+        buffer = bytearray()
+        cut = False
+        while chunk := stream.read(1024 * 1024):
+            buffer += chunk
+            if len(buffer) > maximum:
+                del buffer[: len(buffer) - maximum]
+                cut = True
+        return bytes(buffer), cut
+
     def history(self, directory: Path | None, name: str, query: str) -> dict:
         if directory is None or name not in self.files(directory):
             raise ValueError("日志文件不存在或不可读取")
         path = directory / name
-        # ponytail: 每个文件最多扫描 8 MiB；日志规模增长后改为索引检索。
+        # shortcut: 每个文件只扫描末尾 8 MiB；日志规模增长后改为索引检索。
         maximum = 8 * 1024 * 1024
         if name.endswith(".gz"):
             with gzip.open(path, "rb") as stream:
-                data = stream.read(maximum + 1)
+                data, cut = self._tail(stream, maximum)
         elif name.endswith(".zip"):
             with zipfile.ZipFile(path) as archive:
                 names = archive.namelist()
                 if len(names) != 1:
                     raise ValueError("压缩日志必须只包含一个文件")
                 with archive.open(names[0]) as stream:
-                    data = stream.read(maximum + 1)
+                    data, cut = self._tail(stream, maximum)
         else:
             with path.open("rb") as stream:
-                data = stream.read(maximum + 1)
-        lines = self.redact(
-            data[:maximum].decode("utf-8", errors="replace")
-        ).splitlines()
+                size = stream.seek(0, 2)
+                stream.seek(max(0, size - maximum))
+                data, cut = stream.read(), size > maximum
+        if cut:
+            # 截断点可能落在行中间，丢弃首个不完整的行。
+            data = data.partition(b"\n")[2]
+        lines = self.redact(data.decode("utf-8", errors="replace")).splitlines()
         matches = [line[:4000] for line in lines if query.casefold() in line.casefold()]
         return {
             "lines": matches[-500:],
-            "truncated": len(data) > maximum or len(matches) > 500,
+            "truncated": cut or len(matches) > 500,
             "matched": len(matches),
             "scan_limit_bytes": maximum,
         }

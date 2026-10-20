@@ -299,6 +299,15 @@ def _capability_overrides(
     return normalized
 
 
+def _is_loopback_host(host: str) -> bool:
+    if host == "localhost":
+        return True
+    try:
+        return ipaddress.ip_address(host).is_loopback
+    except ValueError:
+        return False
+
+
 @dataclass(frozen=True, slots=True)
 class OneBotConfig:
     """OneBot 11 反向 WebSocket 与内部 Satori 服务的配置。"""
@@ -610,7 +619,6 @@ class UpgradeConfig:
     config_path: str = "config/tenko.toml"
     data_dir: str = "data"
     health_command: tuple[str, ...] = ()
-    launch_command: tuple[str, ...] = ()
     health_timeout: int = 30
     check_interval_hours: int = 24
     superuser_ids: tuple[str, ...] = ()
@@ -659,7 +667,6 @@ class UpgradeConfig:
                 object.__setattr__(self, name, None)
 
         object.__setattr__(self, "health_command", tuple(self.health_command))
-        object.__setattr__(self, "launch_command", tuple(self.launch_command))
         object.__setattr__(self, "superuser_ids", tuple(self.superuser_ids))
 
     @classmethod
@@ -694,9 +701,6 @@ class UpgradeConfig:
             data_dir=_string(section, "data_dir", defaults.data_dir),
             health_command=_string_sequence(
                 section, "health_command", defaults.health_command
-            ),
-            launch_command=_string_sequence(
-                section, "launch_command", defaults.launch_command
             ),
             health_timeout=_integer(section, "health_timeout", defaults.health_timeout),
             restart_watch_timeout=_integer(
@@ -888,6 +892,14 @@ class TenkoConfig:
     notify_group: str | None = None
 
     def __post_init__(self) -> None:
+        onebot = self.onebot
+        if not _is_loopback_host(onebot.listen_host) and (
+            not onebot.access_token or onebot.satori_token == "tenko-satori-local"
+        ):
+            raise ValueError(
+                "onebot.listen_host 不是回环地址时，必须设置 access_token，"
+                "且 satori_token 不能使用默认值"
+            )
         if self.webui.enabled:
             protocol_tokens = {self.onebot.access_token, self.onebot.satori_token} - {
                 None

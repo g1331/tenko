@@ -631,3 +631,18 @@ async def test_capability_import_is_once_even_after_forgetting_account(tenko_dat
     await preferences.forget(("onebot", "10001"))
     await preferences.initialize(old)
     assert not preferences.preferences
+
+
+def test_log_history_scans_tail_of_large_files(tmp_path):
+    import gzip
+    from tenko.webui.logs import LogReader
+
+    logs = LogReader(lambda: ())
+    body = ("x" * 99 + "\n") * (90 * 1024)  # 约 9 MiB，超过扫描上限
+    (tmp_path / "big.log").write_text(body + "last-line\n")
+    with gzip.open(tmp_path / "big.log.gz", "wt") as file:
+        file.write(body + "last-line\n")
+    for name in ("big.log", "big.log.gz"):
+        result = logs.history(tmp_path, name, "last-line")
+        assert result["lines"] == ["last-line"] and result["truncated"]
+        assert logs.history(tmp_path, name, "")["lines"][0] == "x" * 99
