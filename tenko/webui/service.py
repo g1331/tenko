@@ -847,7 +847,8 @@ class WebUIService(Service):
                     and type(body["default_enabled"]) is not bool
                 ):
                     raise ValueError("default_enabled 必须是布尔值")
-                if body.get("friend_request_mode", "admins") not in MODE_LABELS:
+                mode = body.get("friend_request_mode", "admins")
+                if not isinstance(mode, str) or mode not in MODE_LABELS:
                     raise ValueError("friend_request_mode 必须是 off、admins 或 all")
                 if "default_enabled" in body:
                     await repository.save_setting(
