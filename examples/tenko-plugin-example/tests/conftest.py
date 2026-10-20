@@ -16,6 +16,9 @@ from arclet.entari.config import EntariConfig
 from satori import Channel, ChannelType, EventType, Guild, Login, MessageObject, User
 from satori.model import Event, Member
 
+from tenko.config import DatabaseConfig
+from tenko.db.bootstrap import load_database_plugin
+from tenko.db.migration import run_database_migrations
 from tenko.host.plugins import PluginRuntime
 
 
@@ -35,14 +38,24 @@ def host(tmp_path_factory):
 
 @pytest_asyncio.fixture(scope="session", loop_scope="session")
 async def runtime(host):
-    """按真实的入口发现机制加载 example 插件，并传入 ``[plugin_config.example]``。"""
+    """按真实的入口发现机制加载 example 插件，并传入 ``[plugin_config.example]``。
 
+    和宿主启动一样：先加载数据库插件，加载插件时登记它的库，再初始化服务并迁移。
+    """
+
+    service = load_database_plugin(
+        DatabaseConfig(url=f"sqlite+aiosqlite:///{host.root / 'main.db'}")
+    )
     runtime = PluginRuntime(
         host.root / "no-builtin", state_file=host.root / "state.json"
     )
     await runtime.load_all(external_configs={"example": {"greeting": "测试问候"}})
+    await service.initialize()
+    await run_database_migrations(service)
     yield runtime
     runtime.unload("example")
+    for engine in service.engines.values():
+        await engine.dispose()
 
 
 @pytest.fixture(scope="session")

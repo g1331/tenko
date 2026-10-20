@@ -4,10 +4,10 @@
 
 - 用 `tenko_api.features.declare` 声明按群开关、默认状态、限流权重和群等级；
 - 用 `[plugin_config.example]` 配置插件（Entari 的 `BasicConfModel`）；
-- 用 `tenko_api.storage.Store` 保存带版本号的 JSON 数据；
+- 用 `tenko_api.storage.Store` 保存带版本号的 JSON 数据，用 `Model` 和 `get_session()` 使用插件自己的 SQLite 库；
 - 用 `tenko_api.perm` 的装饰器（`@require` 等）声明命令权限，用 Entari 原生的 `command.on` 注册命令。
 
-插件命令 `/示例 [备注]` 记录你使用命令的次数和最近一条备注。
+插件命令 `/示例 [备注]` 记录你使用命令的次数（JSON）和备注历史（SQLite）。
 
 ## 从模板开始
 
@@ -18,7 +18,7 @@
    插件 ID 匹配 `[a-z][a-z0-9_]*`，全局唯一，不能和内置插件同名；它是功能开关、
    配置节和数据目录的键。
 3. **不要声明 `entari.plugin` 入口**：Entari 会无视 Tenko 的启用状态自动加载它。
-4. 依赖只写 `tenko-api` 的兼容范围（预览期为 `>=0.1,<0.2`）和插件自己的依赖，
+4. 依赖只写 `tenko-api` 的兼容范围（预览期为 `>=0.2,<0.3`）和插件自己的依赖，
    不要依赖 `tenko` 本体，也不要用 `==` 锁死依赖版本。
 
 ## 开发与测试
@@ -39,6 +39,10 @@ uv run ruff check .
 - `data_dir()` 和 `Store` 只能在插件自己的模块里使用，数据位于 `.tenko/plugin-data/<插件 ID>/`。
   数据结构变化时提高 `Store` 的版本号并提供 `migrate`，宿主会先把旧文件备份为
   `<名称>.json.bak-v<旧版本>`；插件被降级、读到更新版本的文件时会报错而不是覆盖。
+- `Model` 子类在插件模块导入期间定义，表建在 `data.db`；启动时自动建表和增加可空列，
+  删除或修改列会被拒绝，需要时写官方的 `register_custom_migration` 脚本。测试里要像宿主
+  那样先加载数据库插件、再加载插件、最后初始化并迁移（见 `tests/conftest.py`）。
+  版本变化后宿主会先备份库到 `backups/`。
 - 命令权限用 `tenko_api.perm` 的装饰器声明，不要在函数体里重复检查；装饰器在
   `@command.on(...)` 之上或之下都生效。因为装饰器由 Entari 调度，测试里直接调用
   `callable_target` 不会经过它们，应检查登记的要求（见 `tests/test_plugin.py`），

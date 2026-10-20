@@ -67,8 +67,18 @@ PUBLIC_API = {
     "features": {"feature_enabled", "declare", "feature_required"},
     "render": {"render_or_none", "RenderService"},
     "messages": {"text_message", "report_error", "action_error_message"},
-    "storage": {"data_dir", "Store", "StoreVersionError", "PluginStorageError"},
+    "storage": {
+        "data_dir",
+        "Store",
+        "StoreVersionError",
+        "PluginStorageError",
+        "Model",
+        "get_session",
+    },
 }
+
+# 首次访问才转发到数据库服务，需要官方 database 插件已加载；在 test_plugin_database 里验证。
+LAZY_NAMES = {"Model", "get_session"}
 
 
 @pytest.mark.parametrize("module", sorted(PUBLIC_API))
@@ -76,7 +86,7 @@ def test_facade_modules_export_documented_names(module: str) -> None:
     facade = importlib.import_module(f"tenko_api.{module}")
     assert facade.__doc__
     assert PUBLIC_API[module] <= set(facade.__all__)
-    for name in facade.__all__:
+    for name in set(facade.__all__) - LAZY_NAMES:
         assert getattr(facade, name) is not None
 
 

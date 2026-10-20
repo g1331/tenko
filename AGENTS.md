@@ -138,7 +138,18 @@ config/tenko.toml.example    # 配置模板
 - 存储：`tenko_api.storage.data_dir()` 返回 `.tenko/plugin-data/<id>/`；`Store(name,
   version, migrate)` 是带版本号的 JSON 文件（原子写入，版本变化先备份再迁移，遇到更新
   版本的文件拒绝读写）。调用方按模块名归属到 `tenko.plugins` 入口，只能在插件自己的
-  模块里调用（实现见 `tenko/host/plugin_storage.py`）。插件独立 SQLite 库尚未提供。
+  模块里调用（实现见 `tenko/host/plugin_storage.py`）。
+- 插件 SQL 数据：`tenko_api.storage.Model` 是声明式基类，表建在插件自己的
+  `.tenko/plugin-data/<id>/data.db`（绑定键 `plugin:<id>`，默认表名 `<id>_<类名小写>`，共用一份
+  元数据所以显式表名要全局唯一），`get_session()` 取会话，操作 `Model` 子类自动路由到插件库
+  （原生 SQL 仍走主库）。引擎在插件模块导入、第一个模型创建时登记到官方
+  `SqlalchemyService.engines`（`tenko/db/plugin_models.py`）：必须早于 service 的 `initialize()`，
+  它只为当时已有的引擎建表和绑定会话，迁移器对未知绑定键会静默回退主库，所以 service 初始化后
+  再定义模型会直接报错。插件里直接继承 `BaseOrm` 等绑定到主库的模型在加载时报错，该插件加载失败。
+  迁移走官方迁移器和上面的“只前进”保护，显式 `register_custom_migration` 照常可用。插件版本
+  （分发包版本）相比上次启动变化时，先把库备份到 `backups/<时间>-v<旧版本>.db`（保留最近 3 份）；
+  上次版本记在 `db-version`。目前没有 `/卸载插件`：`/清除插件数据 <插件ID>`（Master，二次确认）
+  删除整个数据目录，要求插件当前未加载（先停用并重启）。
 - 插件不得删除表、删除列或修改列类型：宿主在官方迁移器上安装了“Schema 只前进”
   保护，遇到这类变更会回滚该模块的结构迁移并拒绝删表（实现见 `tenko/db/migration.py`）。
 - 开发第三方插件时可用 `pip install "tenko @ git+https://github.com/g1331/tenko@<tag>"`

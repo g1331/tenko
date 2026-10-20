@@ -1,3 +1,5 @@
+import sqlite3
+
 from arclet.entari.command import Query
 from conftest import make_session
 
@@ -28,7 +30,7 @@ async def test_plugin_loads_with_config_and_declared_metadata(runtime, module):
     assert runtime.command_owner("示例").name == "example"
 
 
-async def test_command_counts_visits_and_remembers_the_last_note(module):
+async def test_command_counts_visits_and_remembers_the_last_note(module, host):
     session = make_session("20001")
 
     first = await module.example.callable_target(session, Query("note", "备忘"))
@@ -36,4 +38,9 @@ async def test_command_counts_visits_and_remembers_the_last_note(module):
 
     assert str(first) == "测试问候，这是你第 1 次使用示例命令"
     assert "第 2 次" in str(second) and "上次备注：备忘" in str(second)
-    assert module.visits.load()["20001"] == {"count": 2, "note": "备忘"}
+    assert module.visits.load()["20001"] == {"count": 2}
+    # 备注在插件自己的库里，不在宿主主库。
+    with sqlite3.connect(host.root / ".tenko/plugin-data/example/data.db") as db:
+        assert db.execute("SELECT user_id, text FROM example_note").fetchall() == [
+            ("20001", "备忘")
+        ]

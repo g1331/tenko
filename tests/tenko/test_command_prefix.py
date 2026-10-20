@@ -9,6 +9,10 @@ from tenko.commands import configure_command_prefix
 
 
 _POSITIVE_CASES: dict[str, dict[str, tuple[str, ...]]] = {
+    "清除插件数据": {
+        "positive": ("/清除插件数据 example",),
+        "boundary": ("/清除插件数据-1", "/ 清除插件数据"),
+    },
     "帮助": {
         "positive": ("/帮助", "/帮助 1"),
         "boundary": ("/帮助-1", "/ 帮助"),

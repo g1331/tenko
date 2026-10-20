@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import sqlite3
 
 import pytest
 from external_plugin_support import entry, patch_entry_points
@@ -11,7 +12,9 @@ from external_plugin_support import entry, patch_entry_points
 from tenko.host.plugin_storage import (
     PluginStorageError,
     StoreVersionError,
+    clear_plugin_data,
     data_dir,
+    prepare_plugin_db,
 )
 
 MODULE = "tenko_t_store"
@@ -170,3 +173,40 @@ def test_store_requires_migrate_for_older_file_and_rejects_corruption(plugin) ->
 def test_store_rejects_unsafe_names(plugin, name) -> None:
     with pytest.raises(ValueError):
         make_store(f"store = Store({name!r}, version=1)")
+
+
+# ------------------------------------------------------- 插件库备份与清除
+
+
+def test_plugin_db_is_backed_up_when_the_version_changes_keeping_three(plugin) -> None:
+    database = prepare_plugin_db("store_demo", "1.0.0")
+    assert database == plugin / "data.db"
+    with sqlite3.connect(database) as connection:
+        connection.execute("CREATE TABLE t (v)")
+        connection.execute("INSERT INTO t VALUES ('数据')")
+    # 同一版本再次启动不备份。
+    prepare_plugin_db("store_demo", "1.0.0")
+    assert not (plugin / "backups").exists()
+
+    for version in ("1.1.0", "1.2.0", "1.3.0", "1.4.0"):
+        prepare_plugin_db("store_demo", version)
+
+    backups = sorted((plugin / "backups").glob("*.db"))
+    assert [b.name.split("-v")[1] for b in backups] == [
+        "1.1.0.db",
+        "1.2.0.db",
+        "1.3.0.db",
+    ]
+    with sqlite3.connect(backups[0]) as connection:
+        assert connection.execute("SELECT v FROM t").fetchall() == [("数据",)]
+
+
+def test_clear_plugin_data_removes_the_whole_directory(plugin) -> None:
+    run_in_module("from tenko_api.storage import Store\nStore('n', 1).save(1)", MODULE)
+    assert (plugin / "n.json").is_file()
+
+    assert clear_plugin_data("store_demo") is True
+    assert not plugin.exists()
+    assert clear_plugin_data("store_demo") is False
+    with pytest.raises(ValueError):
+        clear_plugin_data("../x")

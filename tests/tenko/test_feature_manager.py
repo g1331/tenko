@@ -211,3 +211,37 @@ async def test_feature_numbers_match_help_and_external_cannot_claim_protection(
     )
     assert result.extract_plain_text() == "功能<ext_on>已关闭~"
     assert not service.is_enabled("ext_on", "40001")
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("loaded_plugin", ["feature_manager"], indirect=True)
+async def test_clear_plugin_data_asks_for_confirmation(
+    loaded_plugin, monkeypatch, tmp_path
+) -> None:
+    from external_plugin_support import entry, patch_entry_points
+
+    monkeypatch.chdir(tmp_path)
+    patch_entry_points(monkeypatch, entry("demo", "tenko_t_clear"))
+    data = tmp_path / ".tenko" / "plugin-data" / "demo"
+    data.mkdir(parents=True)
+    (data / "data.db").write_bytes(b"x")
+
+    def session(answer: str):
+        async def send(_message) -> None: ...
+
+        async def prompt(**_kwargs) -> str:
+            return answer
+
+        return SimpleNamespace(send=send, prompt=prompt)
+
+    async def clear(answer: str, plugin_id: str = "demo") -> str:
+        result = await loaded_plugin.clear_data.callable_target(
+            session(answer), Match(plugin_id, True)
+        )
+        return result.extract_plain_text()
+
+    assert await clear("否") == "已取消"
+    assert data.is_dir()
+    assert await clear("是") == "已清除插件<demo>的数据"
+    assert not data.exists()
+    assert "只能清除" in await clear("是", "missing")

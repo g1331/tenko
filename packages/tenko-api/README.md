@@ -4,7 +4,7 @@
 
 插件依赖它，而不是依赖 `tenko` 本体：`tenko-api` 没有任何运行时依赖，
 只是转发到正在运行的 Tenko 宿主，因此不会影响插件自己的依赖解析。插件声明
-`tenko-api>=0.1,<0.2` 这样的范围，安装时由 pip / uv 的解析器拒绝不兼容的宿主，
+`tenko-api>=0.2,<0.3` 这样的范围，安装时由 pip / uv 的解析器拒绝不兼容的宿主，
 不需要另写兼容检查。
 
 > 当前为预览版（0.x）。1.0 之前接口可能调整，请把上限写到次版本。
@@ -19,7 +19,7 @@
 [project]
 name = "tenko-plugin-hello"
 version = "0.1.0"
-dependencies = ["tenko-api>=0.1,<0.2"]
+dependencies = ["tenko-api>=0.2,<0.3"]
 
 [project.entry-points."tenko.plugins"]
 hello = "tenko_plugin_hello"   # 入口名 = 插件 ID
@@ -88,7 +88,38 @@ async def on_message(event: MessageCreatedEvent): ...
 | `tenko_api.features` | `feature_enabled` 只读查询；`declare` 声明范围、默认开关、限流权重和群等级；`feature_required` 装饰非命令监听器 |
 | `tenko_api.render` | `render_or_none`（浏览器不可用时回退文本） |
 | `tenko_api.messages` | `text_message`、`report_error` |
-| `tenko_api.storage` | 插件独立数据目录 `data_dir()`、带版本号并自动备份迁移的 JSON `Store` |
+| `tenko_api.storage` | 插件独立数据目录 `data_dir()`、带版本号并自动备份迁移的 JSON `Store`、插件自己的 SQLite 库 `Model` 与 `get_session()` |
+
+## 插件的 SQLite 库
+
+需要 SQL 的插件继承 `tenko_api.storage.Model`（SQLAlchemy 2.0 声明式），表建在
+`.tenko/plugin-data/<插件 ID>/data.db`，不会进入宿主数据库：
+
+```python
+from sqlalchemy import String, select
+from sqlalchemy.orm import Mapped, mapped_column
+
+from tenko_api.storage import Model, get_session
+
+
+class Note(Model):  # 表名默认为 <插件ID>_note
+    id: Mapped[int] = mapped_column(primary_key=True)
+    text: Mapped[str] = mapped_column(String(200))
+
+
+async def latest() -> str | None:
+    async with get_session() as db:  # 操作 Model 子类时自动使用插件自己的库
+        return await db.scalar(select(Note.text).order_by(Note.id.desc()).limit(1))
+```
+
+- 模型要在插件模块里定义（导入期间），并在 Tenko 启动时随插件加载；已经在运行的 Tenko 里不能新增模型，需要重启。
+- 启动时自动建表，并自动执行新增表、新增可空列和新增索引。删除表、删除列、修改列类型会被拒绝
+  （日志报错、数据保持原样）；确需这类变更时用官方的 `register_custom_migration` 写显式迁移脚本。
+- 插件版本变化后的第一次启动，宿主先备份插件库（`backups/`，保留最近 3 份）再迁移。
+- 插件之间、插件与宿主之间不能跨库查询；原生 `execute(text(...))` 走宿主主库，不要使用。
+- 表名默认带插件 ID 前缀；显式写 `__tablename__` 时要自己保证不与其他插件冲突。
+- 直接继承 `BaseOrm` 等会绑定到宿主主库的基类，插件会在加载时报错。
+- 在 `pyproject.toml` 里声明 `sqlalchemy>=2.0` 依赖（使用宿主已安装的版本）。
 
 完整的开发、测试和发布流程见仓库中的示例插件
 [`examples/tenko-plugin-example`](https://github.com/g1331/tenko/tree/main/examples/tenko-plugin-example)。

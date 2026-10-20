@@ -11,18 +11,23 @@ import json
 import os
 import re
 import shutil
+import sqlite3
 import sys
 from collections.abc import Callable
+from contextlib import closing
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
 from loguru import logger
 
-from .plugins import external_plugin_for_module
+from .plugins import _PLUGIN_ID, external_plugin_for_module
 
 # 与 .tenko/plugins/state.json 一样相对工作目录；测试可以替换它。
 PLUGIN_DATA_ROOT = Path(".tenko/plugin-data")
 _STORE_NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.-]*")
+# 插件库在版本变化时的备份保留份数。
+DB_BACKUPS_KEEP = 3
 
 
 class PluginStorageError(RuntimeError):
@@ -57,6 +62,56 @@ def data_dir() -> Path:
     """返回调用方插件的数据目录 ``.tenko/plugin-data/<id>/``，不存在时创建。"""
 
     return _data_dir(_plugin_of(_caller_module(1)))
+
+
+def prepare_plugin_db(plugin_id: str, version: str) -> Path:
+    """返回插件库 ``data.db`` 的路径；插件版本较上次启动变化时先备份已有的库。
+
+    必须在库被打开或迁移之前调用。备份放在 ``backups/<时间>-v<旧版本>.db``，只保留
+    最近 ``DB_BACKUPS_KEEP`` 份；上次启动的版本记在 ``db-version``，备份成功后才更新，
+    所以备份失败时下次启动会重试。
+    """
+
+    folder = _data_dir(plugin_id)
+    database, marker = folder / "data.db", folder / "db-version"
+    last = marker.read_text(encoding="utf-8").strip() if marker.is_file() else None
+    if last == version:
+        return database
+    if database.is_file():
+        backups = folder / "backups"
+        backups.mkdir(exist_ok=True)
+        stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%S%f")
+        target = backups / f"{stamp}-v{last or 'unknown'}.db"
+        # 用 SQLite 的在线备份而不是复制文件，异常退出遗留的 WAL 也会被一并带上。
+        with closing(sqlite3.connect(database)) as src:
+            with closing(sqlite3.connect(target)) as dst:
+                src.backup(dst)
+        for stale in sorted(backups.glob("*.db"))[:-DB_BACKUPS_KEEP]:
+            stale.unlink()
+        logger.info(
+            "插件 {} 的版本从 {} 变为 {}，数据库已备份为 {}",
+            plugin_id,
+            last or "未知",
+            version,
+            target.name,
+        )
+    marker.write_text(version + "\n", encoding="utf-8")
+    return database
+
+
+def clear_plugin_data(plugin_id: str) -> bool:
+    """删除插件的整个数据目录（JSON 存储、数据库和备份），返回目录原先是否存在。
+
+    调用方负责确认插件当前没有被加载：已加载插件的数据库连接仍然打开着。
+    """
+
+    if not _PLUGIN_ID.fullmatch(plugin_id):
+        raise ValueError(f"非法的插件 ID: {plugin_id!r}")
+    path = PLUGIN_DATA_ROOT / plugin_id
+    if not path.is_dir():
+        return False
+    shutil.rmtree(path)
+    return True
 
 
 class Store:

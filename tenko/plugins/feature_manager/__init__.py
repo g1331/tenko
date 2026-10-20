@@ -8,6 +8,7 @@ from arclet.entari.plugin import PluginRole, get_plugins
 from tenko.host.features import feature_service
 from tenko.host.guards import group_only, require
 from tenko.host.perm import Permission, PermissionChecker
+from tenko.host.plugin_storage import clear_plugin_data
 from tenko.host.plugins import PluginInfo, PluginRuntime
 from tenko.plugins._common import context_from_session, text_message
 
@@ -145,3 +146,41 @@ disable_command = Alconna(
 @require(Permission.GroupAdmin)
 async def disable(session: Session, feature: Match[str]):
     return await _change(session, "关闭", feature)
+
+
+clear_data_command = Alconna(
+    "清除插件数据",
+    Args["plugin_id", str],
+    meta=CommandMeta(
+        "删除第三方插件的数据目录（JSON 存储、数据库和备份），不可恢复",
+        usage="清除插件数据 <插件ID>",
+        compact=False,
+    ),
+)
+
+
+@command.on(clear_data_command)
+@require(Permission.Master)
+async def clear_data(session: Session, plugin_id: Match[str]):
+    info = next(
+        (i for i in plugin_runtime.discover() if i.name == plugin_id.result), None
+    )
+    if info is None or info.source != "external":
+        return text_message("只能清除已安装的第三方插件的数据")
+    if _native_plugin(info) is not None:
+        # 已加载的插件仍持有数据库连接；先停用并重启，让它在本次运行里不再加载。
+        return text_message(
+            f"插件<{info.name}>正在运行，请先在 WebUI 停用并重启 Tenko 后再清除"
+        )
+    await session.send(
+        text_message(
+            f"将永久删除插件<{info.name}>的全部数据（含数据库和备份），确定吗？（是/否）"
+        )
+    )
+    reply = await session.prompt(timeout=30, timeout_message="回复等待超时，已取消")
+    if str(reply or "").strip().lower() not in {"是", "y", "yes", "确认"}:
+        return text_message("已取消")
+    removed = clear_plugin_data(info.name)
+    return text_message(
+        f"已清除插件<{info.name}>的数据" if removed else f"插件<{info.name}>没有数据"
+    )

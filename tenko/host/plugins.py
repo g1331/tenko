@@ -45,6 +45,7 @@ __all__ = [
     "PluginMetadata",
     "PluginRuntime",
     "external_plugin_for_module",
+    "external_plugin_version",
 ]
 
 
@@ -68,6 +69,16 @@ def external_plugin_for_module(module_name: str) -> str | None:
     if best is None:
         return None
     return best.name
+
+
+def external_plugin_version(plugin_id: str) -> str:
+    """返回第三方插件所在分发包的版本；无法确定时为 ``"unknown"``。"""
+
+    for entry in entry_points(group=EXTERNAL_ENTRY_POINT_GROUP):
+        if entry.name == plugin_id:
+            dist = getattr(entry, "dist", None)
+            return str(getattr(dist, "version", None) or "unknown")
+    return "unknown"
 
 
 @dataclass(frozen=True, slots=True)

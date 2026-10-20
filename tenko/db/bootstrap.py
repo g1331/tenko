@@ -117,10 +117,12 @@ def load_database_plugin(
 
     try:
         from . import models  # noqa: F401  # 注册所有 Tenko ORM 模型
+        from .plugin_models import install_model_guard
         from .repositories import configure_database_service
 
         service = plugin._services[_DATABASE_SERVICE]
         configure_database_service(service)
+        install_model_guard()
         if runtime_state_service is not None:
             register_service = getattr(plugin, "service", None)
             if not callable(register_service):

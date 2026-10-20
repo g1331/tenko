@@ -11,6 +11,6 @@ Tenko 宿主（``tenko.*``），所以 ``import tenko_api`` 本身不要求宿�
   ``DeprecationWarning``。
 """
 
-__version__ = "0.1.0"
+__version__ = "0.2.0"
 
 __all__ = ["__version__"]
