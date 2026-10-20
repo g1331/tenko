@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
+from loguru import logger
 from arclet.entari.config import EntariConfig as NativeEntariConfig
 from arclet.entari.config.model import BasicConfig, LogSaveInfo
 
@@ -25,6 +26,7 @@ def test_default_config_is_local_and_does_not_send() -> None:
     assert config.database.create_table_at == "preparing"
     assert config.webui == WebUIConfig()
     assert config.webui.token is None
+    assert config.webui.public_url is None
     assert "web-secret" not in repr(WebUIConfig(enabled=True, token="web-secret"))
     assert config.upgrade.restart_watch_timeout == 300
     assert config.notify_group is None
@@ -247,26 +249,28 @@ def test_database_configuration_rejects_unknown_table_creation_stage() -> None:
         TenkoConfig.from_mapping({"database": {"create_table_at": "later"}})
 
 
-def test_webui_configuration_requires_independent_token_when_enabled() -> None:
+def test_webui_configuration_needs_no_token_when_enabled() -> None:
     config = TenkoConfig.from_mapping(
         {
-            "onebot": {"access_token": "onebot-secret"},
             "webui": {
                 "enabled": True,
-                "token": "web-secret",
                 "allowed_ips": ["127.0.0.1", "::1"],
+                "public_url": "http://203.0.113.10:8081/",
             },
         }
     )
 
-    assert config.onebot.access_token == "onebot-secret"
     assert config.webui.enabled is True
-    assert config.webui.token == "web-secret"
     assert config.webui.allowed_ips == ("127.0.0.1", "::1")
-    with pytest.raises(ValueError, match="独立 token"):
-        TenkoConfig.from_mapping({"webui": {"enabled": True}})
+    assert config.webui.public_url == "http://203.0.113.10:8081"
     with pytest.raises(ValueError, match="非法 IP"):
         TenkoConfig.from_mapping({"webui": {"allowed_ips": ["localhost"]}})
+    for value in ("203.0.113.10:8081", "ftp://example.com", 8081):
+        with pytest.raises(ValueError, match="public_url"):
+            TenkoConfig.from_mapping({"webui": {"public_url": value}})
+    assert (
+        TenkoConfig.from_mapping({"webui": {"public_url": ""}}).webui.public_url is None
+    )
 
 
 def test_entari_superusers_are_inherited_by_debug_and_upgrade() -> None:
@@ -301,22 +305,20 @@ def test_explicit_debug_and_upgrade_superusers_override_inheritance() -> None:
     assert config.upgrade.superuser_ids == ("30001",)
 
 
-def test_webui_management_credentials_are_independent():
-    with pytest.raises(ValueError):
-        TenkoConfig.from_mapping(
-            {"webui": {"enabled": True, "token": "same", "admin_token": "same"}}
+def test_deprecated_webui_tokens_load_with_one_warning() -> None:
+    messages: list[str] = []
+    sink = logger.add(messages.append, level="WARNING", format="{message}")
+    try:
+        config = TenkoConfig.from_mapping(
+            {"webui": {"enabled": True, "token": "reader", "admin_token": "reader"}}
         )
-    with pytest.raises(ValueError):
-        TenkoConfig.from_mapping(
-            {
-                "onebot": {"access_token": "protocol"},
-                "webui": {
-                    "enabled": True,
-                    "token": "reader",
-                    "admin_token": "protocol",
-                },
-            }
-        )
+        TenkoConfig.from_mapping({"webui": {"enabled": True, "token": ""}})
+    finally:
+        logger.remove(sink)
+
+    assert config.webui.enabled is True
+    assert len([message for message in messages if "已弃用" in message]) == 1
+    assert "reader" not in repr(config.webui)
 
 
 def test_non_loopback_bind_requires_custom_tokens() -> None:

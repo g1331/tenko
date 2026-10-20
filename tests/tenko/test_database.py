@@ -122,6 +122,8 @@ async def test_official_database_plugin_preserves_legacy_schema_and_rows(
     from tenko.db.models import (
         MODEL_CLASSES,
         AccountPreference,
+        WebUIAccount,
+        WebUISession,
         WebUISetting,
         AccountResponseState,
         AccountRoute,
@@ -193,6 +195,8 @@ async def test_official_database_plugin_preserves_legacy_schema_and_rows(
         "TenkoStartupTime": StartupTime,
         "TenkoAccountPreference": AccountPreference,
         "TenkoWebUISetting": WebUISetting,
+        "TenkoWebUIAccount": WebUIAccount,
+        "TenkoWebUISession": WebUISession,
     }
     assert {model.__tablename__ for model in MODEL_CLASSES} == set(expected_models)
     assert set(expected_models) <= set(state)

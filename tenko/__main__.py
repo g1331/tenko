@@ -7,6 +7,7 @@ import sys
 from collections.abc import Sequence
 from pathlib import Path
 
+from arclet.entari.config import EntariConfig
 from loguru import logger
 
 from .config import TenkoConfig
@@ -25,6 +26,16 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="只加载配置并打印连接信息，不启动网络服务",
     )
+    subcommands = parser.add_subparsers(dest="command")
+    passwd = subcommands.add_parser(
+        "webui-passwd",
+        help="重置 WebUI 面板密码并让所有会话下线，打印新的用户名和密码",
+    )
+    # SUPPRESS 避免子解析器的默认值覆盖主解析器已解析的 --config。
+    passwd.add_argument(
+        "--config", type=Path, default=argparse.SUPPRESS, help="TOML 配置文件路径"
+    )
+    passwd.add_argument("--username", help="同时修改面板用户名（默认保持不变）")
     return parser
 
 
@@ -128,10 +139,47 @@ def _run_startup_bootstrap(config: TenkoConfig, arguments: Sequence[str]) -> boo
     return True
 
 
+async def _reset_webui_password(config: TenkoConfig, username: str | None) -> None:
+    from .db.bootstrap import load_database_plugin
+
+    service = load_database_plugin(config.database)
+    # 必须在官方 database 插件按配置加载之后再导入模型和 repository。
+    from .webui.auth import reset_password
+
+    try:
+        await service.initialize()
+        # 与宿主启动时的 create_table_at 等价：只补建缺失的表，不动已有结构。
+        async with service.engines[""].begin() as connection:
+            await connection.run_sync(
+                service.base_class.metadata.create_all, checkfirst=True
+            )
+        name, password, revoked = await reset_password(username)
+    finally:
+        for engine in service.engines.values():
+            await engine.dispose()
+    print(f"username: {name}")
+    print(f"password: {password}")
+    print(f"已让 {revoked} 个会话下线", file=sys.stderr)
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     arguments = list(sys.argv[1:] if argv is None else argv)
     args = build_parser().parse_args(arguments)
     config = TenkoConfig.load(args.config)
+
+    if args.command == "webui-passwd":
+        # Entari 默认把日志写到 stdout；stdout 只留给账号和密码，便于脚本读取。
+        logger.remove()
+        logger.add(sys.stderr, level="WARNING")
+        # load_plugin 要求 EntariConfig 已初始化；这里不需要读取其文件配置。
+        if not EntariConfig._inited:
+            EntariConfig(Path(".tenko/entari-boot.yaml"))
+        try:
+            asyncio.run(_reset_webui_password(config, args.username))
+        except ValueError as error:
+            print(f"错误：{error}", file=sys.stderr)
+            return 2
+        return 0
 
     if args.dry_run:
         logger.info("Tenko dry-run: configuration loaded; no network connection opened")

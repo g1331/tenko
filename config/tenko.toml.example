@@ -69,12 +69,13 @@ satori_token = "tenko-satori-local"
 [webui]
 # 默认关闭；开启后复用上面的 OneBot/Satori 监听端口，不会新开端口。
 enabled = false
-# 必须配置独立于 [onebot] 的 token；不要复用 OneBot token，也不要暴露到公网。
-token = ""
-# 可选的独立管理令牌，必须与只读 token 不同；未配置时不开放任何管理操作。
-# admin_token = "替换为独立随机管理令牌"
+# 登录账号保存在数据库中：Master 在 QQ 私聊发送 /面板重置密码 获取用户名（默认 master）
+# 和初始密码；未连接 QQ 时可执行 python -m tenko webui-passwd。
 # 仅允许这些来源 IP 访问 WebUI；如无必要请保持本机白名单。
 allowed_ips = ["127.0.0.1"]
+# 可选：对外访问地址，仅用于在 bot 回复里拼出面板链接，不影响监听。
+# public_url = "http://203.0.113.10:8081"
+# token / admin_token 已弃用并被忽略，旧配置里的这两项可以删除。
 
 [database]
 # 与旧 Graia 数据库同构，默认直接使用 Tenko 数据目录中的 SQLite 文件。

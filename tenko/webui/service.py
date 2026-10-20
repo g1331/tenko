@@ -23,31 +23,20 @@ from starlette.responses import FileResponse, JSONResponse, Response
 from ..config import WebUIConfig, TenkoConfig
 from ..db.errors import DatabaseError
 from ..host.account_management import AccountManagement
+from .auth import (
+    WEBUI_PATH,
+    WebUIAuth,
+    error_response as _error_response,
+    read_json,
+    success_response as _success_response,
+)
 from .logs import LogReader
 from ..events import MessageMetrics, message_metrics
 from ..host.accounts import AccountRegistry, account_registry
 from ..host.features import FeatureService, feature_service as default_feature_service
 from ..host.plugins import PluginRuntime
 
-WEBUI_PATH = "/webui"
 _STATIC_INDEX = Path(__file__).parent / "static" / "index.html"
-
-
-def _error_response(code: str, message: str, status_code: int) -> JSONResponse:
-    return JSONResponse(
-        {
-            "ok": False,
-            "error": {"code": code, "message": message},
-        },
-        status_code=status_code,
-        headers={"Cache-Control": "no-store"},
-    )
-
-
-def _success_response(data: object) -> JSONResponse:
-    return JSONResponse(
-        {"ok": True, "data": data}, headers={"Cache-Control": "no-store"}
-    )
 
 
 def _is_webui_path(path: str) -> bool:
@@ -55,11 +44,12 @@ def _is_webui_path(path: str) -> bool:
 
 
 class WebUIAuthMiddleware(BaseHTTPMiddleware):
-    """仅保护 `/webui` 路径的独立 IP 和 Bearer token 鉴权。"""
+    """仅保护 `/webui` 路径：来源 IP 白名单、会话 cookie 和写请求的同源校验。"""
 
-    def __init__(self, app: Any, *, config: WebUIConfig) -> None:
+    def __init__(self, app: Any, *, config: WebUIConfig, auth: WebUIAuth) -> None:
         super().__init__(app)
         self.config = config
+        self.auth = auth
 
     def _allowed_ip(self, request: Request) -> bool:
         client = request.client
@@ -71,19 +61,16 @@ class WebUIAuthMiddleware(BaseHTTPMiddleware):
             return False
         return client_ip in self.config.allowed_ips
 
-    def _role(self, request: Request) -> str | None:
-        scheme, separator, token = request.headers.get("authorization", "").partition(
-            " "
-        )
-        if not separator or scheme.lower() != "bearer" or not token:
-            return None
-        for role, expected in (
-            ("admin", self.config.admin_token),
-            ("reader", self.config.token),
-        ):
-            if expected and secrets.compare_digest(token.encode(), expected.encode()):
-                return role
-        return None
+    @staticmethod
+    def _is_public(request: Request) -> bool:
+        path = request.url.path
+        if request.method == "GET":
+            return path in {
+                WEBUI_PATH,
+                f"{WEBUI_PATH}/",
+                f"{WEBUI_PATH}/api/auth/state",
+            }
+        return request.method == "POST" and path == f"{WEBUI_PATH}/api/auth/login"
 
     async def dispatch(self, request: Request, call_next: Callable) -> Response:
         response = await self._dispatch(request, call_next)
@@ -106,35 +93,45 @@ class WebUIAuthMiddleware(BaseHTTPMiddleware):
             return _error_response("not_found", "Not Found", 404)
         if not self._allowed_ip(request):
             return _error_response("unauthorized", "Unauthorized", 401)
-        if request.method == "GET" and path in {WEBUI_PATH, f"{WEBUI_PATH}/"}:
-            return await call_next(request)
-        role = self._role(request)
-        if role is None:
-            return _error_response("unauthorized", "Unauthorized", 401)
-        request.state.webui_role = role
-        administrative = path.startswith(f"{WEBUI_PATH}/api/manage/")
-        if administrative and role != "admin":
-            return _error_response("forbidden", "需要独立管理令牌", 403)
+        if not self._is_public(request):
+            try:
+                session = await self.auth.resolve(request)
+            except DatabaseError:
+                logger.error("WebUI session lookup failed: database unavailable")
+                return _error_response(
+                    "database_unavailable", "数据库暂不可用，无法校验登录状态", 503
+                )
+            if session is None:
+                return _error_response("unauthorized", "Unauthorized", 401)
         if request.method not in {"GET", "HEAD"}:
-            if role != "admin":
-                return _error_response("forbidden", "需要独立管理令牌", 403)
             origin = request.headers.get("origin")
             expected = f"{request.url.scheme}://{request.url.netloc}"
             if origin is not None and origin != expected:
-                return _error_response("forbidden", "不允许跨来源管理操作", 403)
+                return _error_response("forbidden", "不允许跨来源操作", 403)
             if (
                 request.headers.get("content-type", "").split(";")[0].strip()
                 != "application/json"
             ):
                 return _error_response("invalid_request", "请使用 JSON 请求体", 415)
-        response = await call_next(request)
+        if path in {WEBUI_PATH, f"{WEBUI_PATH}/"}:
+            return await call_next(request)
+        try:
+            response = await call_next(request)
+        except DatabaseError:
+            logger.error("WebUI auth operation failed: database unavailable")
+            return _error_response(
+                "database_unavailable", "数据库暂不可用，未确认操作成功", 503
+            )
         response.headers["Cache-Control"] = "no-store"
         response.headers["Referrer-Policy"] = "no-referrer"
+        refreshed = getattr(request.state, "webui_refresh_token", None)
+        if refreshed and response.status_code < 400:
+            self.auth.set_cookie(response, request, refreshed)
         return response
 
 
 class WebUIService(Service):
-    """复用 Satori Server app 的管理面板；写操作独立授权。"""
+    """复用 Satori Server app 的管理面板；所有数据接口都需要登录会话。"""
 
     id = "tenko.webui"
     required = {"satori-python.server"}
@@ -149,6 +146,7 @@ class WebUIService(Service):
         metrics: MessageMetrics = message_metrics,
         feature_service: FeatureService = default_feature_service,
         feature_repository: Any | None = None,
+        group_repository: Any | None = None,
         plugin_runtime: PluginRuntime | None = None,
         management: AccountManagement | None = None,
         connection: Any | None = None,
@@ -161,10 +159,12 @@ class WebUIService(Service):
         self.metrics = metrics
         self.feature_service = feature_service
         self.feature_repository = feature_repository
+        self.group_repository = group_repository
         self.plugin_runtime = plugin_runtime
         self.management = management
         self.connection = connection
         self.tenko_config = tenko_config
+        self.auth = WebUIAuth()
         self._write_lock = management.lock if management is not None else asyncio.Lock()
         self.logs = LogReader(self._secrets)
         self._log_sink: int | None = None
@@ -175,7 +175,9 @@ class WebUIService(Service):
         self._register_routes()
 
     def _register_routes(self) -> None:
-        self.server.app.add_middleware(WebUIAuthMiddleware, config=self.config)
+        self.server.app.add_middleware(
+            WebUIAuthMiddleware, config=self.config, auth=self.auth
+        )
         self.server.asgi_route(
             f"{WEBUI_PATH}/api/overview",
             methods=["GET"],
@@ -197,7 +199,13 @@ class WebUIService(Service):
             name="webui-index",
         )(self.index)
         routes = (
-            ("/api/session", ["GET"], self.session),
+            ("/api/auth/state", ["GET"], self.auth.state),
+            ("/api/auth/login", ["POST"], self.auth.login),
+            ("/api/auth/logout", ["POST"], self.auth.logout),
+            ("/api/auth/sessions", ["GET"], self.auth.sessions),
+            ("/api/auth/sessions/revoke-others", ["POST"], self.auth.revoke_others),
+            ("/api/auth/sessions/{id}/revoke", ["POST"], self.auth.revoke),
+            ("/api/auth/account", ["POST"], self.auth.account),
             ("/api/manage/accounts", ["GET"], self.managed_accounts),
             (
                 "/api/manage/accounts/{platform}/{account_id}/{action}",
@@ -419,7 +427,23 @@ class WebUIService(Service):
                     "groups": groups,
                 }
             )
-        return {"features": features}
+        return {"features": features, "group_names": await self._group_names()}
+
+    async def _group_names(self) -> dict[str, str]:
+        """群名称仅用于展示；读取失败不能影响功能开关接口。"""
+
+        if self.group_repository is None:
+            return {}
+        try:
+            rows = await self.group_repository.list_all()
+        except Exception as error:
+            logger.debug("WebUI group names unavailable: {}", type(error).__name__)
+            return {}
+        return {
+            str(row.group_id): row.group_name
+            for row in rows
+            if row.group_name and row.group_name != str(row.group_id)
+        }
 
     @staticmethod
     def _effective_enabled(
@@ -464,7 +488,7 @@ class WebUIService(Service):
         return hashlib.sha256(self._config_path.read_bytes()).digest()
 
     def _secrets(self) -> tuple[str, ...]:
-        values = [self.config.token, self.config.admin_token, *self._retired_tokens]
+        values = [*self._retired_tokens]
         if self.tenko_config is not None:
             values.extend(
                 (
@@ -476,27 +500,8 @@ class WebUIService(Service):
             values.append(self.connection.adapter.access_token)
         return tuple(value for value in values if isinstance(value, str) and value)
 
-    async def session(self, request: Request) -> JSONResponse:
-        return _success_response(
-            {
-                "role": request.state.webui_role,
-                "management_configured": bool(self.config.admin_token),
-            }
-        )
-
     async def _body(self, request: Request) -> dict[str, Any]:
-        data = bytearray()
-        async for chunk in request.stream():
-            if len(data) + len(chunk) > 16384:
-                raise ValueError("请求体不能超过 16 KiB")
-            data.extend(chunk)
-        try:
-            value = json.loads(data)
-        except (ValueError, UnicodeDecodeError) as error:
-            raise ValueError("请求体必须是有效 JSON") from error
-        if not isinstance(value, dict):
-            raise ValueError("请求体必须是 JSON 对象")
-        return value
+        return await read_json(request)
 
     async def _manage(self, request: Request, operation: Callable) -> JSONResponse:
         try:

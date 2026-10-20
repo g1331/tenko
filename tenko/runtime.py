@@ -364,6 +364,10 @@ class TenkoRuntime:
         )
         if callable(configure_notify_group):
             configure_notify_group(self.config.notify_group)
+        webui_account = self._plugin_module(loaded_plugins, "webui_account")
+        configure_webui = getattr(webui_account, "configure_webui", None)
+        if callable(configure_webui):
+            configure_webui(self.config.webui)
         exception_catcher = self._plugin_module(loaded_plugins, "exception_catcher")
         if exception_catcher is not None:
             configure_evidence_directory = getattr(
@@ -380,10 +384,15 @@ class TenkoRuntime:
         )
         if self.config.webui.enabled:
             feature_repository = None
+            group_repository = None
             if self.database_service is not None:
-                from .db.repositories import feature_state_repository
+                from .db.repositories import (
+                    feature_state_repository,
+                    group_perm_repository,
+                )
 
                 feature_repository = feature_state_repository
+                group_repository = group_perm_repository
 
             self.webui_service = WebUIService(
                 self.connection.server,
@@ -392,6 +401,7 @@ class TenkoRuntime:
                 metrics=self.message_metrics,
                 feature_service=self.feature_service,
                 feature_repository=feature_repository,
+                group_repository=group_repository,
                 plugin_runtime=self.plugin_runtime,
                 management=self.account_management,
                 connection=self.connection,

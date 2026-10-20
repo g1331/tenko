@@ -5,12 +5,14 @@ from collections.abc import Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlsplit
 
 from arclet.entari.config import EntariConfig as NativeEntariConfig
 from arclet.entari.config.action import config_model_validate
 from arclet.entari.config.file import register_dumper, register_loader
 from arclet.entari.config.model import BasicConfig
 import tomli_w
+from loguru import logger
 
 try:
     import tomllib
@@ -419,32 +421,44 @@ class OneBotConfig:
 
 @dataclass(frozen=True, slots=True)
 class WebUIConfig:
-    """内置 WebUI 的开关、独立令牌和来源地址白名单。"""
+    """内置 WebUI 的开关、来源地址白名单和对外访问地址。
+
+    登录凭据保存在数据库里的面板账号中。``token`` 与 ``admin_token`` 是已弃用
+    的旧配置项：仍可解析以便旧配置加载，但不再参与任何鉴权。
+    """
 
     enabled: bool = False
     token: str | None = field(default=None, repr=False)
     admin_token: str | None = field(default=None, repr=False)
     allowed_ips: tuple[str, ...] = ("127.0.0.1",)
+    public_url: str | None = None
 
     def __post_init__(self) -> None:
         if type(self.enabled) is not bool:
             raise ValueError("webui enabled 必须是布尔值")
-        if self.token is not None and not isinstance(self.token, str):
-            raise ValueError("webui token 必须是字符串或 null")
-        if self.token == "":
-            object.__setattr__(self, "token", None)
-        if self.admin_token is not None:
-            if not isinstance(self.admin_token, str) or not self.admin_token.strip():
-                raise ValueError("webui admin_token 必须是非空字符串")
-            if self.admin_token == self.token:
-                raise ValueError("webui admin_token 必须与只读 token 不同")
-        if self.enabled and self.token is None:
-            raise ValueError("webui enabled=true 时必须配置独立 token")
+        for name in ("token", "admin_token"):
+            value = getattr(self, name)
+            if value is not None and not isinstance(value, str):
+                raise ValueError(f"webui {name} 必须是字符串或 null")
+        public_url = self.public_url
+        if public_url is not None:
+            if not isinstance(public_url, str):
+                raise ValueError("webui public_url 必须是字符串或 null")
+            public_url = public_url.strip().rstrip("/")
+            if public_url:
+                parsed = urlsplit(public_url)
+                if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+                    raise ValueError("webui public_url 必须是 http:// 或 https:// 地址")
+            object.__setattr__(self, "public_url", public_url or None)
         object.__setattr__(
             self,
             "allowed_ips",
             _ip_sequence({"allowed_ips": self.allowed_ips}, "allowed_ips", ()),
         )
+
+    @property
+    def deprecated_tokens_configured(self) -> bool:
+        return bool(self.token or self.admin_token)
 
     @classmethod
     def from_mapping(cls, section: Mapping[str, Any]) -> WebUIConfig:
@@ -454,6 +468,7 @@ class WebUIConfig:
             token=_optional_string(section, "token", defaults.token),
             admin_token=_optional_string(section, "admin_token", defaults.admin_token),
             allowed_ips=_ip_sequence(section, "allowed_ips", defaults.allowed_ips),
+            public_url=_optional_string(section, "public_url", defaults.public_url),
         )
 
 
@@ -900,15 +915,12 @@ class TenkoConfig:
                 "onebot.listen_host 不是回环地址时，必须设置 access_token，"
                 "且 satori_token 不能使用默认值"
             )
-        if self.webui.enabled:
-            protocol_tokens = {self.onebot.access_token, self.onebot.satori_token} - {
-                None
-            }
-            if (
-                self.webui.token in protocol_tokens
-                or self.webui.admin_token in protocol_tokens
-            ):
-                raise ValueError("WebUI 令牌必须独立于 OneBot 和 Satori 凭据")
+        if self.webui.deprecated_tokens_configured:
+            logger.warning(
+                "[webui] token / admin_token 已弃用并被忽略；面板改用数据库账号，"
+                "请从配置中删除它们，并用 /面板重置密码 或 "
+                "python -m tenko webui-passwd 获取登录密码"
+            )
 
     @property
     def entari(self) -> LegacyEntariConfig:

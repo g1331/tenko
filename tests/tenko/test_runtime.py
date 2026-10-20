@@ -272,9 +272,7 @@ async def test_run_async_registers_webui_only_when_enabled(monkeypatch) -> None:
     monkeypatch.setattr(
         runtime_module, "OneBotConnection", Mock(return_value=connection)
     )
-    config = TenkoConfig.from_mapping(
-        {"webui": {"enabled": True, "token": "web-secret"}}
-    )
+    config = TenkoConfig.from_mapping({"webui": {"enabled": True}})
     runtime = TenkoRuntime(config)
     runtime._configure_database_repositories = Mock()
     manager = Mock()
@@ -305,7 +303,7 @@ async def test_run_async_registers_webui_only_when_enabled(monkeypatch) -> None:
     paths = {call.args[0] for call in connection.server.asgi_route.call_args_list}
     assert {
         "/webui",
-        "/webui/api/session",
+        "/webui/api/auth/login",
         "/webui/api/manage/settings",
         "/webui/api/manage/accounts/{platform}/{account_id}/{action}",
     } <= paths

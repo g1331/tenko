@@ -11,7 +11,17 @@ except (AttributeError, ImportError, LookupError) as error:  # pragma: no cover
         "官方 entari-plugin-database 尚未加载，无法注册 Tenko 数据模型"
     ) from error
 
-from sqlalchemy import Boolean, Float, Index, Integer, String, UniqueConstraint
+from datetime import datetime
+
+from sqlalchemy import (
+    Boolean,
+    DateTime,
+    Float,
+    Index,
+    Integer,
+    String,
+    UniqueConstraint,
+)
 
 from .migration import LEGACY_SCHEMA_REVISION
 
@@ -174,6 +184,40 @@ class WebUISetting(BaseOrm):
     value: Mapped[str] = mapped_column(String, nullable=False)
 
 
+class WebUIAccount(BaseOrm):
+    """管理面板唯一账号；``id`` 固定为 1，密码只保存 scrypt 哈希。"""
+
+    __tablename__ = "TenkoWebUIAccount"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, default=1)
+    username: Mapped[str] = mapped_column(String(32), nullable=False)
+    password_hash: Mapped[str] = mapped_column(String(512), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False
+    )
+
+
+class WebUISession(BaseOrm):
+    """面板登录会话；只保存 cookie 令牌的 sha256，不保存令牌本身。"""
+
+    __tablename__ = "TenkoWebUISession"
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True)
+    token_hash: Mapped[str] = mapped_column(String(64), nullable=False, unique=True)
+    username: Mapped[str] = mapped_column(String(32), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False
+    )
+    last_seen_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False
+    )
+    expires_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False
+    )
+    ip: Mapped[str] = mapped_column(String(64), nullable=False, default="")
+    user_agent: Mapped[str] = mapped_column(String(200), nullable=False, default="")
+
+
 MODEL_CLASSES = (
     MemberPerm,
     GroupPerm,
@@ -186,6 +230,8 @@ MODEL_CLASSES = (
     StartupTime,
     AccountPreference,
     WebUISetting,
+    WebUIAccount,
+    WebUISession,
 )
 
 __all__ = [
@@ -200,5 +246,7 @@ __all__ = [
     "MODEL_CLASSES",
     "AccountPreference",
     "WebUISetting",
+    "WebUIAccount",
+    "WebUISession",
     "MemberPerm",
 ]

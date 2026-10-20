@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 from types import SimpleNamespace
 
@@ -18,15 +19,35 @@ async def _get(
     app,
     path: str,
     *,
-    token: str | None = None,
     client_host: str = "127.0.0.1",
 ) -> httpx.Response:
-    headers = {} if token is None else {"Authorization": f"Bearer {token}"}
     transport = httpx.ASGITransport(app=app, client=(client_host, 12345))
     async with httpx.AsyncClient(
         transport=transport, base_url="http://testserver"
     ) as client:
-        return await client.get(path, headers=headers)
+        return await client.get(path)
+
+
+async def _login(client: httpx.AsyncClient) -> None:
+    """通过 reset_password 建立账号并登录，cookie 保存在 client 中。"""
+
+    from tenko.webui.auth import reset_password
+
+    username, password, _revoked = await reset_password()
+    response = await client.post(
+        "/webui/api/auth/login", json={"username": username, "password": password}
+    )
+    assert response.status_code == 200, response.text
+
+
+@asynccontextmanager
+async def _session_client(app, client_host: str = "127.0.0.1"):
+    transport = httpx.ASGITransport(app=app, client=(client_host, 12345))
+    async with httpx.AsyncClient(
+        transport=transport, base_url="http://testserver"
+    ) as client:
+        await _login(client)
+        yield client
 
 
 def _service(
@@ -36,6 +57,7 @@ def _service(
     metrics: MessageMetrics | None = None,
     feature_service: FeatureService | None = None,
     feature_repository=None,
+    group_repository=None,
     plugin_runtime=None,
 ) -> tuple[Server, WebUIService]:
     server = Server(host="127.0.0.1", port=0)
@@ -48,52 +70,47 @@ def _service(
             feature_service if feature_service is not None else FeatureService()
         ),
         feature_repository=feature_repository,
+        group_repository=group_repository,
         plugin_runtime=plugin_runtime,
     )
     return server, service
 
 
 @pytest.mark.asyncio
-async def test_webui_auth_allows_configured_local_token_and_rejects_other_sources():
-    server, service = _service(WebUIConfig(enabled=True, token="web-secret"))
+async def test_webui_requires_session_cookie_and_allowed_ip(tenko_database):
+    server, service = _service(WebUIConfig(enabled=True))
 
     assert service.required == {"satori-python.server"}
     assert "/webui" in server.resources
 
     missing = await _get(server.app, "/webui/api/accounts")
-    wrong = await _get(server.app, "/webui/api/accounts", token="onebot-secret")
-    remote = await _get(
-        server.app,
-        "/webui/api/accounts",
-        token="web-secret",
-        client_host="192.0.2.10",
-    )
     page = await _get(server.app, "/webui")
-    wrong_page = await _get(server.app, "/webui", token="onebot-secret")
-    remote_page = await _get(
-        server.app,
-        "/webui",
-        client_host="192.0.2.10",
-    )
-    allowed = await _get(server.app, "/webui/api/accounts", token="web-secret")
-    index = await _get(server.app, "/webui", token="web-secret")
-    query_index = await _get(server.app, "/webui?token=web-secret")
-    query_api = await _get(server.app, "/webui/api/accounts?token=web-secret")
+    remote_page = await _get(server.app, "/webui", client_host="192.0.2.10")
+    state = await _get(server.app, "/webui/api/auth/state")
+    async with _session_client(server.app) as client:
+        allowed = await client.get("/webui/api/accounts")
+        removed_session_api = await client.get("/webui/api/session")
+        query_token = await _get(server.app, "/webui/api/accounts?token=x")
+    transport = httpx.ASGITransport(app=server.app, client=("192.0.2.10", 1))
+    async with httpx.AsyncClient(
+        transport=transport, base_url="http://testserver", cookies=client.cookies
+    ) as remote:
+        remote_api = await remote.get("/webui/api/accounts")
 
     assert missing.status_code == 401
-    assert wrong.status_code == 401
-    assert remote.status_code == 401
     assert page.status_code == 200
-    assert wrong_page.status_code == 200
     assert remote_page.status_code == 401
+    assert state.json()["data"] == {
+        "authenticated": False,
+        "username": None,
+        "password_set": False,
+        "expires_at": None,
+    }
+    assert removed_session_api.status_code == 404
     assert allowed.status_code == 200
-    assert index.status_code == 200
-    assert query_index.status_code == 200
-    assert query_api.status_code == 401
-    assert '<input id="token"' in page.text
-    assert "application/json" not in page.headers["content-type"]
-    assert "Tenko WebUI" in index.text
-    assert "Tenko WebUI" in query_index.text
+    assert query_token.status_code == 401
+    assert remote_api.status_code == 401
+    assert "Tenko WebUI" in page.text
     assert allowed.json() == {"ok": True, "data": {"accounts": []}}
     assert missing.json() == {
         "ok": False,
@@ -118,7 +135,9 @@ async def test_webui_disabled_returns_not_found_for_root_and_api():
 
 
 @pytest.mark.asyncio
-async def test_webui_read_only_apis_expose_safe_account_and_feature_data():
+async def test_webui_read_only_apis_expose_safe_account_and_feature_data(
+    tenko_database,
+):
     accounts = AccountRegistry()
     first = SimpleNamespace(self_id="10001", platform="onebot")
     second = SimpleNamespace(self_id="10002", platform="satori")
@@ -151,15 +170,16 @@ async def test_webui_read_only_apis_expose_safe_account_and_feature_data():
     plugin_info = SimpleNamespace(name="demo", display_name="演示插件", lookup_names=())
     plugin_runtime = SimpleNamespace(discover=lambda: (plugin_info,))
     server, _service_instance = _service(
-        WebUIConfig(enabled=True, token="web-secret"),
+        WebUIConfig(enabled=True),
         accounts=accounts,
         feature_service=FeatureService(default_enabled=True),
         feature_repository=FeatureRepository(),
         plugin_runtime=plugin_runtime,
     )
 
-    account_response = await _get(server.app, "/webui/api/accounts", token="web-secret")
-    feature_response = await _get(server.app, "/webui/api/features", token="web-secret")
+    async with _session_client(server.app) as client:
+        account_response = await client.get("/webui/api/accounts")
+        feature_response = await client.get("/webui/api/features")
 
     assert account_response.status_code == 200
     assert account_response.json() == {
@@ -224,14 +244,42 @@ async def test_webui_read_only_apis_expose_safe_account_and_feature_data():
             "groups": {"40001": False, "40002": False},
         },
     ]
-    assert "web-secret" not in account_response.text + feature_response.text
     assert "access_token" not in account_response.text + feature_response.text
+
+
+@pytest.mark.asyncio
+async def test_webui_features_expose_group_names_and_survive_database_errors(
+    tenko_database,
+):
+    def row(group_id, name):
+        return SimpleNamespace(group_id=group_id, group_name=name)
+
+    class Groups:
+        async def list_all(self):
+            return (row(40001, "测试群"), row(40002, "40002"), row(40003, ""))
+
+    class BrokenGroups:
+        async def list_all(self):
+            raise RuntimeError("database is locked")
+
+    async def fetch(group_repository):
+        server, _service_instance = _service(
+            WebUIConfig(enabled=True), group_repository=group_repository
+        )
+        async with _session_client(server.app) as client:
+            response = await client.get("/webui/api/features")
+        assert response.status_code == 200
+        return response.json()["data"]
+
+    assert (await fetch(Groups()))["group_names"] == {"40001": "测试群"}
+    assert (await fetch(BrokenGroups()))["group_names"] == {}
+    assert (await fetch(None))["group_names"] == {}
 
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("loaded_plugin", ["status"], indirect=True)
 async def test_webui_overview_uses_status_data_metrics_and_counts(
-    loaded_plugin, monkeypatch
+    loaded_plugin, monkeypatch, tenko_database
 ):
     status = loaded_plugin
     accounts = AccountRegistry()
@@ -260,13 +308,14 @@ async def test_webui_overview_uses_status_data_metrics_and_counts(
     monkeypatch.setattr(status, "get_version_details", lambda: version_details)
     plugin_runtime = SimpleNamespace(discover=lambda: (object(),))
     server, _service_instance = _service(
-        WebUIConfig(enabled=True, token="web-secret"),
+        WebUIConfig(enabled=True),
         accounts=accounts,
         metrics=metrics,
         plugin_runtime=plugin_runtime,
     )
 
-    response = await _get(server.app, "/webui/api/overview", token="web-secret")
+    async with _session_client(server.app) as client:
+        response = await client.get("/webui/api/overview")
     expected_status = status.build_status_data(
         SimpleNamespace(chat_type="private", channel_id=""),
         1,
@@ -302,11 +351,7 @@ async def test_management_auth_persistence_and_failure_boundaries(
 
     config = TenkoConfig.from_mapping(
         {
-            "webui": {
-                "enabled": True,
-                "token": "reader-secret",
-                "admin_token": "admin-secret",
-            },
+            "webui": {"enabled": True},
             "onebot": {"access_token": "onebot-secret"},
         }
     )
@@ -338,20 +383,15 @@ async def test_management_auth_persistence_and_failure_boundaries(
         transport=transport, base_url="http://testserver"
     ) as client:
         path = "/webui/api/manage/accounts/onebot/10001/disable"
+        anonymous = await client.post(path, json={"confirm": True})
+        assert anonymous.status_code == 401
+        await _login(client)
         for headers, code in [
-            ({}, 401),
-            ({"Authorization": "Bearer reader-secret"}, 403),
-            (
-                {
-                    "Authorization": "Bearer admin-secret",
-                    "Origin": "https://evil.invalid",
-                },
-                403,
-            ),
+            ({"Origin": "https://evil.invalid"}, 403),
+            ({"Content-Type": "text/plain"}, 415),
         ]:
             response = await client.post(path, headers=headers, json={"confirm": True})
             assert response.status_code == code
-        client.headers["Authorization"] = "Bearer admin-secret"
         assert (await client.post(path, json={"confirm": 1})).status_code == 400
         assert (
             await client.post(
@@ -408,14 +448,14 @@ async def test_management_auth_persistence_and_failure_boundaries(
 
 @pytest.mark.asyncio
 async def test_pairing_rotation_is_atomic_and_detects_external_config_changes(
-    tmp_path, monkeypatch
+    tmp_path, monkeypatch, tenko_database
 ):
     import tomllib
     from tenko.config import TenkoConfig
     from tenko.connection import OneBotConnection
 
     path = tmp_path / "tenko.toml"
-    original = '[onebot]\naccess_token = "old-secret"\n[webui]\nenabled = true\ntoken = "reader"\nadmin_token = "admin"\n'
+    original = '[onebot]\naccess_token = "old-secret"\n[webui]\nenabled = true\n'
     path.write_text(original)
     config = TenkoConfig.load(path)
     connection = OneBotConnection(config.onebot)
@@ -428,8 +468,8 @@ async def test_pairing_rotation_is_atomic_and_detects_external_config_changes(
     async with httpx.AsyncClient(
         transport=transport,
         base_url="http://testserver",
-        headers={"Authorization": "Bearer admin"},
     ) as client:
+        await _login(client)
         url = "/webui/api/manage/pairing"
         body = {"action": "rotate", "confirm": True}
         path.write_text(original + "# external change\n")
@@ -504,9 +544,7 @@ async def test_plugin_and_group_switches_use_host_state_and_protect_control_plan
     from tenko.host.actions import ActionService
     from tenko.host.plugins import PluginRuntime
 
-    config = TenkoConfig.from_mapping(
-        {"webui": {"enabled": True, "token": "reader", "admin_token": "admin"}}
-    )
+    config = TenkoConfig.from_mapping({"webui": {"enabled": True}})
     accounts = AccountRegistry()
     accounts.register(
         SimpleNamespace(self_id="10001", platform="onebot"), groups=("40001",)
@@ -543,8 +581,8 @@ async def test_plugin_and_group_switches_use_host_state_and_protect_control_plan
     async with httpx.AsyncClient(
         transport=transport,
         base_url="http://testserver",
-        headers={"Authorization": "Bearer admin"},
     ) as client:
+        await _login(client)
         plugin = "/webui/api/manage/plugins/"
         feature = "/webui/api/manage/features/"
         assert (

@@ -25,21 +25,36 @@ listen_port = {port}
 access_token = "protocol-test-token"
 [webui]
 enabled = true
-token = "reader-test-token"
-admin_token = "admin-test-token"
 [basic.log]
 level = "INFO"
 save = {{rotation = "1 MB", compression = "gz", colorize = false}}
 """)
     environment = dict(os.environ, PYTHONPATH=str(Path(__file__).resolve().parents[2]))
     log_path = tmp_path / "process.log"
+    # 先用 CLI 在尚未启动的数据库上建账号，验证打印出的密码确实可登录。
+    passwd = await asyncio.create_subprocess_exec(
+        sys.executable,
+        "-m",
+        "tenko",
+        "webui-passwd",
+        "--config",
+        str(config),
+        cwd=tmp_path,
+        env=environment,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.DEVNULL,
+    )
+    output, _ = await passwd.communicate()
+    assert passwd.returncode == 0
+    credentials = dict(
+        line.split(": ", 1) for line in output.decode().splitlines() if ": " in line
+    )
     process = None
     tasks = []
     websockets = []
     async with httpx.AsyncClient(
         base_url=f"http://127.0.0.1:{port}",
         timeout=3,
-        headers={"Authorization": "Bearer admin-test-token"},
     ) as client:
 
         async def wait_for(check):
@@ -64,7 +79,10 @@ save = {{rotation = "1 MB", compression = "gz", colorize = false}}
             )
 
         async def ready():
-            return await state() is not None
+            response = await client.get("/webui/api/auth/state")
+            return (
+                response.status_code == 200 and response.json()["data"]["password_set"]
+            )
 
         async def start():
             nonlocal process
@@ -81,6 +99,15 @@ save = {{rotation = "1 MB", compression = "gz", colorize = false}}
                     stderr=log,
                 )
             await wait_for(ready)
+            if "tenko_webui_session" not in client.cookies:
+                response = await client.post(
+                    "/webui/api/auth/login",
+                    json={
+                        "username": credentials["username"],
+                        "password": credentials["password"],
+                    },
+                )
+                assert response.status_code == 200, response.text
 
         async def stop():
             if process is not None and process.returncode is None:
@@ -219,6 +246,9 @@ save = {{rotation = "1 MB", compression = "gz", colorize = false}}
                     await connect(session)
                 await stop()
                 await start()
+                # 会话保存在数据库中，重启后仍然有效。
+                state_after_restart = await client.get("/webui/api/auth/state")
+                assert state_after_restart.json()["data"]["authenticated"] is True
                 response = await client.get("/webui/api/features")
                 feature = next(
                     row
@@ -250,7 +280,7 @@ save = {{rotation = "1 MB", compression = "gz", colorize = false}}
                 )
                 assert not any(
                     secret in logs.text
-                    for secret in ("protocol-test-token", "admin-test-token")
+                    for secret in ("protocol-test-token", credentials["password"])
                 )
         finally:
             for ws in websockets:
