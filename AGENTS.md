@@ -81,6 +81,15 @@ config/tenko.toml.example    # 配置模板
    并通过 `plugin.metadata` 声明名称、版本、作者和能力。
 2. 对外命令统一使用 `/` 前缀。命令解析、帮助内容和权限检查应复用现有的
    command manager、`tenko.context` 以及 `tenko.host` 服务。
+   命令权限用 `tenko.host.guards` 的装饰器声明（第三方从 `tenko_api.perm` 导入）：
+   `@require(Permission.X)`、`@require_group(...)`、`@group_only()`、`@private_only()`，
+   放在 `@command.on(...)` 之下（之上也生效）。要求登记在处理函数的
+   `__tenko_requires__` 上，`/帮助 <编号>` 据此显示；回复措辞统一由装饰器给出。
+   只有要求取决于运行时数据（按参数、聊天类型或目标插件区分）时才在函数体里调用
+   `permission_checker.require_perm`，并写一行注释说明原因。
+   插件的群等级（默认 `ActiveGroup`，低于它的群里命令被静默忽略）由 `CommandPolicy`
+   集中检查，不要在处理函数里再判断；内置插件需要别的等级时，在
+   `plugin.get_plugin().metadata.group_level` 上设置，与 `feature_scope` 的写法一致。
 3. 平台动作通过宿主动作服务执行，先确认账号能力、目标可用性和权限，再处理
    失败结果；不要在插件中复制协议层调用或吞掉未知异常。
 4. 配置从 `tenko.config` 读取，数据库操作通过 `tenko.db.repositories` 等现有
@@ -106,6 +115,9 @@ config/tenko.toml.example    # 配置模板
   空白、前缀和昵称并匹配出命令后，按 `get_plugin_commands` 把命令映射到所属插件，返回
   `False` 即阻断；不要再按消息原文判断命令归属。限流（冷却或临时拉黑）静默，只记调试日志；
   `GroupSetting.frequency_limitation` 为假的群不限流（`/频率限制` 修改）。
+  群等级低于插件要求（`declare(level=...)`，默认 `ActiveGroup`）时同样静默忽略，对内置和第三方
+  插件一视同仁；检查在维护、开关和限流之前。不经过命令的监听器（例如响应 @bot 的消息）用
+  `tenko_api.features.feature_required` 装饰，检查所属插件的开关和维护模式。
   Entari 里已注册命令、但未登记为内置或第三方的插件，其群聊命令会被拒绝执行。
   第三方插件不能自封“受保护”：`classifier` 里的 `host`/`required` 对它无效。
 - **插件只依赖 `tenko-api`**（`packages/tenko-api/`，uv workspace 成员，发布到 PyPI 为
@@ -116,8 +128,9 @@ config/tenko.toml.example    # 配置模板
   `tenko-api` 发行版。版本号在 `tenko_api/__init__.py` 的 `__version__`，1.0 之前接口可
   调整；发布推送标签 `tenko-api-v<版本>`（`.github/workflows/publish-api.yml`，Trusted Publishing）。
 - 元数据：插件模块导入期间调用 `tenko_api.features.declare(scope, default_enabled,
-  rate_weight)`，宿主据此设置 `feature_scope`、`default_switch` 和限流权重
-  （`CommandPolicy` 传给限流器），`default_enabled=False` 表示没有显式开启的群默认关闭。
+  rate_weight, level)`，宿主据此设置 `feature_scope`、`default_switch`、限流权重
+  （`CommandPolicy` 传给限流器）和 `group_level`（群等级要求），`default_enabled=False`
+  表示没有显式开启的群默认关闭。
 - 配置：`config/tenko.toml` 的 `[plugin_config.<id>]` 在加载该插件时传给
   `load_plugin(config=...)`（`PluginRuntime.load_all(external_configs=...)`）。不要用
   Entari 的 `[plugins.*]`，它会绕过启用状态自动加载。Entari 对标准 dataclass 配置模型

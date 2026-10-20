@@ -1,7 +1,7 @@
 """Tenko 第三方插件示例：问候计数。
 
-演示 tenko_api 的主要能力：声明元数据、读取配置、带版本的 JSON 存储，以及
-权限检查。写法与内置插件一样，都是 Entari 原生的
+演示 tenko_api 的主要能力：声明元数据（含群等级）、读取配置、带版本的 JSON
+存储，以及声明式权限装饰器。写法与内置插件一样，都是 Entari 原生的
 ``plugin.metadata``、``command.on``。
 """
 
@@ -12,7 +12,7 @@ from arclet.entari.command import Query
 from tenko_api.context import context_from_session
 from tenko_api.features import declare
 from tenko_api.messages import text_message
-from tenko_api.perm import Permission, require_perm
+from tenko_api.perm import Permission, require
 from tenko_api.storage import Store
 
 
@@ -30,8 +30,14 @@ plugin.metadata(
     description="记录每位用户使用示例命令的次数，并保存最近一条备注。",
     config=ExampleConfig,
 )
-# Tenko 专有元数据：按群开关、新群默认开启、每次调用计入限流窗口的权重。
-declare(scope="group", default_enabled=True, rate_weight=1)
+# Tenko 专有元数据：按群开关、新群默认开启、每次调用计入限流窗口的权重，以及
+# 插件要求的群等级（低于它的群里命令被静默忽略，ActiveGroup 即默认值）。
+declare(
+    scope="group",
+    default_enabled=True,
+    rate_weight=1,
+    level=Permission.ActiveGroup,
+)
 
 config = plugin.get_config(ExampleConfig)
 # .tenko/plugin-data/example/visits.json；以后改数据结构时提高 version，并提供 migrate。
@@ -48,12 +54,11 @@ example_command = Alconna(
 )
 
 
+# 权限用装饰器声明（放在 command.on 之下）：不足时宿主统一回复，/帮助 <编号> 也会显示。
 @command.on(example_command)
+@require(Permission.User)
 async def example(session: Session, note: Query[str] = Query("note", "")):
     ctx = context_from_session(session)
-    if not await require_perm(ctx, Permission.User):
-        return text_message("权限不足")
-
     # Store 是同步读写：读改写之间没有 await，协程不会交错，所以不需要加锁。
     records = visits.load(default={})
     record = records.setdefault(ctx.user_id, {"count": 0, "note": ""})

@@ -157,13 +157,8 @@ async def test_feature_commands_toggle_global_feature(loaded_plugin, monkeypatch
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("loaded_plugin", ["feature_manager"], indirect=True)
-async def test_feature_commands_reject_non_admin_and_unknown_plugin(loaded_plugin):
+async def test_feature_commands_reject_unknown_plugin(loaded_plugin):
     loaded_plugin.permission_checker = PermissionChecker(registry=PermissionRegistry())
-
-    member_result = await loaded_plugin.disable.callable_target(
-        make_session(role="member"), Match("announcement", True)
-    )
-    assert member_result.extract_plain_text() == "权限不足"
 
     unknown_result = await loaded_plugin.disable.callable_target(
         make_session(), Match("not-a-plugin", True)

@@ -6,6 +6,7 @@ from arclet.entari.command import Match
 from arclet.entari.plugin import PluginRole, get_plugins
 
 from tenko.host.features import feature_service
+from tenko.host.guards import group_only, require
 from tenko.host.perm import Permission, PermissionChecker
 from tenko.host.plugins import PluginInfo, PluginRuntime
 from tenko.plugins._common import context_from_session, text_message
@@ -73,14 +74,8 @@ def _is_global_feature(info: PluginInfo) -> bool:
 
 async def _change(session: Session, operation: str, feature: Match[str]):
     context = context_from_session(session)
-    if context.chat_type != "group":
-        return text_message("该指令只能在群聊中使用")
     if not feature_service.ready:
         return text_message("功能状态暂不可用，请稍后再试")
-    if not await permission_checker.require_group_perm(context, Permission.ActiveGroup):
-        return text_message("当前群不可用")
-    if not await permission_checker.require_perm(context, Permission.GroupAdmin):
-        return text_message("权限不足")
 
     info = resolve_plugin(feature.result)
     if info is None:
@@ -90,7 +85,8 @@ async def _change(session: Session, operation: str, feature: Match[str]):
         return text_message(f"无法操作必须插件<{target_name}>")
 
     is_global = _is_global_feature(info)
-    # 全局功能影响所有群，只能由 BotAdmin 切换。
+    # 全局功能影响所有群，只能由 BotAdmin 切换；是否全局取决于目标插件，所以
+    # 这里不能用装饰器。
     if is_global and not await permission_checker.require_perm(
         context, Permission.BotAdmin
     ):
@@ -127,6 +123,8 @@ enable_command = Alconna(
 
 
 @command.on(enable_command)
+@group_only()
+@require(Permission.GroupAdmin)
 async def enable(session: Session, feature: Match[str]):
     return await _change(session, "开启", feature)
 
@@ -143,5 +141,7 @@ disable_command = Alconna(
 
 
 @command.on(disable_command)
+@group_only()
+@require(Permission.GroupAdmin)
 async def disable(session: Session, feature: Match[str]):
     return await _change(session, "关闭", feature)

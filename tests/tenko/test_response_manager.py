@@ -21,7 +21,6 @@ from satori import (
 from satori.model import Event, Member
 
 from tenko.host.accounts import AccountRegistry
-from tenko.host.perm import Permission, PermissionChecker, PermissionRegistry
 
 
 @dataclass
@@ -158,9 +157,6 @@ async def test_query_handler_reads_the_shared_account_registry(
 ) -> None:
     registry = make_registry()
     loaded_plugin.account_registry = registry
-    permissions = PermissionRegistry()
-    permissions.set_user_level(None, "20001", Permission.BotAdmin)
-    loaded_plugin.permission_checker = PermissionChecker(registry=permissions)
     monkeypatch.setattr(loaded_plugin, "render_or_none", AsyncMock(return_value=None))
 
     result = await loaded_plugin.bot_list.callable_target(
@@ -179,7 +175,6 @@ async def test_response_strategy_handler_reads_and_persists_current_group_only(
     registry = AccountRegistry()
     registry.register(FakeAccount("10001"), groups=[40001])
     loaded_plugin.account_registry = registry
-    loaded_plugin.permission_checker = PermissionChecker(registry=PermissionRegistry())
     persist = AsyncMock()
     monkeypatch.setattr(registry, "persist_state", persist)
 
@@ -201,16 +196,10 @@ async def test_response_strategy_handler_reads_and_persists_current_group_only(
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("loaded_plugin", ["response_manager"], indirect=True)
-async def test_response_strategy_handler_rejects_private_and_unbound_contexts(
+async def test_response_strategy_handler_rejects_unbound_group(
     loaded_plugin,
 ) -> None:
-    loaded_plugin.permission_checker = PermissionChecker(registry=PermissionRegistry())
     loaded_plugin.account_registry = AccountRegistry()
-
-    private = await loaded_plugin.set_response_strategy.callable_target(
-        make_private_session("90001"), Query("response_type", None)
-    )
-    assert str(private) == "权限不足"
 
     unbound = await loaded_plugin.set_response_strategy.callable_target(
         make_session("admin"), Query("response_type", None)
@@ -229,7 +218,6 @@ async def test_specified_bot_handler_validates_current_group_and_restores_defaul
     registry.register(first, groups=[40001])
     registry.register(second, available=False, groups=[40001])
     loaded_plugin.account_registry = registry
-    loaded_plugin.permission_checker = PermissionChecker(registry=PermissionRegistry())
     persist = AsyncMock()
     monkeypatch.setattr(registry, "persist_state", persist)
 
@@ -260,7 +248,6 @@ async def test_specified_bot_handler_hides_unknown_account_details(
     registry = AccountRegistry()
     registry.register(FakeAccount("10001"), groups=[40001])
     loaded_plugin.account_registry = registry
-    loaded_plugin.permission_checker = PermissionChecker(registry=PermissionRegistry())
 
     result = await loaded_plugin.choose_response_bot.callable_target(
         make_session("admin"), make_query("account_id", "99999")
@@ -277,8 +264,6 @@ async def test_online_bot_uses_only_current_group_counts(
 ) -> None:
     registry = make_registry()
     loaded_plugin.account_registry = registry
-    permissions = PermissionRegistry()
-    loaded_plugin.permission_checker = PermissionChecker(registry=permissions)
     monkeypatch.setattr(loaded_plugin, "render_or_none", AsyncMock(return_value=None))
 
     result = await loaded_plugin.online_bot.callable_target(
@@ -290,7 +275,7 @@ async def test_online_bot_uses_only_current_group_counts(
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("loaded_plugin", ["response_manager"], indirect=True)
-async def test_bot_group_list_is_master_private_only(
+async def test_bot_group_list_lists_every_account_group(
     loaded_plugin, monkeypatch
 ) -> None:
     registry = make_registry()
@@ -298,17 +283,7 @@ async def test_bot_group_list_is_master_private_only(
     registry.register(second, groups=[40002])
     loaded_plugin.account_registry = registry
 
-    loaded_plugin.permission_checker = PermissionChecker(
-        registry=PermissionRegistry(master_id="90001")
-    )
     monkeypatch.setattr(loaded_plugin, "render_or_none", AsyncMock(return_value=None))
-    group_result = await loaded_plugin.bot_group_list.callable_target(
-        make_session(),
-        Query("account_id", None),
-        render_service=loaded_plugin.RenderService(),
-    )
-    assert str(group_result) == "该指令仅支持 Master 私聊执行"
-
     private_result = await loaded_plugin.bot_group_list.callable_target(
         make_private_session("90001"),
         Query("account_id", None),
@@ -316,14 +291,6 @@ async def test_bot_group_list_is_master_private_only(
     )
     assert "群40001" in str(private_result)
     assert "群40002" in str(private_result)
-
-    loaded_plugin.permission_checker = PermissionChecker(registry=PermissionRegistry())
-    denied = await loaded_plugin.bot_group_list.callable_target(
-        make_private_session("20001"),
-        Query("account_id", None),
-        render_service=loaded_plugin.RenderService(),
-    )
-    assert str(denied) == "权限不足"
 
 
 @pytest.mark.asyncio
@@ -333,9 +300,6 @@ async def test_response_list_wraps_successful_render_as_image(
 ) -> None:
     registry = make_registry()
     loaded_plugin.account_registry = registry
-    permissions = PermissionRegistry()
-    permissions.set_user_level(None, "20001", Permission.BotAdmin)
-    loaded_plugin.permission_checker = PermissionChecker(registry=permissions)
     renderer = AsyncMock(return_value=b"jpeg-bytes")
     monkeypatch.setattr(loaded_plugin, "render_or_none", renderer)
     render_service = loaded_plugin.RenderService()

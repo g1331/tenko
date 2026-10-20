@@ -103,6 +103,13 @@ class PluginInfo:
         return getattr(getattr(native_plugin, "metadata", None), "rate_weight", None)
 
     @property
+    def group_level(self) -> int | None:
+        """插件要求的群等级（``declare(level=...)`` 或内置插件直接设置）；默认 ``None``。"""
+
+        native_plugin = PluginRuntime._native_plugin(self)
+        return getattr(getattr(native_plugin, "metadata", None), "group_level", None)
+
+    @property
     def lookup_names(self) -> tuple[str, ...]:
         names = [self.name, self.qualified_name]
         if self.source == "builtin":

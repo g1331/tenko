@@ -12,9 +12,10 @@ from arclet.entari.plugin import get_plugin
 from loguru import logger
 
 from ..context import MessageContext
-from .perm import Permission, PermissionChecker
+from .perm import GroupPermission, Permission, PermissionChecker
 from .plugins import external_plugin_for_module
 
+GROUP_LEVELS = frozenset(int(level) for level in GroupPermission)
 _FEATURE_MANAGER_NAMES = frozenset({"feature_manager", "功能开关"})
 _RATE_LIMIT_UNAVAILABLE_NOTICE = "限流状态暂不可用，请稍后再试"
 
@@ -282,12 +283,15 @@ def declare_feature(
     scope: str = "group",
     default_enabled: bool = True,
     rate_weight: int = 1,
+    level: int = Permission.ActiveGroup,
 ) -> None:
     """为正在加载的第三方插件登记 Tenko 专有元数据（``tenko_api.features.declare``）。
 
     写入宿主已有的 ``feature_scope`` / ``default_switch`` 元数据属性，以及
-    ``CommandPolicy`` 传给限流器的 ``rate_weight``。不提供 ``classifier``：
-    第三方插件不能把自己标记为受保护的宿主插件。
+    ``CommandPolicy`` 使用的 ``rate_weight`` 和 ``group_level``（插件要求的群等级）。
+    内置插件没有这个入口，直接在 ``plugin.get_plugin().metadata`` 上设置同名属性，
+    与 ``feature_scope`` 的写法一致。不提供 ``classifier``：第三方插件不能把自己
+    标记为受保护的宿主插件。
     """
 
     if scope not in {"group", "global"}:
@@ -296,6 +300,10 @@ def declare_feature(
         raise TypeError("default_enabled 必须是布尔值")
     if type(rate_weight) is not int or rate_weight <= 0:
         raise ValueError("rate_weight 必须是正整数")
+    if level not in GROUP_LEVELS:
+        raise ValueError(
+            f"level 必须是 Permission.InactiveGroup 到 TestGroup: {level!r}"
+        )
     native = get_plugin(optional=True)
     found = None if native is None else external_plugin_for_module(native.id)
     if native is None or found is None:
@@ -304,6 +312,7 @@ def declare_feature(
     metadata.feature_scope = scope
     metadata.default_switch = default_enabled
     metadata.rate_weight = rate_weight
+    metadata.group_level = int(level)
     plugin_id = found
     if default_enabled:
         feature_service.plugin_defaults.pop(plugin_id, None)
@@ -412,6 +421,22 @@ class CommandPolicy:
                 command.command,
             )
             return PolicyVerdict(False, "该命令所属插件未在 Tenko 登记，已拒绝执行")
+        required_level = getattr(owner, "group_level", None)
+        if required_level is None:
+            required_level = Permission.ActiveGroup
+        if not await self.permission_checker.require_group_perm(
+            context, required_level
+        ):
+            # 群等级不足静默忽略（Graia v3 的 if_noticed=False），内置和第三方一视同仁。
+            logger.debug(
+                "Ignore command from group below plugin level: plugin={} group={} "
+                "level={} command={}",
+                getattr(owner, "name", owner),
+                context.channel_id,
+                required_level,
+                command.command,
+            )
+            return PolicyVerdict(False)
         if not self.feature_service.ready:
             return PolicyVerdict(False, "功能状态暂不可用，请稍后再试")
         plugin_name = _plugin_name(owner)

@@ -6,7 +6,6 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
-from arclet.entari import MessageChain
 from satori import (
     Channel,
     ChannelType,
@@ -20,6 +19,7 @@ from satori import (
 from satori.model import Event, Member
 
 from test_updater import make_manager
+from tenko.host.guards import REQUIRES_ATTR
 from tenko.host.perm import Permission, PermissionChecker, PermissionRegistry
 from tenko.host.updater import (
     CheckResult,
@@ -155,34 +155,14 @@ def test_upgrade_command_drops_legacy_dash_alias(loaded_plugin) -> None:
     assert not loaded_plugin.upgrade_command.parse("-upgrade").matched
 
 
-@pytest.mark.asyncio
 @pytest.mark.parametrize(
-    "handler_name",
-    ["check_update", "upgrade", "rollback"],
+    "handler_name", ["check_update", "upgrade", "rollback", "restart"]
 )
 @pytest.mark.parametrize("loaded_plugin", ["updater"], indirect=True)
-async def test_updater_commands_block_non_superusers(loaded_plugin, handler_name: str):
-    loaded_plugin.permission_checker = PermissionChecker(registry=PermissionRegistry())
+def test_updater_commands_require_master(loaded_plugin, handler_name: str) -> None:
+    handler = getattr(loaded_plugin, handler_name).callable_target
 
-    result = await getattr(loaded_plugin, handler_name).callable_target(
-        make_session("90001", "owner")
-    )
-
-    assert isinstance(result, MessageChain)
-    assert str(result) == "权限不足：仅超级用户可执行宿主升级操作"
-
-
-@pytest.mark.asyncio
-@pytest.mark.parametrize("loaded_plugin", ["updater"], indirect=True)
-async def test_restart_command_blocks_bot_admins(loaded_plugin):
-    registry = PermissionRegistry()
-    registry.set_user_level(None, "90001", Permission.BotAdmin)
-    loaded_plugin.permission_checker = PermissionChecker(registry=registry)
-
-    result = await loaded_plugin.restart.callable_target(make_session("90001"))
-
-    assert isinstance(result, MessageChain)
-    assert str(result) == "权限不足：仅 Master 可执行重启操作"
+    assert getattr(handler, REQUIRES_ATTR) == {"user": Permission.Master}
 
 
 @pytest.mark.asyncio

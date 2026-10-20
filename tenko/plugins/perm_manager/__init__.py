@@ -19,6 +19,7 @@ from satori import Image
 
 from tenko.db.errors import DatabaseUnavailableError
 from tenko.host.actions import ActionServiceError, action_service
+from tenko.host.guards import group_only, private_only, require
 from tenko.host.perm import Permission, PermissionChecker
 from tenko.plugins._common import (
     context_from_session,
@@ -41,10 +42,11 @@ plugin.metadata(
 # Entari 0.19.1 的构造函数没有 default_switch 字段。将兼容性标记保留在原生
 # metadata 上，供 host/plugins.py 和 inspectors 使用。
 plugin.get_plugin().metadata.default_switch = True
+# 未激活群也要能在本群用 /修改群权限 恢复，不受 CommandPolicy 的群等级静默。
+plugin.get_plugin().metadata.group_level = Permission.InactiveGroup
 
 
 permission_checker = PermissionChecker()
-_MASTER_PRIVATE_ONLY = "该指令仅支持 Master 私聊执行"
 _notify_group_id: str | None = None
 
 
@@ -205,15 +207,6 @@ async def _notify_permission_demotion(event: GuildMemberUpdatedEvent) -> None:
 def _database_error_message(error: BaseException, *, action: str) -> object:
     logger.warning("权限数据库不可用，{}未执行: {}", action, error)
     return text_message(f"数据库暂不可用，{action}未执行")
-
-
-async def _authorized(session: Session, required: int) -> bool:
-    context = context_from_session(session)
-    return (
-        context.chat_type == "group"
-        and await permission_checker.require_group_perm(context, Permission.ActiveGroup)
-        and await permission_checker.require_perm(context, required)
-    )
 
 
 def _current_group(session: Session, group: Query[int]) -> str | None:
@@ -394,6 +387,8 @@ modify_user_command = Alconna(
 
 
 @command.on(modify_user_command)
+@group_only()
+@require(Permission.GroupOwner)
 async def change_user_perm(
     session: Session,
     perm: Match[int],
@@ -408,14 +403,11 @@ async def change_user_perm(
     }:
         return text_message("请检查输入的权限(64/32/16/0)")
     context = context_from_session(session)
-    if context.chat_type != "group":
-        return text_message("该指令只能在群聊中使用")
-    target_group, is_cross_group = await _target_group(session, group)
+    # 装饰器保证了 GroupOwner 的底线；跨群改权限取决于参数，由 _target_group 额外
+    # 要求 BotAdmin，所以这一项只能留在函数体里。
+    target_group, _ = await _target_group(session, group)
     if target_group is None:
         return text_message("权限不足或没有找到目标群")
-    required = Permission.BotAdmin if is_cross_group else Permission.GroupOwner
-    if not await _authorized(session, required):
-        return text_message("权限不足")
 
     targets = normalize_targets(member_id.result)
     actor_permission = await permission_checker.get_user_perm(context)
@@ -455,13 +447,13 @@ modify_group_command = Alconna(
 
 
 @command.on(modify_group_command)
+@group_only()
+@require(Permission.BotAdmin)
 async def change_group_perm(
     session: Session,
     perm: Match[int],
     group: Query[int] = Query("group.group_id", None),
 ):
-    if not await _authorized(session, Permission.BotAdmin):
-        return text_message("权限不足")
     target_group, _ = await _target_group(session, group)
     if target_group is None:
         return text_message("没有找到目标群")
@@ -501,13 +493,13 @@ modify_group_type_command = Alconna(
 
 
 @command.on(modify_group_type_command)
+@group_only()
+@require(Permission.BotAdmin)
 async def change_group_perm_type(
     session: Session,
     permission_type: Match[str],
     group: Query[int] = Query("group.group_id", None),
 ):
-    if not await _authorized(session, Permission.BotAdmin):
-        return text_message("权限不足")
     target_group, _ = await _target_group(session, group)
     if target_group is None:
         return text_message("没有找到目标群")
@@ -552,12 +544,9 @@ async def change_group_perm_type(
         meta=CommandMeta("查询 VIP 群列表", compact=True),
     )
 )
+@private_only()
+@require(Permission.Master)
 async def get_vg_list(session: Session, *, render_service: RenderService):
-    context = context_from_session(session)
-    if context.chat_type != "private":
-        return text_message(_MASTER_PRIVATE_ONLY)
-    if not await permission_checker.require_perm(context, Permission.Master):
-        return text_message("权限不足")
     try:
         rows = await _vip_groups()
     except DatabaseUnavailableError as error:
@@ -581,6 +570,7 @@ permission_list_command.shortcut(
 )
 
 
+# 群聊要求 GroupAdmin、私聊要求 Master，随聊天类型而变，所以不用装饰器。
 @command.on(permission_list_command)
 async def get_perm_list(
     session: Session,
@@ -593,9 +583,7 @@ async def get_perm_list(
         target_group = str(group.result) if group.available else context.channel_id
         if target_group != context.channel_id:
             return text_message("群内只能查询当前群")
-        if not await permission_checker.require_group_perm(
-            context, Permission.ActiveGroup
-        ) or not await permission_checker.require_perm(context, Permission.GroupAdmin):
+        if not await permission_checker.require_perm(context, Permission.GroupAdmin):
             return text_message("权限不足")
         target_context = context
     elif context.chat_type == "private":
@@ -636,13 +624,13 @@ global_black_command = Alconna(
 
 
 @command.on(global_black_command)
+@group_only()
+@require(Permission.BotAdmin)
 async def change_global_black(
     session: Session,
     action: Match[str],
     member_id: Match[tuple[str, ...]],
 ):
-    if not await _authorized(session, Permission.BotAdmin):
-        return text_message("权限不足")
     targets = normalize_targets(member_id.result)
     try:
         black_list = await _global_black_ids()
@@ -679,12 +667,9 @@ async def change_global_black(
 
 
 @command.on(Alconna("全局黑名单列表", meta=CommandMeta("查询全局黑名单", compact=True)))
+@private_only()
+@require(Permission.Master)
 async def get_global_black_list(session: Session, *, render_service: RenderService):
-    context = context_from_session(session)
-    if context.chat_type != "private":
-        return text_message(_MASTER_PRIVATE_ONLY)
-    if not await permission_checker.require_perm(context, Permission.Master):
-        return text_message("权限不足")
     try:
         values = sorted(await _global_black_ids())
     except DatabaseUnavailableError as error:
@@ -705,13 +690,13 @@ bot_admin_command = Alconna(
 
 
 @command.on(bot_admin_command)
+@group_only()
+@require(Permission.Master)
 async def change_bot_admin(
     session: Session,
     action: Match[str],
     member_id: Match[tuple[str, ...]],
 ):
-    if not await _authorized(session, Permission.Master):
-        return text_message("权限不足")
     targets = normalize_targets(member_id.result)
     try:
         admin_ids = await _bot_admin_ids()
@@ -744,12 +729,9 @@ async def change_bot_admin(
 
 
 @command.on(Alconna("BOT管理列表", meta=CommandMeta("查询 BOT 管理员", compact=True)))
+@private_only()
+@require(Permission.Master)
 async def get_bot_admins_list(session: Session, *, render_service: RenderService):
-    context = context_from_session(session)
-    if context.chat_type != "private":
-        return text_message(_MASTER_PRIVATE_ONLY)
-    if not await permission_checker.require_perm(context, Permission.Master):
-        return text_message("权限不足")
     try:
         values = sorted(await _bot_admin_ids())
     except DatabaseUnavailableError as error:

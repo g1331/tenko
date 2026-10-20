@@ -15,13 +15,10 @@ from loguru import logger
 from satori import User
 from satori.element import At, Author, Element, Quote
 
-from tenko.host.actions import (
-    ActionPermissionDenied,
-    ActionServiceError,
-    action_service,
-)
+from tenko.host.actions import ActionServiceError, action_service
 from tenko.host.accounts import account_registry
 from tenko.context import MessageContext
+from tenko.host.guards import group_only, private_only, require
 from tenko.host.perm import Permission, PermissionChecker
 from tenko.host.ratelimit import rate_limit_service
 from tenko.plugins._common import (
@@ -395,9 +392,7 @@ def _pending_invite(request_id: str) -> PendingInvite | None:
 async def _can_review_invite(session: Session, pending: PendingInvite) -> bool:
     context = context_from_session(session)
     if context.chat_type == "group" and context.channel_id == pending.group_id:
-        return await permission_checker.require_group_perm(
-            context, Permission.ActiveGroup
-        ) and await permission_checker.require_perm(context, Permission.BotAdmin)
+        return await permission_checker.require_perm(context, Permission.BotAdmin)
     # Bot 未入目标群时，只有 Master 能从私聊或其他群处理，避免把审批权
     # 意外扩大到任意群管理员。
     return await permission_checker.require_perm(context, Permission.Master)
@@ -493,12 +488,9 @@ pending_invites_command = Alconna(
 
 
 @command.on(pending_invites_command)
+@private_only()
+@require(Permission.Master)
 async def pending_invite_list(session: Session):
-    context = context_from_session(session)
-    if context.chat_type != "private":
-        return text_message("该指令仅支持 Master 私聊执行")
-    if not await permission_checker.require_perm(context, Permission.Master):
-        return text_message("权限不足")
     if not pending_invites:
         return text_message("当前没有待审邀请")
     lines = [
@@ -529,15 +521,13 @@ leave_group_command.shortcut("quit", command="退群", prefix=True)
 
 
 @command.on(leave_group_command)
+@require(Permission.Master)
 async def leave_group(
     session: Session,
     group_id: Match[str],
     account_id: Match[str],
 ):
-    checked = await _guard(session, Permission.Master, allow_private=True)
-    if not hasattr(checked, "user_id"):
-        return checked
-    context = checked
+    context = context_from_session(session)
     target_group = group_id.result.strip()
     target_account = account_id.result.strip()
     if not target_group.isdigit() or not target_account.isdigit():
@@ -584,15 +574,13 @@ reset_capability_command = Alconna(
 
 
 @command.on(reset_capability_command)
+@private_only()
+@require(Permission.Master)
 async def reset_capability(
     session: Session,
     account_id: Query[int] = Query("account_id", None),
 ):
     context = context_from_session(session)
-    if context.chat_type != "private":
-        return text_message("该指令仅支持 Master 私聊执行")
-    if not await permission_checker.require_perm(context, Permission.Master):
-        return text_message("权限不足")
     target_account = (
         str(account_id.result) if account_id.available else context.account_id
     )
@@ -675,6 +663,7 @@ group_setting_command = Alconna(
 )
 
 
+# 群聊要求 GroupAdmin、私聊要求 Master，随聊天类型而变，所以不用装饰器。
 @command.on(group_setting_command)
 async def group_setting(
     session: Session,
@@ -685,10 +674,6 @@ async def group_setting(
         target_group = str(group.result) if group.available else context.channel_id
         if target_group != context.channel_id:
             return text_message("群内只能查询当前群")
-        if not await permission_checker.require_group_perm(
-            context, Permission.ActiveGroup
-        ):
-            return text_message("当前群不可用")
         if not await permission_checker.require_perm(context, Permission.GroupAdmin):
             return text_message("权限不足")
     elif context.chat_type == "private":
@@ -716,17 +701,13 @@ frequency_limit_command = Alconna(
 
 
 @command.on(frequency_limit_command)
+@group_only()
+@require(Permission.GroupAdmin)
 async def frequency_limit(
     session: Session,
     state: Query[str] = Query("state", None),
 ):
     context = context_from_session(session)
-    if context.chat_type != "group":
-        return text_message("该指令仅支持群聊执行")
-    if not await permission_checker.require_group_perm(context, Permission.ActiveGroup):
-        return text_message("当前群不可用")
-    if not await permission_checker.require_perm(context, Permission.GroupAdmin):
-        return text_message("权限不足")
     group_id = context.channel_id
     if not state.available:
         current = "开启" if rate_limit_service.is_group_limited(group_id) else "关闭"
@@ -836,29 +817,6 @@ def _action_error(error: ActionServiceError) -> str:
     return action_error_message(error)
 
 
-async def _guard(
-    session: Session,
-    required: Permission = Permission.GroupAdmin,
-    *,
-    allow_private: bool = False,
-):
-    context = context_from_session(session)
-    if allow_private:
-        if context.chat_type not in {"group", "private"}:
-            return text_message("该指令仅支持群聊或 Master 私聊执行")
-    elif context.chat_type != "group":
-        return text_message("该指令只能在群聊中使用")
-    try:
-        await action_service.authorize(
-            context,
-            required,
-            checker=permission_checker,
-        )
-    except ActionPermissionDenied as error:
-        return text_message(action_error_message(error))
-    return context
-
-
 async def _target_has_management_permission(context, target_id: str) -> bool:
     target_context = replace(context, user_id=target_id, member_role=None)
     return await permission_checker.require_perm(target_context, Permission.GroupAdmin)
@@ -881,15 +839,14 @@ mute_command = Alconna(
 
 
 @command.on(mute_command)
+@group_only()
+@require(Permission.GroupAdmin)
 async def mute(
     session: Session,
     arguments: Match[tuple[object, ...]],
     time: Match[int],
 ):
-    checked = await _guard(session)
-    if not hasattr(checked, "user_id"):
-        return checked
-    context = checked
+    context = context_from_session(session)
     target_id, minutes, invalid = _moderation_target(arguments.result, session, time)
     if invalid or target_id is None:
         return text_message("请@成员、填写成员ID或回复目标消息")
@@ -929,14 +886,13 @@ unmute_command = Alconna(
 
 
 @command.on(unmute_command)
+@group_only()
+@require(Permission.GroupAdmin)
 async def unmute(
     session: Session,
     arguments: Match[tuple[object, ...]],
 ):
-    checked = await _guard(session)
-    if not hasattr(checked, "user_id"):
-        return checked
-    context = checked
+    context = context_from_session(session)
     target_id, _, invalid = _moderation_target(
         arguments.result, session, Match(None, False)
     )
@@ -967,11 +923,10 @@ unmute_self_command = Alconna(
 
 
 @command.on(unmute_self_command)
+@group_only()
+@require(Permission.GroupAdmin)
 async def unmute_self(session: Session):
-    checked = await _guard(session)
-    if not hasattr(checked, "user_id"):
-        return checked
-    context = checked
+    context = context_from_session(session)
     try:
         await action_service.unmute_member(
             context.account_id,
@@ -993,11 +948,10 @@ whole_mute_command = Alconna(
 
 
 @command.on(whole_mute_command)
+@group_only()
+@require(Permission.GroupAdmin)
 async def mute_all(session: Session):
-    checked = await _guard(session)
-    if not hasattr(checked, "user_id"):
-        return checked
-    context = checked
+    context = context_from_session(session)
     try:
         await action_service.mute_group(
             context.account_id,
@@ -1020,11 +974,10 @@ whole_unmute_command.shortcut("关闭全体禁言", command="全体解禁", pref
 
 
 @command.on(whole_unmute_command)
+@group_only()
+@require(Permission.GroupAdmin)
 async def unmute_all(session: Session):
-    checked = await _guard(session)
-    if not hasattr(checked, "user_id"):
-        return checked
-    context = checked
+    context = context_from_session(session)
     try:
         await action_service.unmute_group(
             context.account_id,
@@ -1049,11 +1002,10 @@ recall_command = Alconna(
 
 
 @command.on(recall_command)
+@group_only()
+@require(Permission.GroupAdmin)
 async def recall(session: Session):
-    checked = await _guard(session)
-    if not hasattr(checked, "user_id"):
-        return checked
-    context = checked
+    context = context_from_session(session)
     quote = _quoted_message(session)
     if quote is None or quote.id is None:
         return text_message("请回复需要撤回的消息")
@@ -1085,14 +1037,13 @@ essence_command.shortcut("设精", command="加精", prefix=True)
 
 
 @command.on(essence_command)
+@group_only()
+@require(Permission.GroupAdmin)
 async def set_essence(
     session: Session,
     message_id: Query[str] = Query("message_id", None),
 ):
-    checked = await _guard(session)
-    if not hasattr(checked, "user_id"):
-        return checked
-    context = checked
+    context = context_from_session(session)
     target_message_id = str(message_id.result).strip() if message_id.available else None
     if target_message_id is None:
         quote = _quoted_message(session)
@@ -1125,14 +1076,13 @@ kick_command = Alconna(
 
 
 @command.on(kick_command)
+@group_only()
+@require(Permission.GroupAdmin)
 async def kick(
     session: Session,
     arguments: Match[tuple[object, ...]],
 ):
-    checked = await _guard(session)
-    if not hasattr(checked, "user_id"):
-        return checked
-    context = checked
+    context = context_from_session(session)
     target_id, _, invalid = _moderation_target(
         arguments.result, session, Match(None, False)
     )

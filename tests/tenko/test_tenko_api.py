@@ -36,7 +36,16 @@ API_SOURCE = ROOT / "packages/tenko-api/src"
 
 PUBLIC_API = {
     "context": {"MessageContext", "context_from_session"},
-    "perm": {"Permission", "require_perm", "get_user_perm", "get_group_perm"},
+    "perm": {
+        "Permission",
+        "require_perm",
+        "get_user_perm",
+        "get_group_perm",
+        "require",
+        "require_group",
+        "private_only",
+        "group_only",
+    },
     "actions": {
         "send_group_message",
         "send_private_message",
@@ -55,7 +64,7 @@ PUBLIC_API = {
         "ActionExecutionError",
     },
     "accounts": {"online_accounts", "accounts_for_group"},
-    "features": {"feature_enabled", "declare"},
+    "features": {"feature_enabled", "declare", "feature_required"},
     "render": {"render_or_none", "RenderService"},
     "messages": {"text_message", "report_error", "action_error_message"},
     "storage": {"data_dir", "Store", "StoreVersionError", "PluginStorageError"},
@@ -242,5 +251,7 @@ async def test_declare_rejects_bad_values_and_foreign_callers(
         declare(rate_weight=0)
     with pytest.raises(TypeError, match="default_enabled"):
         declare(default_enabled="no")  # type: ignore[arg-type]
+    with pytest.raises(ValueError):
+        declare(level=16)  # type: ignore[arg-type]
     with pytest.raises(RuntimeError, match="第三方插件"):
         declare()

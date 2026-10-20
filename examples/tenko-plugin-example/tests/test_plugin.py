@@ -1,8 +1,8 @@
-from unittest.mock import AsyncMock
-
 from arclet.entari.command import Query
 from conftest import make_session
 
+from tenko.host.guards import command_requirements
+from tenko.host.perm import Permission
 from tenko.host.plugins import PluginRuntime
 
 
@@ -20,12 +20,15 @@ async def test_plugin_loads_with_config_and_declared_metadata(runtime, module):
     assert module.config.greeting == "测试问候"
     metadata = runtime.loaded_plugins["example"].metadata
     assert (metadata.feature_scope, metadata.rate_weight) == ("group", 1)
+    assert metadata.group_level == Permission.ActiveGroup
+    # 装饰器声明的权限登记在命令上，/帮助 <编号> 据此显示。
+    requires = command_requirements(runtime.loaded_plugins["example"])
+    assert requires["示例"] == {"user": Permission.User}
     # 命令归属于 example，所以功能开关和限流会按插件 ID 生效。
     assert runtime.command_owner("示例").name == "example"
 
 
-async def test_command_counts_visits_and_remembers_the_last_note(module, monkeypatch):
-    monkeypatch.setattr(module, "require_perm", AsyncMock(return_value=True))
+async def test_command_counts_visits_and_remembers_the_last_note(module):
     session = make_session("20001")
 
     first = await module.example.callable_target(session, Query("note", "备忘"))
@@ -34,11 +37,3 @@ async def test_command_counts_visits_and_remembers_the_last_note(module, monkeyp
     assert str(first) == "测试问候，这是你第 1 次使用示例命令"
     assert "第 2 次" in str(second) and "上次备注：备忘" in str(second)
     assert module.visits.load()["20001"] == {"count": 2, "note": "备忘"}
-
-
-async def test_command_rejects_users_without_permission(module, monkeypatch):
-    monkeypatch.setattr(module, "require_perm", AsyncMock(return_value=False))
-    result = await module.example.callable_target(
-        make_session("20002"), Query("note", "")
-    )
-    assert str(result) == "权限不足"

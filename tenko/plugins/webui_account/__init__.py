@@ -9,8 +9,9 @@ from arclet.entari import Session, command, plugin
 from arclet.entari.plugin import PluginRole
 
 from tenko.config import WebUIConfig
-from tenko.host.perm import Permission, PermissionChecker
-from tenko.plugins._common import context_from_session, text_message
+from tenko.host.guards import private_only, require
+from tenko.host.perm import Permission
+from tenko.plugins._common import text_message
 from tenko.webui.auth import default_repository, reset_password
 
 
@@ -26,10 +27,7 @@ plugin.metadata(
 plugin.get_plugin().metadata.default_switch = True
 
 
-permission_checker = PermissionChecker()
 _webui_config: WebUIConfig | None = None
-_DENIED = "权限不足：仅 Master 可管理面板账号"
-_PRIVATE_ONLY = "该指令只能私聊使用"
 
 
 def configure_webui(config: WebUIConfig | None) -> None:
@@ -68,17 +66,6 @@ logout_command = Alconna(
 )
 
 
-async def _refusal(session: Session) -> str | None:
-    """返回拒绝原因；Master 在私聊中则返回 None。"""
-
-    context = context_from_session(session)
-    if not await permission_checker.require_perm(context, Permission.Master):
-        return _DENIED
-    if context.chat_type != "private":
-        return _PRIVATE_ONLY
-    return None
-
-
 def _panel_url() -> str:
     config = _webui_config
     if config is not None and not config.enabled:
@@ -89,9 +76,9 @@ def _panel_url() -> str:
 
 
 @command.on(account_command)
+@private_only()
+@require(Permission.Master)
 async def show_account(session: Session):
-    if (refusal := await _refusal(session)) is not None:
-        return text_message(refusal)
     repository = default_repository()
     account = await repository.get_account()
     count = await repository.count_sessions(datetime.now(UTC))
@@ -104,9 +91,9 @@ async def show_account(session: Session):
 
 
 @command.on(reset_command)
+@private_only()
+@require(Permission.Master)
 async def reset_account_password(session: Session):
-    if (refusal := await _refusal(session)) is not None:
-        return text_message(refusal)
     username, password, revoked = await reset_password()
     return text_message(
         "面板密码已重置，所有登录会话已下线"
@@ -119,8 +106,8 @@ async def reset_account_password(session: Session):
 
 
 @command.on(logout_command)
+@private_only()
+@require(Permission.Master)
 async def revoke_sessions(session: Session):
-    if (refusal := await _refusal(session)) is not None:
-        return text_message(refusal)
     count = await default_repository().delete_sessions()
     return text_message(f"已让 {count} 个面板会话下线")

@@ -30,21 +30,51 @@ hello = "tenko_plugin_hello"   # 入口名 = 插件 ID
 from arclet.alconna import Alconna
 from arclet.entari import Session, command, plugin
 
-from tenko_api.context import context_from_session
 from tenko_api.features import declare
 from tenko_api.messages import text_message
-from tenko_api.perm import Permission, require_perm
+from tenko_api.perm import Permission, require
 
 plugin.metadata("你好", author=["you"], version="0.1.0", description="打招呼")
-declare(scope="group", default_enabled=True, rate_weight=1)
+declare(
+    scope="group", default_enabled=True, rate_weight=1, level=Permission.ActiveGroup
+)
 
 
 @command.on(Alconna("你好"))
+@require(Permission.User)
 async def hello(session: Session):
-    ctx = context_from_session(session)
-    if not await require_perm(ctx, Permission.User):
-        return text_message("权限不足")
     return text_message("你好！")
+```
+
+## 权限与功能开关
+
+限制命令的默认写法是装饰器，不要在函数体里重复写检查（漏写就等于没有权限控制）：
+
+| 装饰器 | 作用 |
+|---|---|
+| `@require(Permission.X)` | 发送者的成员权限不低于 X（含 Master、BotAdmin 和数据库里的黑名单）；不足时回复“权限不足（当前权限：… / 需要权限：…）” |
+| `@require_group(Permission.X)` | 当前群等级不低于 X，不足时**静默忽略**；私聊不受限 |
+| `@group_only()` / `@private_only()` | 只允许群聊 / 私聊，否则回复“该指令只能在群聊/私聊中使用” |
+
+- 装饰器放在 `@command.on(...)` 之下，放在之上也同样生效；同一种装饰器在一个函数上只能用一次。
+  它们在命令匹配之后执行，所以只有命中命令的消息才会收到拒绝回复。
+- 声明的要求登记在处理函数上，`/帮助 <编号>` 会显示每条命令的“权限”。
+- 只有权限取决于运行时数据时（例如按参数区分的权限）才在函数体里调用 `require_perm`。
+- `declare(level=Permission.X)` 声明整个插件要求的群等级，默认 `ActiveGroup`：群等级更低的群里，
+  该插件的所有命令都被宿主静默忽略。
+- 不走命令的监听器（例如响应 @bot 的消息监听）没有宿主的命令策略保护，用
+  `@feature_required()` 检查所属插件的功能开关和维护模式（只在群聊生效，默认静默，
+  `notify=True` 时回复提示）。所属插件按被装饰函数的模块确定，规则与 `data_dir()` 相同。
+
+```python
+from arclet.entari import MessageCreatedEvent, plugin
+
+from tenko_api.features import feature_required
+
+
+@plugin.listen(MessageCreatedEvent)
+@feature_required()
+async def on_message(event: MessageCreatedEvent): ...
 ```
 
 ## 接口一览
@@ -52,10 +82,10 @@ async def hello(session: Session):
 | 模块 | 内容 |
 |---|---|
 | `tenko_api.context` | `MessageContext`、`context_from_session` |
-| `tenko_api.perm` | `Permission`、`require_perm`、`get_user_perm`、`get_group_perm` |
+| `tenko_api.perm` | `Permission`；装饰器 `require`、`require_group`、`group_only`、`private_only`；函数体内的 `require_perm`、`get_user_perm`、`get_group_perm` |
 | `tenko_api.actions` | 发消息、禁言、踢人、撤回、查询群成员等宿主动作，以及 `ActionServiceError` 系列异常 |
 | `tenko_api.accounts` | 只读账号信息：在线账号、某群可响应的账号 |
-| `tenko_api.features` | `feature_enabled` 只读查询；`declare` 声明范围、默认开关和限流权重 |
+| `tenko_api.features` | `feature_enabled` 只读查询；`declare` 声明范围、默认开关、限流权重和群等级；`feature_required` 装饰非命令监听器 |
 | `tenko_api.render` | `render_or_none`（浏览器不可用时回退文本） |
 | `tenko_api.messages` | `text_message`、`report_error` |
 | `tenko_api.storage` | 插件独立数据目录 `data_dir()`、带版本号并自动备份迁移的 JSON `Store` |

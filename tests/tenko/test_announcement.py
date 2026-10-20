@@ -26,7 +26,6 @@ from tenko.host.actions import (
     ActionCapability,
     ActionExecutionError,
     ActionFailure,
-    ActionService,
 )
 from tenko.host.accounts import AccountRegistry
 from tenko.host.features import FeatureService
@@ -235,7 +234,6 @@ async def test_announcement_command_uses_switches_and_returns_group_summary(
     assert result[0].id == "20001"
     session.send.assert_awaited_once()
     assert str(session.send.await_args.args[0]) == "开始推送：目标数 1"
-    service.authorize.assert_awaited_once()
     service.send_group_message.assert_awaited_once()
 
 
@@ -356,20 +354,3 @@ async def test_announcement_preflight_honors_host_feature_switch(
     assert results == (
         loaded_plugin.PushResult("40001", "skipped_feature_disabled", "功能未开启"),
     )
-
-
-@pytest.mark.asyncio
-@pytest.mark.parametrize("loaded_plugin", ["announcement"], indirect=True)
-async def test_announcement_command_blocks_non_bot_admin(loaded_plugin) -> None:
-    checker = PermissionChecker(registry=PermissionRegistry())
-    loaded_plugin.permission_checker = checker
-    loaded_plugin.action_service = ActionService(AccountRegistry(), checker)
-
-    result = await loaded_plugin.push_handle.callable_target(
-        make_session(),
-        Match("帮助系统", True),
-        Match(("维护",), True),
-        Match(None, False),
-    )
-
-    assert str(result) == "权限不足"

@@ -7,7 +7,8 @@ from arclet.entari.plugin import PluginRole
 from satori import Image
 
 from tenko.host.accounts import AccountRegistry, account_registry
-from tenko.host.perm import Permission, PermissionChecker
+from tenko.host.guards import group_only, private_only, require
+from tenko.host.perm import Permission
 from tenko.plugins._common import context_from_session, text_message
 from tenko.render import RenderService
 from tenko.render import render_or_none
@@ -24,9 +25,6 @@ plugin.metadata(
 # Entari 0.19.1 的构造函数没有 default_switch 字段。将兼容性标记保留在原生
 # metadata 上，供 host/plugins.py 和 inspectors 使用。
 plugin.get_plugin().metadata.default_switch = True
-
-
-permission_checker = PermissionChecker()
 
 
 def _mute_label(registry: AccountRegistry, account_id: str, group_id: str) -> str:
@@ -265,15 +263,6 @@ def build_online_bots_data(
     )
 
 
-async def _authorized(session: Session, required: int) -> bool:
-    context = context_from_session(session)
-    return (
-        context.chat_type == "group"
-        and await permission_checker.require_group_perm(context, Permission.ActiveGroup)
-        and await permission_checker.require_perm(context, required)
-    )
-
-
 bot_list_command = Alconna(
     "BOT列表",
     meta=CommandMeta(
@@ -286,9 +275,9 @@ bot_list_command = Alconna(
 
 
 @command.on(bot_list_command)
+@group_only()
+@require(Permission.BotAdmin)
 async def bot_list(session: Session, *, render_service: RenderService):
-    if not await _authorized(session, Permission.BotAdmin):
-        return text_message("权限不足")
     context = context_from_session(session)
     result = format_group_bots(account_registry, context.channel_id)
     data = build_group_bots_data(account_registry, context.channel_id)
@@ -311,17 +300,14 @@ bot_group_list_command = Alconna(
 
 
 @command.on(bot_group_list_command)
+@private_only()
+@require(Permission.Master)
 async def bot_group_list(
     session: Session,
     account_id: Query[str] = Query("account_id", None),
     *,
     render_service: RenderService,
 ):
-    context = context_from_session(session)
-    if context.chat_type == "group":
-        return text_message("该指令仅支持 Master 私聊执行")
-    if not await permission_checker.require_perm(context, Permission.Master):
-        return text_message("权限不足")
     if account_id.available:
         result = format_account_groups(account_registry, account_id.result)
         data = build_account_groups_data(account_registry, account_id.result)
@@ -356,9 +342,9 @@ online_bot_command = Alconna(
 
 
 @command.on(online_bot_command)
+@group_only()
+@require(Permission.User)
 async def online_bot(session: Session, *, render_service: RenderService):
-    if not await _authorized(session, Permission.User):
-        return text_message("权限不足")
     context = context_from_session(session)
     normalized_group = str(context.channel_id)
     bound = account_registry.bound_accounts_for_group(normalized_group)
@@ -386,13 +372,12 @@ response_strategy_command = Alconna(
 
 
 @command.on(response_strategy_command)
+@group_only()
+@require(Permission.GroupAdmin)
 async def set_response_strategy(
     session: Session,
     response_type: Query[str] = Query("response_type", None),
 ):
-    if not await _authorized(session, Permission.GroupAdmin):
-        return text_message("权限不足")
-
     context = context_from_session(session)
     group_id = str(context.channel_id)
     current = account_registry.response_type_for_group(group_id)
@@ -425,13 +410,12 @@ specified_bot_command = Alconna(
 
 
 @command.on(specified_bot_command)
+@group_only()
+@require(Permission.GroupAdmin)
 async def choose_response_bot(
     session: Session,
     account_id: Query[str] = Query("account_id", None),
 ):
-    if not await _authorized(session, Permission.GroupAdmin):
-        return text_message("权限不足")
-
     if not account_id.available:
         return text_message("请提供 BOT 账号 ID 或“清除”")
     context = context_from_session(session)

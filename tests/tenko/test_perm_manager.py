@@ -124,25 +124,6 @@ async def test_native_permission_command_writes_parsed_target(loaded_plugin) -> 
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("loaded_plugin", ["perm_manager"], indirect=True)
-async def test_permission_command_returns_denial_for_insufficient_member(
-    loaded_plugin,
-) -> None:
-    loaded_plugin.permission_checker = PermissionChecker(registry=PermissionRegistry())
-    loaded_plugin._member_permission = AsyncMock()
-
-    result = await loaded_plugin.change_user_perm.callable_target(
-        make_session("20001", "member"),
-        Match(32, True),
-        Match(("30001",), True),
-        Query("group.group_id"),
-    )
-
-    assert str(result) == "权限不足"
-    loaded_plugin._member_permission.assert_not_awaited()
-
-
-@pytest.mark.asyncio
-@pytest.mark.parametrize("loaded_plugin", ["perm_manager"], indirect=True)
 async def test_permission_list_rejects_cross_group_target_in_group(
     loaded_plugin,
 ) -> None:
@@ -206,7 +187,7 @@ async def test_non_master_private_permission_list_is_denied(loaded_plugin) -> No
     ],
 )
 @pytest.mark.parametrize("loaded_plugin", ["perm_manager"], indirect=True)
-async def test_sensitive_permission_lists_are_master_private_only(
+async def test_sensitive_permission_lists_render_data(
     loaded_plugin, monkeypatch, handler_name: str, data_name: str, expected: str
 ) -> None:
     loaded_plugin.permission_checker = PermissionChecker(
@@ -223,24 +204,11 @@ async def test_sensitive_permission_lists_are_master_private_only(
     monkeypatch.setattr(loaded_plugin, "render_or_none", AsyncMock(return_value=None))
 
     handler = getattr(loaded_plugin, handler_name)
-    group_result = await handler.callable_target(
-        make_session("90001", "member"),
-        render_service=loaded_plugin.RenderService(),
-    )
-    assert str(group_result) == "该指令仅支持 Master 私聊执行"
-
     private_result = await handler.callable_target(
         make_private_session("90001"),
         render_service=loaded_plugin.RenderService(),
     )
     assert expected in str(private_result)
-
-    loaded_plugin.permission_checker = PermissionChecker(registry=PermissionRegistry())
-    denied = await handler.callable_target(
-        make_private_session("20001"),
-        render_service=loaded_plugin.RenderService(),
-    )
-    assert str(denied) == "权限不足"
 
 
 @pytest.mark.asyncio

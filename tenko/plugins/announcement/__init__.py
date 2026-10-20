@@ -24,6 +24,7 @@ from tenko.host.actions import (
 )
 from tenko.host.accounts import AccountRegistry, account_registry
 from tenko.host.features import feature_service
+from tenko.host.guards import group_only, require
 from tenko.host.perm import Permission, PermissionChecker
 from tenko.host.plugins import PluginInfo, PluginRuntime
 from tenko.plugins._common import (
@@ -318,6 +319,8 @@ announcement_command = Alconna(
 
 
 @command.on(announcement_command)
+@group_only()
+@require(Permission.BotAdmin)
 async def push_handle(
     session: Session,
     function_name: Match[str],
@@ -325,16 +328,6 @@ async def push_handle(
     time: Match[int],
 ):
     context = context_from_session(session)
-    if context.chat_type != "group":
-        return text_message("该指令只能在群聊中使用")
-    try:
-        await action_service.authorize(
-            context,
-            Permission.BotAdmin,
-            checker=permission_checker,
-        )
-    except ActionPermissionDenied as error:
-        return text_message(action_error_message(error))
     is_master = await permission_checker.require_perm(context, Permission.Master)
 
     interval = time.result if time.available else 1

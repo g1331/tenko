@@ -23,7 +23,7 @@ from satori.model import Event, Member
 from tenko.events import MessageMetrics
 from tenko.context import MessageContext
 from tenko.host.accounts import AccountRegistry
-from tenko.host.perm import Permission, PermissionChecker, PermissionRegistry
+from tenko.host.perm import PermissionChecker, PermissionRegistry
 
 
 def make_session(user_id: str, role: str, protocol=None):
@@ -221,24 +221,6 @@ async def test_status_command_falls_back_to_text_when_rendering_fails(
         renderer.await_args.args[3],
     )
     assert str(result).startswith("开机时间：2026年")
-
-
-@pytest.mark.asyncio
-@pytest.mark.parametrize("loaded_plugin", ["status"], indirect=True)
-async def test_status_permission_filter_blocks_global_blacklisted_user(
-    loaded_plugin,
-) -> None:
-    registry = PermissionRegistry()
-    registry.set_user_level(None, "20001", Permission.GlobalBlack)
-    loaded_plugin.permission_checker = PermissionChecker(registry=registry)
-
-    result = await loaded_plugin.status.callable_target(
-        make_session("20001", "member"),
-        Query("text.value", False),
-        render_service=loaded_plugin.RenderService(),
-    )
-
-    assert str(result) == "权限不足"
 
 
 @pytest.mark.asyncio

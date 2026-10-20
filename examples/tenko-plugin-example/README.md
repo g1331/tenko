@@ -2,10 +2,10 @@
 
 [Tenko](https://github.com/g1331/tenko) 第三方插件的示例与起步模板。它演示：
 
-- 用 `tenko_api.features.declare` 声明按群开关、默认状态和限流权重；
+- 用 `tenko_api.features.declare` 声明按群开关、默认状态、限流权重和群等级；
 - 用 `[plugin_config.example]` 配置插件（Entari 的 `BasicConfModel`）；
 - 用 `tenko_api.storage.Store` 保存带版本号的 JSON 数据；
-- 用 `tenko_api.perm` 做权限检查，用 Entari 原生的 `command.on` 注册命令。
+- 用 `tenko_api.perm` 的装饰器（`@require` 等）声明命令权限，用 Entari 原生的 `command.on` 注册命令。
 
 插件命令 `/示例 [备注]` 记录你使用命令的次数和最近一条备注。
 
@@ -39,6 +39,10 @@ uv run ruff check .
 - `data_dir()` 和 `Store` 只能在插件自己的模块里使用，数据位于 `.tenko/plugin-data/<插件 ID>/`。
   数据结构变化时提高 `Store` 的版本号并提供 `migrate`，宿主会先把旧文件备份为
   `<名称>.json.bak-v<旧版本>`；插件被降级、读到更新版本的文件时会报错而不是覆盖。
+- 命令权限用 `tenko_api.perm` 的装饰器声明，不要在函数体里重复检查；装饰器在
+  `@command.on(...)` 之上或之下都生效。因为装饰器由 Entari 调度，测试里直接调用
+  `callable_target` 不会经过它们，应检查登记的要求（见 `tests/test_plugin.py`），
+  或像 `tests/tenko` 里那样走真实分发。
 - Entari 对标准 dataclass 配置模型不做类型校验，需要时在 `__post_init__` 里检查。
 
 ## 在 Tenko 里启用

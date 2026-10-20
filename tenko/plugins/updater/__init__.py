@@ -16,6 +16,7 @@ from arclet.entari import Ready, Session, command, plugin, scheduler
 from arclet.entari.plugin import PluginRole
 from loguru import logger
 
+from tenko.host.guards import require
 from tenko.host.perm import Permission
 from tenko.host.updater import (
     CheckResult,
@@ -47,7 +48,6 @@ updater = get_upgrade_manager()
 permission_checker = get_upgrade_permission_checker()
 _RESTART_SHUTDOWN_DELAY_SECONDS = 4.0
 _RESTART_COOLDOWN_SECONDS = 60.0
-_RESTART_PERMISSION_DENIED = "权限不足：仅 Master 可执行重启操作"
 _RESTART_COOLDOWN_MESSAGE = "重启操作冷却中，请稍后再试"
 _restart_cooldown_until = 0.0
 _shutdown_task: asyncio.Task[None] | None = None
@@ -91,11 +91,6 @@ restart_command = Alconna(
 )
 
 
-async def _authorized(session: Session) -> bool:
-    context = context_from_session(session)
-    return await permission_checker.require_perm(context, Permission.Master)
-
-
 def _error_message(error: Exception) -> str:
     return f"升级操作失败：{str(error) or error.__class__.__name__}"
 
@@ -116,9 +111,8 @@ def _format_check(result: CheckResult) -> str:
 
 
 @command.on(check_command)
+@require(Permission.Master, checker=permission_checker)
 async def check_update(session: Session):
-    if not await _authorized(session):
-        return text_message("权限不足：仅超级用户可执行宿主升级操作")
     try:
         return text_message(_format_check(await updater.check()))
     except UpdaterError as exc:
@@ -126,9 +120,8 @@ async def check_update(session: Session):
 
 
 @command.on(upgrade_command)
+@require(Permission.Master, checker=permission_checker)
 async def upgrade(session: Session):
-    if not await _authorized(session):
-        return text_message("权限不足：仅超级用户可执行宿主升级操作")
     try:
         checked = await updater.check()
         if checked.candidate is None:
@@ -147,9 +140,8 @@ async def upgrade(session: Session):
 
 
 @command.on(rollback_command)
+@require(Permission.Master, checker=permission_checker)
 async def rollback(session: Session):
-    if not await _authorized(session):
-        return text_message("权限不足：仅超级用户可执行宿主升级操作")
     try:
         result = await updater.rollback()
         watcher_armed = _arm_restart_watcher() if not result.applied else False
@@ -162,10 +154,9 @@ async def rollback(session: Session):
 
 
 @command.on(restart_command)
+@require(Permission.Master, checker=permission_checker)
 async def restart(session: Session):
     context = context_from_session(session)
-    if not await permission_checker.require_perm(context, Permission.Master):
-        return text_message(_RESTART_PERMISSION_DENIED)
     if not getattr(updater, "enabled", False):
         _record_restart_audit(context, "disabled")
         return text_message("重启依赖升级系统，当前未启用")

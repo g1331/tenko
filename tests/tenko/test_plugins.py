@@ -193,6 +193,7 @@ async def test_command_owner_resolves_real_plugins_by_registered_command(
     from command_dispatch_support import message_event
     from tenko.commands import configure_command_prefix
     from tenko.host.features import CommandPolicy, FeatureService
+    from tenko.host.perm import PermissionChecker, PermissionRegistry
 
     runtime = PluginRuntime()
     configure_command_prefix("/", use_entari_prefix=True)
@@ -209,7 +210,11 @@ async def test_command_owner_resolves_real_plugins_by_registered_command(
 
         features = FeatureService()
         features.disable("group_manager", "40001")
-        policy = CommandPolicy(features, plugin_runtime=runtime)
+        policy = CommandPolicy(
+            features,
+            plugin_runtime=runtime,
+            permission_checker=PermissionChecker(registry=PermissionRegistry()),
+        )
         session = SimpleNamespace(
             event=SimpleNamespace(_origin=message_event("/禁言 @1 2"))
         )

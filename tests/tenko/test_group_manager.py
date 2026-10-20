@@ -31,7 +31,8 @@ from tenko.host.actions import (
     ActionService,
 )
 from tenko.host.accounts import AccountRegistry
-from tenko.host.perm import PermissionChecker, PermissionRegistry
+from tenko.host.guards import REQUIRES_ATTR
+from tenko.host.perm import Permission, PermissionChecker, PermissionRegistry
 
 
 def make_session(user_id: str, role: str, elements=None):
@@ -248,10 +249,6 @@ async def test_frequency_limit_command_queries_and_switches_group(
 
         await call(admin, make_query("state", "开启"))
         assert await group_setting_repository.frequency_disabled_groups() == ()
-        assert rate_limit_service.is_group_limited("40001")
-
-        member = make_session("20001", "member")
-        assert str(await call(member, make_query("state", "关闭"))) == "权限不足"
         assert rate_limit_service.is_group_limited("40001")
     finally:
         rate_limit_service.set_group_limited("40001", True)
@@ -653,36 +650,38 @@ async def test_unmute_self_recovers_current_bot_mute_state(loaded_plugin) -> Non
     assert protocol.calls == [("guild_member_mute", ("40001", "10001", 0.0), {})]
 
 
-@pytest.mark.asyncio
 @pytest.mark.parametrize(
-    ("command_name", "arguments"),
+    ("command_name", "level"),
     [
-        ("mute", (Match(("20002", "5"), True), Match(None, False))),
-        ("unmute", (Match(("20002",), True),)),
-        ("mute_all", ()),
-        ("unmute_all", ()),
-        ("recall", ()),
-        ("set_essence", (Query("message_id", None),)),
-        ("kick", (Match(("20002",), True),)),
-        (
-            "leave_group",
-            (Match("40001", True), Match("10001", True)),
+        *(
+            (name, Permission.GroupAdmin)
+            for name in (
+                "mute",
+                "unmute",
+                "unmute_self",
+                "mute_all",
+                "unmute_all",
+                "recall",
+                "set_essence",
+                "kick",
+                "frequency_limit",
+            )
+        ),
+        *(
+            (name, Permission.Master)
+            for name in ("leave_group", "pending_invite_list", "reset_capability")
         ),
     ],
 )
 @pytest.mark.parametrize("loaded_plugin", ["group_manager"], indirect=True)
-async def test_every_management_command_blocks_members(
-    loaded_plugin, command_name, arguments
+def test_management_commands_declare_their_permission(
+    loaded_plugin, command_name, level
 ) -> None:
-    loaded_plugin.permission_checker = PermissionChecker(registry=PermissionRegistry())
-    loaded_plugin.action_service = ActionService(
-        AccountRegistry(), loaded_plugin.permission_checker
-    )
-    result = await getattr(loaded_plugin, command_name).callable_target(
-        make_session("20001", "member"), *arguments
-    )
+    """漏掉 require 装饰器就等于没有权限控制，所以逐条核对声明。"""
 
-    assert str(result) == "权限不足"
+    handler = getattr(loaded_plugin, command_name).callable_target
+
+    assert getattr(handler, REQUIRES_ATTR)["user"] == level
 
 
 @pytest.mark.asyncio
@@ -1121,65 +1120,6 @@ async def test_superuser_can_reset_current_account_capability_state(
     assert str(result) == "已重置账号 10001 的 2 项平台能力学习状态"
     assert service.capability_status("10001", "member_mute") is None
     assert service.capability_status("10001", "group_mute") is None
-
-
-@pytest.mark.asyncio
-@pytest.mark.parametrize("loaded_plugin", ["group_manager"], indirect=True)
-async def test_non_master_cannot_reset_capability_state(loaded_plugin) -> None:
-    checker = PermissionChecker(registry=PermissionRegistry())
-    service = ActionService(AccountRegistry(), checker)
-    service.set_capability("10001", "member_mute", False)
-    loaded_plugin.permission_checker = checker
-    loaded_plugin.action_service = service
-
-    result = await loaded_plugin.reset_capability.callable_target(
-        make_private_session("20001"), Query("account_id", None)
-    )
-
-    assert str(result) == "权限不足"
-    assert service.capability_status("10001", "member_mute") is False
-
-
-@pytest.mark.asyncio
-@pytest.mark.parametrize("loaded_plugin", ["group_manager"], indirect=True)
-async def test_master_group_cannot_list_pending_invites(loaded_plugin) -> None:
-    loaded_plugin.permission_checker = PermissionChecker(
-        registry=PermissionRegistry(master_id="90001")
-    )
-    loaded_plugin.pending_invites["request-1"] = loaded_plugin.PendingInvite(
-        request_id="request-1",
-        account=InviteAccount(InviteProtocol()),
-        group_id="40001",
-        group_name="审核群",
-        inviter_id="20001",
-        inviter_name="邀请人",
-        comment="",
-        created_at=0,
-    )
-
-    result = await loaded_plugin.pending_invite_list.callable_target(
-        make_session("90001", "member")
-    )
-
-    assert str(result) == "该指令仅支持 Master 私聊执行"
-    loaded_plugin.pending_invites.clear()
-
-
-@pytest.mark.asyncio
-@pytest.mark.parametrize("loaded_plugin", ["group_manager"], indirect=True)
-async def test_master_group_cannot_reset_capability_state(loaded_plugin) -> None:
-    checker = PermissionChecker(registry=PermissionRegistry(master_id="90001"))
-    service = ActionService(AccountRegistry(), checker)
-    service.set_capability("10001", "member_mute", False)
-    loaded_plugin.permission_checker = checker
-    loaded_plugin.action_service = service
-
-    result = await loaded_plugin.reset_capability.callable_target(
-        make_session("90001", "member"), Query("account_id", None)
-    )
-
-    assert str(result) == "该指令仅支持 Master 私聊执行"
-    assert service.capability_status("10001", "member_mute") is False
 
 
 @pytest.mark.asyncio

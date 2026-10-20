@@ -7,11 +7,12 @@ from arclet.alconna import Alconna, Args, CommandMeta
 from arclet.alconna import command_manager
 from arclet.entari import MessageChain, Session, command, plugin
 from arclet.entari.command import Query
-from arclet.entari.plugin import PluginRole, get_plugins
+from arclet.entari.plugin import PluginRole, get_plugin_commands, get_plugins
 from satori import Image
 
 from tenko.host.features import feature_service
-from tenko.host.perm import Permission, PermissionChecker
+from tenko.host.guards import command_requirements, require, requirement_text
+from tenko.host.perm import Permission
 from tenko.host.plugins import PluginInfo, PluginRuntime
 from tenko.plugins._common import context_from_session, text_message
 from tenko.render import RenderService
@@ -31,7 +32,6 @@ plugin.metadata(
 plugin.get_plugin().metadata.default_switch = True
 
 
-permission_checker = PermissionChecker()
 plugin_runtime = PluginRuntime()
 
 _HELP_SECTIONS = (
@@ -119,7 +119,12 @@ def _format_command_value(
     return "\n".join(lines)
 
 
-def _format_command_help(command: object, command_name: str, prefixes: object) -> str:
+def _format_command_help(
+    command: object,
+    command_name: str,
+    prefixes: object,
+    requirement: str | None = None,
+) -> str:
     display_name = str(getattr(command, "command", None) or command_name)
     prefix = _command_prefix(command, prefixes)
     fields: list[tuple[str, str]] = []
@@ -130,6 +135,8 @@ def _format_command_help(command: object, command_name: str, prefixes: object) -
         formatted = _format_command_value(value, field, display_name, prefix)
         if formatted:
             fields.append((label, formatted))
+    if requirement:
+        fields.append(("权限", requirement))
 
     lines = [f"{prefix}{display_name}"]
     for index, (label, value) in enumerate(fields):
@@ -145,12 +152,16 @@ def _format_command_help(command: object, command_name: str, prefixes: object) -
 def _plugin_help(native_plugin: object) -> str:
     """将插件注册的命令元数据格式化为纯文本帮助。"""
 
-    commands = getattr(native_plugin, "_extra", {}).get("commands", ())
+    commands = get_plugin_commands(native_plugin)  # type: ignore[arg-type]
     if not commands:
         return "该插件未注册命令"
+    requirements = command_requirements(native_plugin)
     return "\n\n".join(
         _format_command_help(
-            command_manager.get_command(command_name), command_name, prefixes
+            command_manager.get_command(command_name),
+            command_name,
+            prefixes,
+            requirement_text(requirements.get(command_name, {})),
         )
         for prefixes, command_name in commands
     )
@@ -298,6 +309,7 @@ def build_help(index: int | None = None, *, group_id: str | int | None = None) -
 
 
 @command.on(help_command)
+@require(Permission.User)
 async def helper(
     session: Session,
     index: Query[int] = Query("index", None),
@@ -305,10 +317,6 @@ async def helper(
     render_service: RenderService,
 ):
     context = context_from_session(session)
-    if not await permission_checker.require_group_perm(
-        context, Permission.ActiveGroup
-    ) or not await permission_checker.require_perm(context, Permission.User):
-        return text_message("权限不足")
     value = index.result if index.available else None
     if value is not None:
         return text_message(build_help(value))

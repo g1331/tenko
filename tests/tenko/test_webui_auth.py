@@ -11,9 +11,10 @@ import httpx
 import pytest
 from satori.server import Server
 
-from test_perm_manager import make_private_session, make_session
+from test_perm_manager import make_private_session
 from tenko.config import WebUIConfig
-from tenko.host.perm import Permission, PermissionChecker, PermissionRegistry
+from tenko.host.guards import REQUIRES_ATTR
+from tenko.host.perm import Permission
 from tenko.webui import WebUIService
 from tenko.webui.auth import (
     SESSION_COOKIE,
@@ -324,18 +325,11 @@ async def test_account_change_counts_toward_rate_limit(tenko_database):
 # ------------------------------------------------------------- QQ 指令
 
 
-def _master_checker() -> PermissionChecker:
-    registry = PermissionRegistry()
-    registry.set_user_level(None, "90001", Permission.Master)
-    return PermissionChecker(registry=registry)
-
-
 @pytest.mark.asyncio
 @pytest.mark.parametrize("loaded_plugin", ["webui_account"], indirect=True)
 async def test_reset_command_takes_effect_for_running_panel(
     loaded_plugin, tenko_database
 ):
-    loaded_plugin.permission_checker = _master_checker()
     loaded_plugin.configure_webui(
         WebUIConfig(enabled=True, public_url="http://203.0.113.10:8081")
     )
@@ -383,25 +377,17 @@ async def test_reset_command_takes_effect_for_running_panel(
         assert (await client.get(PROTECTED)).status_code == 401
 
 
-@pytest.mark.asyncio
 @pytest.mark.parametrize("loaded_plugin", ["webui_account"], indirect=True)
 @pytest.mark.parametrize(
     "handler", ["show_account", "reset_account_password", "revoke_sessions"]
 )
-async def test_account_commands_refuse_non_master_and_groups(
-    loaded_plugin, tenko_database, handler
-):
-    loaded_plugin.permission_checker = _master_checker()
+def test_account_commands_declare_master_private_only(loaded_plugin, handler):
     command = getattr(loaded_plugin, handler).callable_target
 
-    denied = await command(make_private_session("20001"))
-    group = await command(make_session("90001", "owner"))
-    group_non_master = await command(make_session("20001", "owner"))
-
-    assert "权限不足" in str(denied)
-    assert str(group) == "该指令只能私聊使用"
-    assert "权限不足" in str(group_non_master)
-    assert await _repository().get_account() is None  # 没有任何副作用
+    assert getattr(command, REQUIRES_ATTR) == {
+        "chat": "private",
+        "user": Permission.Master,
+    }
 
 
 @pytest.mark.parametrize("loaded_plugin", ["webui_account"], indirect=True)

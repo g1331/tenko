@@ -23,6 +23,7 @@ from satori import Image
 
 from tenko.events import MessageMetrics, message_metrics
 from tenko.host.accounts import AccountRegistry, account_registry
+from tenko.host.guards import require
 from tenko.host.perm import Permission, PermissionChecker
 from tenko.plugins._common import context_from_session, text_message
 from tenko.render import RenderService
@@ -395,6 +396,7 @@ status_command = Alconna(
 
 
 @command.on(status_command)
+@require(Permission.User)
 async def status(
     session: Session,
     text_mode: Query[bool] = Query("text.value", False),
@@ -402,10 +404,6 @@ async def status(
     render_service: RenderService,
 ):
     context = context_from_session(session)
-    if not await permission_checker.require_group_perm(
-        context, Permission.ActiveGroup
-    ) or not await permission_checker.require_perm(context, Permission.User):
-        return text_message("权限不足")
     is_master_private = (
         context.chat_type == "private"
         and await permission_checker.require_perm(context, Permission.Master)

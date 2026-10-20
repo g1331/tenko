@@ -7,6 +7,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 from arclet.entari.command import Query
+from arclet.entari.plugin import get_plugins
 from satori import (
     Channel,
     ChannelType,
@@ -18,8 +19,6 @@ from satori import (
     User,
 )
 from satori.model import Event, Member
-
-from tenko.host.perm import PermissionChecker, PermissionRegistry
 
 
 def make_session(user_id: str, role: str):
@@ -48,7 +47,6 @@ def make_session(user_id: str, role: str):
 async def test_helper_trigger_uses_native_command_registry(
     loaded_plugin, monkeypatch
 ) -> None:
-    loaded_plugin.permission_checker = PermissionChecker(registry=PermissionRegistry())
     monkeypatch.setattr(loaded_plugin, "render_or_none", AsyncMock(return_value=None))
 
     result = await loaded_plugin.helper.callable_target(
@@ -65,24 +63,6 @@ async def test_helper_trigger_uses_native_command_registry(
     assert not loaded_plugin.help_command.parse("/-help 1").matched
     assert not loaded_plugin.help_command.parse("/-帮助 1").matched
     assert not loaded_plugin.help_command.parse("帮助").matched
-
-
-@pytest.mark.asyncio
-@pytest.mark.parametrize("loaded_plugin", ["helper"], indirect=True)
-async def test_helper_permission_filter_blocks_global_blacklisted_user(
-    loaded_plugin,
-) -> None:
-    registry = PermissionRegistry()
-    registry.set_user_level(None, "20001", -1)
-    loaded_plugin.permission_checker = PermissionChecker(registry=registry)
-
-    result = await loaded_plugin.helper.callable_target(
-        make_session("20001", "member"),
-        Query("index", None),
-        render_service=loaded_plugin.RenderService(),
-    )
-
-    assert str(result) == "权限不足"
 
 
 @pytest.mark.parametrize("loaded_plugin", ["helper"], indirect=True)
@@ -176,10 +156,27 @@ def test_help_marks_host_plugins_as_protected(monkeypatch, loaded_plugin):
     assert data["required"][0]["state_label"] == "受保护"
 
 
+def use_fake_native_commands(monkeypatch, loaded_plugin) -> None:
+    """测试里的原生插件是假对象：命令登记取自 ``_extra``，且没有声明权限要求。"""
+
+    monkeypatch.setattr(
+        loaded_plugin, "get_plugin_commands", lambda plugin: plugin._extra["commands"]
+    )
+    monkeypatch.setattr(loaded_plugin, "command_requirements", lambda plugin: {})
+
+
+@pytest.mark.parametrize("loaded_plugin", ["helper"], indirect=True)
+def test_help_number_shows_declared_permission_of_real_commands(loaded_plugin):
+    native = next(item for item in get_plugins() if item.id == "tenko.plugins.helper")
+
+    assert loaded_plugin._plugin_help(native).endswith("└ 权限：成员")
+
+
 @pytest.mark.parametrize("loaded_plugin", ["helper"], indirect=True)
 def test_help_number_uses_plugin_commands_for_card_positions(
     monkeypatch, loaded_plugin
 ):
+    use_fake_native_commands(monkeypatch, loaded_plugin)
     plugin_names = (
         "announcement",
         "exception_catcher",
@@ -303,6 +300,7 @@ def test_help_number_uses_plugin_commands_for_card_positions(
 
 @pytest.mark.parametrize("loaded_plugin", ["helper"], indirect=True)
 def test_plugin_help_omits_missing_metadata_fields(monkeypatch, loaded_plugin) -> None:
+    use_fake_native_commands(monkeypatch, loaded_plugin)
     command = SimpleNamespace(
         command="测试",
         prefixes=["/"],
@@ -320,6 +318,7 @@ def test_plugin_help_omits_missing_metadata_fields(monkeypatch, loaded_plugin) -
 
 @pytest.mark.parametrize("loaded_plugin", ["helper"], indirect=True)
 def test_plugin_help_indents_multiline_metadata(monkeypatch, loaded_plugin) -> None:
+    use_fake_native_commands(monkeypatch, loaded_plugin)
     command = SimpleNamespace(
         command="测试",
         prefixes=["/"],
