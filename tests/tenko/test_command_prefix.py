@@ -17,6 +17,10 @@ _POSITIVE_CASES: dict[str, dict[str, tuple[str, ...]]] = {
         "positive": ("/群设置", "/群设置 --group 40001"),
         "boundary": ("/群设置-1", "/ 群设置"),
     },
+    "频率限制": {
+        "positive": ("/频率限制", "/频率限制 开启", "/频率限制 关闭"),
+        "boundary": ("/频率限制-1", "/ 频率限制"),
+    },
     "禁言": {
         "positive": ("/禁言 20002 5", "/禁言 -t 5 20002"),
         "boundary": ("/禁言-1", "/ 禁言"),

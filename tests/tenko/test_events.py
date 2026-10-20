@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 from datetime import datetime
+from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock
 
@@ -26,9 +27,6 @@ import tenko.host.accounts as accounts_module
 from tenko.context import MessageContext
 from tenko.events import MessageEventHandler, MessageMetrics
 from tenko.host.accounts import AccountRegistry
-from tenko.host.features import CommandPolicy, FeatureService
-from tenko.host.perm import PermissionChecker, PermissionRegistry
-from tenko.host.ratelimit import RateLimitService
 from tenko.config import DebugConfig
 
 
@@ -485,6 +483,43 @@ async def test_group_event_guard_deterministic_muted_account_has_no_fallback() -
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("content", "recovers"),
+    [
+        ("/解禁自己", True),
+        ('<at id="10001"/> /解禁自己', True),
+        ('<quote id="1"><author id="20002"/>旧消息</quote>/解禁自己', True),
+        ("天天 解禁自己", True),
+        ("/解禁自己 20001", False),
+        ('<quote id="1">/解禁自己</quote>谢谢', False),
+        ("/帮助", False),
+    ],
+)
+async def test_mute_recovery_matches_what_entari_resolves(
+    content: str, recovers: bool
+) -> None:
+    from arclet.entari.config import EntariConfig
+
+    if not EntariConfig._inited:
+        EntariConfig(Path("/tmp/tenko-events-test.yml"))
+    basic = EntariConfig.instance.basic
+    old_nickname, basic.nickname = basic.nickname, "天天"
+    account = FakeAccount()
+    registry = AccountRegistry()
+    registry.register(account, groups=[40001])
+    registry.set_muted(account, 40001, True)
+    callback = AsyncMock()
+    try:
+        await MessageEventHandler(account_registry=registry).guard(callback)(
+            account, make_group_event(text=content)
+        )
+    finally:
+        basic.nickname = old_nickname
+
+    assert callback.await_count == int(recovers)
+
+
+@pytest.mark.asyncio
 async def test_muted_account_can_receive_only_its_recovery_command() -> None:
     account = FakeAccount()
     registry = AccountRegistry()
@@ -501,76 +536,6 @@ async def test_muted_account_can_receive_only_its_recovery_command() -> None:
 
     callback.assert_awaited_once()
     assert callback.await_args.args[1].message.content == "/解禁自己"
-
-
-@pytest.mark.asyncio
-async def test_command_guard_blocks_disabled_plugin_and_allows_after_enable() -> None:
-    class FakePluginRuntime:
-        def command_owner(self, text: str):
-            return (
-                type("Owner", (), {"name": "demo", "display_name": "演示"})()
-                if text.startswith("演示")
-                else None
-            )
-
-    features = FeatureService()
-    features.disable("demo", "40001")
-    policy = CommandPolicy(features, plugin_runtime=FakePluginRuntime())
-    callback = AsyncMock()
-    account = FakeAccount()
-    metrics = MessageMetrics()
-    handler = MessageEventHandler(
-        command_policy=policy,
-        metrics=metrics,
-    )
-
-    await handler.guard(callback)(account, make_group_event(text="/演示"))
-
-    callback.assert_not_awaited()
-    assert account.protocol.calls[-1][1].startswith("演示插件已关闭")
-
-    features.enable("demo", "40001")
-    await handler.guard(callback)(account, make_group_event(text="/演示"))
-
-    callback.assert_awaited_once()
-
-    features.set_maintenance("demo", True)
-    await handler.guard(callback)(account, make_group_event(text="/演示"))
-
-    callback.assert_awaited_once()
-    assert account.protocol.calls[-1][1] == "演示插件正在维护~"
-    assert metrics.received_count == 3
-
-
-@pytest.mark.asyncio
-async def test_command_guard_applies_rate_limit_before_entari_dispatch() -> None:
-    class FakePluginRuntime:
-        def command_owner(self, text: str):
-            return type("Owner", (), {"name": "demo", "display_name": "演示"})()
-
-    limiter = RateLimitService(
-        max_weight=2,
-        cooldown_seconds=10,
-        blacklist_seconds=0,
-    )
-    policy = CommandPolicy(
-        FeatureService(),
-        limiter,
-        plugin_runtime=FakePluginRuntime(),
-        permission_checker=PermissionChecker(registry=PermissionRegistry()),
-    )
-    callback = AsyncMock()
-    account = FakeAccount()
-    handler = MessageEventHandler(
-        command_policy=policy,
-    )
-    guarded = handler.guard(callback)
-
-    await guarded(account, make_group_event(text="/演示"))
-    await guarded(account, make_group_event(text="/演示"))
-
-    callback.assert_awaited_once()
-    assert "超过频率调用限制" in account.protocol.calls[-1][1]
 
 
 @pytest.mark.asyncio

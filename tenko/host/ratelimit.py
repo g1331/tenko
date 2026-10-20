@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING
 from loguru import logger
 
 if TYPE_CHECKING:
-    from ..db.repositories import RateLimitRepository
+    from ..db.repositories import GroupSettingRepository, RateLimitRepository
 
 
 _DATABASE_UNAVAILABLE_MESSAGE = "限流状态暂不可用，请稍后再试"
@@ -28,7 +28,6 @@ class RateLimitDecision:
     """一次限流判定结果。"""
 
     allowed: bool
-    message: str | None = None
     retry_after: float = 0.0
     current_weight: int = 0
 
@@ -63,6 +62,9 @@ class RateLimitService:
         if type(default_weight) is not int or default_weight <= 0:
             raise ValueError("default_weight 必须是正整数")
         self._repository = repository
+        self._group_settings: GroupSettingRepository | None = None
+        # 在 GroupSetting 里关闭了频率限制的群；启动时读取一次，修改时同步更新。
+        self._unlimited_groups: set[str] = set()
         self.enabled = enabled
         self.window_seconds = float(window_seconds)
         self.max_weight = max_weight
@@ -84,10 +86,16 @@ class RateLimitService:
         if value < 0 or (value == 0 and not allow_zero):
             raise ValueError(f"{label} 必须是{'非负' if allow_zero else '正'}数")
 
-    def configure(self, repository: RateLimitRepository | None = None) -> None:
+    def configure(
+        self,
+        repository: RateLimitRepository | None = None,
+        group_settings: GroupSettingRepository | None = None,
+    ) -> None:
         """配置 repository；实际数据库读取由异步初始化完成。"""
 
         self._repository = repository
+        self._group_settings = group_settings
+        self._unlimited_groups = set()
         self._events = {}
         self._cooldowns = {}
         self._blacklist = {}
@@ -119,6 +127,11 @@ class RateLimitService:
 
         try:
             snapshot = await self._repository.load_state()
+            if self._group_settings is not None:
+                self._unlimited_groups = {
+                    str(group)
+                    for group in await self._group_settings.frequency_disabled_groups()
+                }
         except Exception:
             self.mark_unavailable()
             raise
@@ -138,6 +151,22 @@ class RateLimitService:
             if row.blacklist_until is not None:
                 self._blacklist[key] = row.blacklist_until
         self._ready = True
+
+    def set_group_limited(self, group_id: str | int, enabled: bool) -> None:
+        """同步群级频率限制开关的内存缓存；持久化由调用方写入 GroupSetting。"""
+
+        if type(enabled) is not bool:
+            raise TypeError("enabled 必须是布尔值")
+        group = _key(group_id, "群 ID")
+        if enabled:
+            self._unlimited_groups.discard(group)
+        else:
+            self._unlimited_groups.add(group)
+
+    def is_group_limited(self, group_id: str | int) -> bool:
+        """群未关闭频率限制（默认开启）时返回 ``True``。"""
+
+        return _key(group_id, "群 ID") not in self._unlimited_groups
 
     @staticmethod
     def _state_key(group_id: str | int, user_id: str | int) -> tuple[str, str]:
@@ -197,7 +226,7 @@ class RateLimitService:
         """完成一次判定；冷却或黑名单变化时同步写入数据库。"""
 
         if self._repository is not None and not self._ready:
-            return RateLimitDecision(False, _DATABASE_UNAVAILABLE_MESSAGE)
+            return RateLimitDecision(False)
         decision = self.check(*args, **kwargs)
         if self._repository is None:
             return decision
@@ -271,8 +300,8 @@ class RateLimitService:
         if type(actual_weight) is not int or actual_weight <= 0:
             raise ValueError("weight 必须是正整数")
         if not self._ready:
-            return RateLimitDecision(False, _DATABASE_UNAVAILABLE_MESSAGE)
-        if not self.enabled or override:
+            return RateLimitDecision(False)
+        if not self.enabled or override or not self.is_group_limited(group_id):
             return RateLimitDecision(True)
 
         key = self._state_key(group_id, user_id)
@@ -282,7 +311,6 @@ class RateLimitService:
         if blacklist_until is not None and blacklist_until > current:
             return RateLimitDecision(
                 False,
-                "检测到大量请求,加入黑名单5分钟!",
                 blacklist_until - current,
                 sum(item[1] for item in self._events.get(key, [])),
             )
@@ -290,7 +318,6 @@ class RateLimitService:
         if cooldown_until is not None and cooldown_until > current:
             return RateLimitDecision(
                 False,
-                "超过频率调用限制!请稍后再试~",
                 cooldown_until - current,
                 sum(item[1] for item in self._events.get(key, [])),
             )
@@ -309,11 +336,6 @@ class RateLimitService:
             )
             return RateLimitDecision(
                 False,
-                (
-                    f"超过频率调用限制!({current_weight + actual_weight}/"
-                    f"{self.max_weight})\n"
-                    "休息一会儿吧~继续高频访问会被加入临时全局黑名单哦~"
-                ),
                 retry_after,
                 current_weight + actual_weight,
             )

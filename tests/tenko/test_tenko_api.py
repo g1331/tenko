@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import importlib
 import json
 import subprocess
@@ -10,6 +11,13 @@ import tomllib
 from pathlib import Path
 
 import pytest
+from arclet.letoderea.utils import _EventSystem
+from command_dispatch_support import (
+    FakeAccount,
+    dispatch,
+    entari_command_dispatch,
+    message_event,
+)
 from external_plugin_support import (
     drop_module,
     entry,
@@ -18,7 +26,6 @@ from external_plugin_support import (
     write_plugin,
 )
 
-from tenko.context import MessageContext
 from tenko.host.features import CommandPolicy, feature_service
 from tenko.host.perm import PermissionChecker, PermissionRegistry
 from tenko.host.plugins import PluginRuntime
@@ -179,8 +186,7 @@ async def test_declare_sets_host_metadata_and_cannot_grant_protection(
 async def test_declare_default_disabled_and_rate_weight_reach_command_policy(
     entari_plugin_host, monkeypatch, tmp_path
 ) -> None:
-    from tenko.commands import configure_command_prefix
-
+    monkeypatch.setattr(_EventSystem, "loop", asyncio.get_running_loop())
     runtime = declare_runtime(
         monkeypatch,
         tmp_path,
@@ -189,7 +195,6 @@ async def test_declare_default_disabled_and_rate_weight_reach_command_policy(
         default=False,
         weight=5,
     )
-    configure_command_prefix("/", use_entari_prefix=True)
     features = feature_service
     # 窗口权重上限 6：权重 5 的命令第二次就超限，权重 1 则要第六次。
     limiter = RateLimitService(max_weight=6, cooldown_seconds=10, blacklist_seconds=0)
@@ -199,23 +204,27 @@ async def test_declare_default_disabled_and_rate_weight_reach_command_policy(
         plugin_runtime=runtime,
         permission_checker=PermissionChecker(registry=PermissionRegistry()),
     )
+    account = FakeAccount()
 
-    async def check(group: str) -> str | None:
-        context = make_group_context(group, "/声明演示")
-        monkeypatch.setattr(
-            MessageContext, "from_event", staticmethod(lambda _e, c=context: c)
+    async def send(group: str) -> None:
+        await dispatch(
+            entari_plugin_host, account, message_event("/声明演示", group=group)
         )
-        return await policy.check(object(), object())
 
     try:
-        await runtime.load_all()
-        # 默认关闭：没有显式开启的群被拒绝；显式开启的群可用。
-        assert "插件已关闭" in (await check("40001") or "")
-        features.enable("decl", "40002")
-        assert await check("40002") is None
-        assert "频率" in (await check("40002") or "")
+        with entari_command_dispatch(policy):
+            await runtime.load_all()
+            # 默认关闭：没有显式开启的群被拒绝；显式开启的群可用。
+            await send("40001")
+            assert "插件已关闭" in account.sent[-1]
+            features.enable("decl", "40002")
+            await send("40002")
+            assert account.sent[-1] == "ok"
+            # 限流静默：超限后不再有任何回复。
+            sent = len(account.sent)
+            await send("40002")
+            assert len(account.sent) == sent
     finally:
-        configure_command_prefix("/")
         features.plugin_defaults.clear()
         features.configure(None, default_enabled=True)
         drop_module("tenko_t_declare2")

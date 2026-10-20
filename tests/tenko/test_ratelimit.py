@@ -80,7 +80,6 @@ async def test_rate_limit_database_failure_intercepts_commands() -> None:
     assert not service.ready
     decision = await service.check_and_persist("40001", "20001")
     assert not decision.allowed
-    assert "暂不可用" in (decision.message or "")
     assert service.is_blacklisted("40001", "20001")
 
 
@@ -166,3 +165,32 @@ async def test_rate_limit_unavailable_does_not_silently_accept_writes() -> None:
 
     with pytest.raises(DatabaseUnavailableError, match="暂不可用"):
         await service.persist_state()
+
+
+@pytest.mark.asyncio
+async def test_group_with_frequency_limitation_off_is_never_limited(
+    repositories,
+) -> None:
+    setting = repositories["setting"]
+    await setting.set_frequency_limitation(40001, False)
+    await setting.set_frequency_limitation(40002, True)
+    service = RateLimitService(
+        repositories["rate"], max_weight=2, cooldown_seconds=5, blacklist_seconds=0
+    )
+    # 启动时从 GroupSetting 读一次；之后命令通过 set_group_limited 同步缓存。
+    service.configure(repositories["rate"], setting)
+    await service.initialize()
+
+    for _ in range(5):
+        assert (await service.check_and_persist("40001", "20001")).allowed
+    assert (await service.check_and_persist("40002", "20001")).allowed
+    assert not (await service.check_and_persist("40002", "20001")).allowed
+    # 没有 GroupSetting 记录的群默认限流。
+    assert (await service.check_and_persist("40003", "20001")).allowed
+    assert not (await service.check_and_persist("40003", "20001")).allowed
+
+    service.set_group_limited("40001", True)
+    assert (await service.check_and_persist("40001", "20001")).allowed
+    assert not (await service.check_and_persist("40001", "20001")).allowed
+    service.set_group_limited("40001", False)
+    assert (await service.check_and_persist("40001", "20001")).allowed

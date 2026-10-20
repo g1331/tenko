@@ -10,7 +10,6 @@ from pathlib import Path
 from types import MappingProxyType
 from typing import Any, Literal
 
-from arclet.alconna import command_manager
 from arclet.entari.exceptions import RegisterNotInPluginError as PluginInterfaceError
 from arclet.entari.plugin import (
     Plugin,
@@ -331,75 +330,25 @@ class PluginRuntime:
     def is_loaded(self, plugin: str | PluginInfo) -> bool:
         return self._native_plugin(self._info(plugin)) is not None
 
-    @staticmethod
-    def _command_matches(text: str, candidate: str, compact: bool) -> bool:
-        if compact:
-            # compact 命令允许参数紧跟命令头，如“修改权限16 123”。
-            return text.startswith(candidate)
-        return text == candidate or (
-            text.startswith(candidate)
-            and len(text) > len(candidate)
-            and text[len(candidate)] in " \t"
-        )
+    def command_owner(self, command: str) -> PluginInfo | None:
+        """按 Entari 的插件命令登记，返回命令名所属插件的目录项。
 
-    @staticmethod
-    def _shortcut_candidates(command: object) -> tuple[str, ...]:
-        get_shortcuts = getattr(command, "get_shortcuts", None)
-        if get_shortcuts is None:
-            return ()
-        candidates: list[str] = []
-        for shortcut in get_shortcuts() or ():
-            raw = str(shortcut).split(" ", 1)[0]
-            if raw.startswith("[") and "]" in raw:
-                prefix, alias = raw[1:].split("]", 1)
-                if alias:
-                    candidates.append(f"{prefix}{alias}")
-            elif raw:
-                candidates.append(raw)
-        return tuple(candidates)
-
-    def command_owner(self, text: str) -> PluginInfo | None:
-        """按当前 Entari 注册命令返回其插件目录项。
+        ``command`` 是 Entari 已解析命令的 Alconna 名称（``Alconna.command``）；
+        归属取自 ``get_plugin_commands``，不再按消息文本重新匹配，因此与 Entari
+        对 @bot、前导空白、昵称前缀和 shortcut 的识别保持一致。
 
         命令属于 Tenko 未登记的原生插件时返回 ``source="unmanaged"`` 的目录项，
-        由 ``CommandPolicy`` 拒绝执行（fail-closed）。
-
-        ``text`` 是已去掉 Entari 命令前缀的消息文本；Entari 官方前缀模式下
-        命令记录的 Alconna 前缀为空，所以直接用裸命令名和裸 shortcut 匹配。
-        ``get_plugin_commands`` 是 Entari 保存的插件归属索引；命令 shortcut
-        则从对应的原生 Alconna 对象读取，因此 ``/状态`` 这类别名也会落到
-        正确插件。无法识别的消息返回 ``None``，不阻断 Entari 原生命令链。
+        由 ``CommandPolicy`` 拒绝执行（fail-closed）。找不到登记时返回 ``None``。
         """
 
-        if not isinstance(text, str) or not text:
-            return None
         if not self._discovered:
             self.discover()
-        native_commands = tuple(command_manager.get_commands())
         for native_plugin in get_plugins(subplugged=True):
             try:
-                plugin_commands = tuple(get_plugin_commands(native_plugin) or ())
+                registered = tuple(get_plugin_commands(native_plugin) or ())
             except (PluginInterfaceError, TypeError, AttributeError):
-                plugin_commands = ()
-            command_names = {
-                str(command_name) for _prefixes, command_name in plugin_commands
-            }
-            # 候选 -> 是否 compact
-            command_candidates: dict[str, bool] = {}
-            for prefixes, command_name in plugin_commands:
-                for prefix in prefixes or ("",):
-                    command_candidates[f"{prefix}{command_name}"] = False
-            for native_command in native_commands:
-                name = getattr(native_command, "command", None)
-                if name not in command_names:
-                    continue
-                compact = bool(getattr(native_command.meta, "compact", False))
-                for candidate in (name, *self._shortcut_candidates(native_command)):
-                    command_candidates[candidate] = compact
-            if not any(
-                self._command_matches(text, candidate, compact)
-                for candidate, compact in command_candidates.items()
-            ):
+                continue
+            if all(str(name) != command for _prefixes, name in registered):
                 continue
             for info in self._discovered.values():
                 # 子插件的 ID 以父插件模块名为前缀。
@@ -407,7 +356,6 @@ class PluginRuntime:
                     f"{info.qualified_name}."
                 ):
                     return info
-            # 命令来自 Entari 里已注册、但 Tenko 未登记的插件：交给调用方拒绝。
             return PluginInfo(
                 native_plugin.id, None, False, native_plugin.id, "unmanaged"
             )

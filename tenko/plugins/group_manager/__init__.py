@@ -23,6 +23,7 @@ from tenko.host.actions import (
 from tenko.host.accounts import account_registry
 from tenko.context import MessageContext
 from tenko.host.perm import Permission, PermissionChecker
+from tenko.host.ratelimit import rate_limit_service
 from tenko.plugins._common import (
     action_error_message,
     context_from_session,
@@ -700,6 +701,47 @@ async def group_setting(
         return text_message("该指令仅支持群聊或 Master 私聊执行")
     settings = await read_group_settings(target_group)
     return text_message(format_group_settings(target_group, settings))
+
+
+frequency_limit_command = Alconna(
+    "频率限制",
+    Args["state?", "开启|关闭"],
+    meta=CommandMeta(
+        "查询或设置当前群的命令频率限制",
+        usage="频率限制 [开启|关闭]",
+        example="/频率限制\n/频率限制 关闭",
+        compact=False,
+    ),
+)
+
+
+@command.on(frequency_limit_command)
+async def frequency_limit(
+    session: Session,
+    state: Query[str] = Query("state", None),
+):
+    context = context_from_session(session)
+    if context.chat_type != "group":
+        return text_message("该指令仅支持群聊执行")
+    if not await permission_checker.require_group_perm(context, Permission.ActiveGroup):
+        return text_message("当前群不可用")
+    if not await permission_checker.require_perm(context, Permission.GroupAdmin):
+        return text_message("权限不足")
+    group_id = context.channel_id
+    if not state.available:
+        current = "开启" if rate_limit_service.is_group_limited(group_id) else "关闭"
+        return text_message(f"当前群频率限制：{current}")
+
+    from tenko.db.errors import DatabaseUnavailableError
+    from tenko.db.repositories import group_setting_repository
+
+    enabled = str(state.result) == "开启"
+    try:
+        await group_setting_repository.set_frequency_limitation(group_id, enabled)
+    except DatabaseUnavailableError:
+        return text_message("设置数据库暂不可用，请稍后再试")
+    rate_limit_service.set_group_limited(group_id, enabled)
+    return text_message(f"已{'开启' if enabled else '关闭'}当前群的频率限制")
 
 
 def _walk(elements: list[Element] | tuple[Element, ...]):

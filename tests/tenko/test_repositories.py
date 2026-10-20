@@ -109,7 +109,9 @@ async def test_group_setting_repository_supports_defaults_partial_updates_and_va
 
     await setting.set_permission_type(50001, "default")
     await setting.set_response_type(50001, "random")
+    assert await setting.frequency_disabled_groups() == (50001,)
     await setting.set_frequency_limitation(50001, True)
+    assert await setting.frequency_disabled_groups() == ()
     row = await setting.get(50001)
     assert row is not None
     assert (

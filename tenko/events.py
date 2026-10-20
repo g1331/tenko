@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 import time
 from collections import deque
 from collections.abc import Awaitable, Callable, Mapping
@@ -8,9 +9,10 @@ from datetime import datetime, UTC
 from typing import Any
 
 from arclet.entari import SendResponse
+from arclet.entari.config import EntariConfig
 import arclet.letoderea as le
 from loguru import logger
-from satori import ChannelType, EventType
+from satori import At, ChannelType, EventType, Quote, Text
 from satori.client import Account
 from satori.model import Event
 
@@ -361,7 +363,6 @@ class MessageEventHandler:
 
     account_registry: AccountRegistry | None = None
     debug_config: DebugConfig = DebugConfig()
-    command_policy: Any | None = None
     command_prefix: str = "/"
     metrics: MessageMetrics | None = None
     action_service: Any | None = None
@@ -457,7 +458,7 @@ class MessageEventHandler:
                 )
             return True
 
-        if self._is_mute_recovery_event(event):
+        if self._is_mute_recovery_event(account, event):
             logger.debug(
                 "Allow mute recovery command for muted account={} group={}",
                 account.self_id,
@@ -473,12 +474,35 @@ class MessageEventHandler:
         )
         return True
 
-    def _is_mute_recovery_event(self, event: Event) -> bool:
+    def _is_mute_recovery_event(self, account: Account, event: Event) -> bool:
+        """判断消息是否是被禁言账号仍需响应的 ``解禁自己`` 命令。
+
+        此时 Entari 还没有解析命令，所以按 Entari 识别命令前的同一套归一化
+        （忽略引用、开头的 @bot、前导空白、昵称前缀）还原命令文本。
+        """
+
         try:
-            context = MessageContext.from_event(event)
-        except ValueError:
+            elements = list(event.message.message)  # type: ignore[union-attr]
+        except (AttributeError, TypeError):
             return False
-        return context.text.strip() == f"{self.command_prefix}解禁自己"
+        elements = [item for item in elements if not isinstance(item, Quote)]
+        if elements and isinstance(elements[0], At):
+            if elements[0].id != str(account.self_id):
+                return False
+            elements.pop(0)
+        if not elements or not isinstance(elements[0], Text):
+            return False
+        text = elements[0].text.lstrip()
+        if len(elements) > 1:
+            # 命令后跟了图片等非文本元素，不是纯 “解禁自己”。
+            return False
+        nickname = EntariConfig.instance.basic.nickname if EntariConfig._inited else ""
+        if nickname and (
+            matched := re.match(rf"^@?{re.escape(nickname)}[，,:\s]+", text)
+        ):
+            text = text[matched.end() :]
+            return text.strip() == "解禁自己"
+        return text.strip() == f"{self.command_prefix}解禁自己"
 
     def guard(
         self,
@@ -495,15 +519,6 @@ class MessageEventHandler:
             self._record_received_event(event)
             if self.should_skip(account, event):
                 return None
-            if self.command_policy is not None:
-                notice = await self.command_policy.check(account, event)
-                if notice:
-                    try:
-                        receipts = await account.protocol.send(event, notice)
-                        self._record_sent_for_event(account, event, notice, receipts)
-                    except Exception:
-                        logger.exception("Failed to send command policy notice")
-                    return None
             return await callback(account, event)
 
         return dispatch
@@ -645,58 +660,3 @@ class MessageEventHandler:
             self._received_event_ids.discard(expired_id)
         self._received_event_cache.append((origin_id, origin))
         self._received_event_ids.add(origin_id)
-
-    @staticmethod
-    def _receipt_count(receipts: object) -> int:
-        try:
-            return max(len(receipts), 1)  # type: ignore[arg-type]
-        except TypeError:
-            return 1
-
-    def _record_sent_for_context(
-        self,
-        context: MessageContext,
-        text: object,
-        receipts: object,
-    ) -> None:
-        if self.metrics is None:
-            return
-        message_id = None
-        try:
-            result = tuple(receipts or ())  # type: ignore[arg-type]
-        except TypeError:
-            result = ()
-        if result and getattr(result[-1], "id", None) is not None:
-            message_id = str(result[-1].id)
-        self.metrics.record_sent_for_context(
-            context,
-            text,
-            count=self._receipt_count(receipts),
-            message_id=message_id,
-        )
-
-    def _record_sent_for_event(
-        self,
-        account: Account,
-        event: Event,
-        text: object,
-        receipts: object,
-    ) -> None:
-        if self.metrics is None:
-            return
-        try:
-            context = MessageContext.from_event(event)
-        except (AttributeError, TypeError, ValueError):
-            channel_id = _event_group_id(event) or getattr(
-                getattr(event, "channel", None), "id", "-"
-            )
-            self.metrics.record_sent(
-                account_id=str(account.self_id),
-                platform=str(getattr(account, "platform", "unknown")),
-                chat_type="group" if _event_group_id(event) else "other",
-                channel_id=str(channel_id),
-                text=text,
-                count=self._receipt_count(receipts),
-            )
-            return
-        self._record_sent_for_context(context, text, receipts)

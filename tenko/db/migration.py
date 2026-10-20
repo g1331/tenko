@@ -16,6 +16,7 @@ LEGACY_SCHEMA_REVISION = "tenko-g1-legacy-schema-v1"
 # entari-plugin-database 0.4.2 的私有函数来落实 AGENTS.md 的“Schema 只前进”。
 # 升级该依赖时必须复核这些私有名称和调用关系（test_migration_guard 会在它们
 # 消失时失败）；官方提供等价选项后应改用选项并删除本补丁。
+# 上游请求：https://github.com/ArcletProject/entari-plugin-database/issues/1
 _GUARDED_NAMES = (
     "_execute_table_drops",
     "_normalize_alembic_ops",

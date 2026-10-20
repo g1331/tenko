@@ -102,6 +102,10 @@ config/tenko.toml.example    # 配置模板
   `/状态`、总览只统计已加载的插件；`/帮助` 把已加载的第三方插件单列为“第三方”区，
   编号与 `/开启`、`/关闭` 一致。
 - 第三方插件的命令与内置插件走同一套维护模式、功能开关和限流，功能开关以插件 ID 为键。
+  这套策略（`CommandPolicy`）挂在 Entari 的 `CommandParse` 事件上：Entari 去掉 @bot、前导
+  空白、前缀和昵称并匹配出命令后，按 `get_plugin_commands` 把命令映射到所属插件，返回
+  `False` 即阻断；不要再按消息原文判断命令归属。限流（冷却或临时拉黑）静默，只记调试日志；
+  `GroupSetting.frequency_limitation` 为假的群不限流（`/频率限制` 修改）。
   Entari 里已注册命令、但未登记为内置或第三方的插件，其群聊命令会被拒绝执行。
   第三方插件不能自封“受保护”：`classifier` 里的 `host`/`required` 对它无效。
 - **插件只依赖 `tenko-api`**（`packages/tenko-api/`，uv workspace 成员，发布到 PyPI 为

@@ -3,8 +3,11 @@ from __future__ import annotations
 import asyncio
 
 from collections.abc import Mapping
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
+from arclet.alconna import Alconna
+from arclet.entari import Session
 from arclet.entari.plugin import get_plugin
 from loguru import logger
 
@@ -13,6 +16,7 @@ from .perm import Permission, PermissionChecker
 from .plugins import external_plugin_for_module
 
 _FEATURE_MANAGER_NAMES = frozenset({"feature_manager", "功能开关"})
+_RATE_LIMIT_UNAVAILABLE_NOTICE = "限流状态暂不可用，请稍后再试"
 
 if TYPE_CHECKING:
     from ..db.repositories import FeatureStateRepository
@@ -318,12 +322,24 @@ def _plugin_label(owner: object) -> str:
     )
 
 
-class CommandPolicy:
-    """事件入口的统一命令策略。
+@dataclass(frozen=True, slots=True)
+class PolicyVerdict:
+    """一次命令策略判定；``notice`` 非空时在拒绝的同时回复给用户。"""
 
-    该策略只在能从已注册 Entari 命令解析出插件归属、且事件来自群聊时
-    生效；普通消息和私聊保持事件层原有行为。功能开关先于限流，二者都
-    在命令进入 Entari 原生命令分发前完成。
+    allowed: bool = True
+    notice: str | None = None
+
+
+_ALLOW = PolicyVerdict()
+
+
+class CommandPolicy:
+    """Entari 命令的统一策略：未登记插件、维护、功能开关和限流。
+
+    策略挂在 Entari 的 ``CommandParse`` 事件上（``enforce``）：此时 Entari 已经
+    去掉 @bot、前导空白、命令前缀和昵称，并匹配出具体的 Alconna 命令，因此
+    无论消息怎样写，命中的都是同一条命令。仅群聊消息生效，私聊保持原有行为。
+    限流只记录调试日志，不回复，避免刷屏者借提示继续刷屏。
     """
 
     def __init__(
@@ -343,11 +359,11 @@ class CommandPolicy:
         self.command_prefix = _key(command_prefix, "命令前缀")
         self.rate_limit_override_permission = int(rate_limit_override_permission)
 
-    def _owner(self, text: str) -> object | None:
+    def _owner(self, command: Alconna) -> object | None:
         runtime = self.plugin_runtime
         if runtime is None:
             return None
-        return runtime.command_owner(text)
+        return runtime.command_owner(command.command)
 
     def _disabled_notice(self, owner: object) -> str:
         label = _plugin_label(owner)
@@ -361,30 +377,43 @@ class CommandPolicy:
     def _maintenance_notice(owner: object) -> str:
         return f"{_plugin_label(owner)}插件正在维护~"
 
-    async def check(self, account: object, event: object) -> str | None:
-        del account
+    async def enforce(self, session: Session, command: Alconna) -> bool | None:
+        """``CommandParse`` 处理函数：拒绝时返回 ``False`` 阻断命令并按需回复。"""
+
+        # shortcut: Entari 0.19.1 在 CommandParse 返回 False 时不会完成该消息的
+        # 解析缓存 future，同一条消息若还有第二个处理同一命令的订阅者会一直等待；
+        # 内置插件没有这种重复注册，上游修复后可删除本说明。
+        verdict = await self.check(session, command)
+        if verdict.notice:
+            try:
+                await session.send(verdict.notice)
+            except Exception:
+                logger.exception("Failed to send command policy notice")
+        return None if verdict.allowed else False
+
+    async def check(self, session: Session, command: Alconna) -> PolicyVerdict:
+        origin = getattr(session.event, "_origin", None)
+        if origin is None:
+            return _ALLOW
         try:
-            context = MessageContext.from_event(event)  # type: ignore[arg-type]
+            context = MessageContext.from_event(origin)
         except ValueError:
-            return None
-        if context.chat_type != "group" or not context.text:
-            return None
-        if not context.text.startswith(self.command_prefix):
-            return None
-        # Entari 官方前缀模式下命令不带前缀，按去掉前缀后的文本解析归属。
-        owner = self._owner(context.text[len(self.command_prefix) :])
+            return _ALLOW
+        if context.chat_type != "group":
+            return _ALLOW
+        owner = self._owner(command)
         if owner is None:
-            return None
+            return _ALLOW
         if getattr(owner, "source", None) == "unmanaged":
             logger.warning(
-                "Reject command of unregistered plugin: plugin={} group={} text={!r}",
+                "Reject command of unregistered plugin: plugin={} group={} command={}",
                 getattr(owner, "name", owner),
                 context.channel_id,
-                context.text,
+                command.command,
             )
-            return "该命令所属插件未在 Tenko 登记，已拒绝执行"
+            return PolicyVerdict(False, "该命令所属插件未在 Tenko 登记，已拒绝执行")
         if not self.feature_service.ready:
-            return "功能状态暂不可用，请稍后再试"
+            return PolicyVerdict(False, "功能状态暂不可用，请稍后再试")
         plugin_name = _plugin_name(owner)
         if (
             plugin_name not in _FEATURE_MANAGER_NAMES
@@ -392,62 +421,56 @@ class CommandPolicy:
         ):
             logger.debug(
                 "Ignore plugin command in maintenance mode: plugin={} group={} "
-                "text={!r}",
+                "command={}",
                 plugin_name,
                 context.channel_id,
-                context.text,
+                command.command,
             )
-            return self._maintenance_notice(owner)
+            return PolicyVerdict(False, self._maintenance_notice(owner))
         if (
             plugin_name not in _FEATURE_MANAGER_NAMES
             and not self.feature_service.is_enabled(plugin_name, context.channel_id)
         ):
             logger.debug(
-                "Ignore disabled plugin command: plugin={} group={} text={!r}",
+                "Ignore disabled plugin command: plugin={} group={} command={}",
                 plugin_name,
                 context.channel_id,
-                context.text,
+                command.command,
             )
-            return self._disabled_notice(owner)
+            return PolicyVerdict(False, self._disabled_notice(owner))
 
         if self.rate_limiter is None:
-            return None
+            return _ALLOW
+        if not getattr(self.rate_limiter, "ready", True):
+            return PolicyVerdict(False, _RATE_LIMIT_UNAVAILABLE_NOTICE)
         override = await self.permission_checker.require_perm(
             context, self.rate_limit_override_permission
         )
         # 插件声明过 rate_weight 才传权重，未声明沿用限流器的默认权重。
         weight = getattr(owner, "rate_weight", None)
         extra = {} if weight is None else {"weight": weight}
-        check_and_persist = getattr(self.rate_limiter, "check_and_persist", None)
-        if callable(check_and_persist):
-            decision = await check_and_persist(
-                context.channel_id,
-                context.user_id,
-                command=plugin_name,
-                override=override,
-                **extra,
-            )
-        else:
-            decision = self.rate_limiter.check(
-                context.channel_id,
-                context.user_id,
-                command=plugin_name,
-                override=override,
-                **extra,
-            )
+        decision = await self.rate_limiter.check_and_persist(
+            context.channel_id,
+            context.user_id,
+            command=plugin_name,
+            override=override,
+            **extra,
+        )
         if not decision.allowed:
+            # 静默拒绝：不回复提示，避免刷屏者通过提示继续刷屏。
             logger.debug(
                 "Ignore rate-limited plugin command: plugin={} group={} user={}",
                 plugin_name,
                 context.channel_id,
                 context.user_id,
             )
-            return decision.message
-        return None
+            return PolicyVerdict(False)
+        return _ALLOW
 
 
 __all__ = [
     "CommandPolicy",
+    "PolicyVerdict",
     "FeatureService",
     "configure_feature_service",
     "declare_feature",

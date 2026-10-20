@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 import sys
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 from importlib.metadata import EntryPoint
 from pathlib import Path
 from types import SimpleNamespace
@@ -185,9 +185,12 @@ async def test_reload_uses_native_unload_and_load(monkeypatch, tmp_path: Path) -
 
 
 @pytest.mark.asyncio
-async def test_command_owner_resolves_real_plugins_in_entari_prefix_mode(
-    entari_plugin_host, monkeypatch
+async def test_command_owner_resolves_real_plugins_by_registered_command(
+    entari_plugin_host,
 ) -> None:
+    from arclet.alconna import command_manager
+
+    from command_dispatch_support import message_event
     from tenko.commands import configure_command_prefix
     from tenko.host.features import CommandPolicy, FeatureService
 
@@ -196,24 +199,25 @@ async def test_command_owner_resolves_real_plugins_in_entari_prefix_mode(
     try:
         for name in ("group_manager", "perm_manager"):
             await runtime.load(name)
-        # 生产环境 Entari 命令记录的 Alconna 前缀为空，文本已去掉 “/”。
-        assert runtime.command_owner("禁言 @1 2").name == "group_manager"
-        assert runtime.command_owner("关闭全体禁言").name == "group_manager"
-        assert runtime.command_owner("修改权限16 123").name == "perm_manager"
-        assert runtime.command_owner("全局黑添加123").name == "perm_manager"
+        # 归属取自 Entari 的插件命令登记，按 Alconna 命令名查询。
+        assert runtime.command_owner("禁言").name == "group_manager"
+        assert runtime.command_owner("全体禁言").name == "group_manager"
+        assert runtime.command_owner("修改权限").name == "perm_manager"
+        assert runtime.command_owner("全局黑").name == "perm_manager"
         assert runtime.command_owner("禁言x") is None
         assert runtime.command_owner("普通消息") is None
 
         features = FeatureService()
         features.disable("group_manager", "40001")
         policy = CommandPolicy(features, plugin_runtime=runtime)
-        context = make_group_context("40001")
-        for text, notice in (("/禁言 @1 2", True), ("禁言 @1 2", False)):
-            context = replace(make_group_context("40001"), text=text)
-            monkeypatch.setattr(
-                MessageContext, "from_event", staticmethod(lambda _e, c=context: c)
-            )
-            assert (await policy.check(object(), object()) is not None) is notice
+        session = SimpleNamespace(
+            event=SimpleNamespace(_origin=message_event("/禁言 @1 2"))
+        )
+        mute = next(c for c in command_manager.get_commands() if c.command == "禁言")
+        blocked = await policy.check(session, mute)
+        assert not blocked.allowed and "插件已关闭" in (blocked.notice or "")
+        features.enable("group_manager", "40001")
+        assert (await policy.check(session, mute)).allowed
     finally:
         for name in ("group_manager", "perm_manager"):
             runtime.unload(name)
@@ -398,15 +402,12 @@ def _write_command_plugin(root: Path, module: str, command: str) -> None:
 
 
 @pytest.mark.asyncio
-async def test_command_policy_covers_external_and_rejects_unmanaged(
-    entari_plugin_host, monkeypatch, tmp_path: Path, log_lines
+async def test_command_owner_covers_external_and_flags_unmanaged(
+    entari_plugin_host, monkeypatch, tmp_path: Path
 ) -> None:
     from arclet.entari.plugin import load_plugin, unload_plugin
 
     from tenko.commands import configure_command_prefix
-    from tenko.host.features import CommandPolicy, FeatureService
-    from tenko.host.perm import PermissionChecker, PermissionRegistry
-    from tenko.host.ratelimit import RateLimitService
 
     _write_command_plugin(tmp_path, "tenko_t_external", "外部演示")
     _write_command_plugin(tmp_path, "tenko_t_unmanaged", "野生命令")
@@ -431,35 +432,6 @@ async def test_command_policy_covers_external_and_rejects_unmanaged(
             "tenko_t_unmanaged",
         )
         assert runtime.command_owner("无此命令") is None
-
-        features = FeatureService()
-        limiter = RateLimitService(
-            max_weight=2, cooldown_seconds=10, blacklist_seconds=0
-        )
-        policy = CommandPolicy(
-            features,
-            limiter,
-            plugin_runtime=runtime,
-            permission_checker=PermissionChecker(registry=PermissionRegistry()),
-        )
-
-        async def check(text: str) -> str | None:
-            context = replace(make_group_context("40001"), text=text)
-            monkeypatch.setattr(
-                MessageContext, "from_event", staticmethod(lambda _e, c=context: c)
-            )
-            return await policy.check(object(), object())
-
-        # 功能开关按插件 ID 生效，限流与内置插件走同一条路径。
-        features.disable("ext_demo", "40001")
-        assert "插件已关闭" in (await check("/外部演示") or "")
-        features.enable("ext_demo", "40001")
-        assert await check("/外部演示") is None
-        assert "频率" in (await check("/外部演示") or "")
-
-        notice = await check("/野生命令")
-        assert notice == "该命令所属插件未在 Tenko 登记，已拒绝执行"
-        assert "tenko_t_unmanaged" in "".join(log_lines)
     finally:
         configure_command_prefix("/")
         for module in ("tenko_t_external", "tenko_t_unmanaged"):

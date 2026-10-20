@@ -224,6 +224,39 @@ async def test_group_setting_falls_back_when_database_is_unavailable(
     }
 
 
+@pytest.mark.asyncio
+@pytest.mark.parametrize("loaded_plugin", ["group_manager"], indirect=True)
+async def test_frequency_limit_command_queries_and_switches_group(
+    loaded_plugin, tenko_database
+) -> None:
+    del tenko_database
+    from tenko.db.repositories import group_setting_repository
+    from tenko.host.ratelimit import rate_limit_service
+
+    loaded_plugin.permission_checker = PermissionChecker(registry=PermissionRegistry())
+    try:
+        call = loaded_plugin.frequency_limit.callable_target
+        admin = make_session("20001", "admin")
+
+        assert str(await call(admin, Query("state", None))) == "当前群频率限制：开启"
+        result = await call(admin, make_query("state", "关闭"))
+        assert str(result) == "已关闭当前群的频率限制"
+        # 持久化到 GroupSetting，同时同步限流器缓存。
+        assert await group_setting_repository.frequency_disabled_groups() == (40001,)
+        assert not rate_limit_service.is_group_limited("40001")
+        assert str(await call(admin, Query("state", None))) == "当前群频率限制：关闭"
+
+        await call(admin, make_query("state", "开启"))
+        assert await group_setting_repository.frequency_disabled_groups() == ()
+        assert rate_limit_service.is_group_limited("40001")
+
+        member = make_session("20001", "member")
+        assert str(await call(member, make_query("state", "关闭"))) == "权限不足"
+        assert rate_limit_service.is_group_limited("40001")
+    finally:
+        rate_limit_service.set_group_limited("40001", True)
+
+
 class FakeProtocol:
     def __init__(self) -> None:
         self.calls: list[tuple[str, tuple, dict]] = []

@@ -7,7 +7,9 @@ import sys
 from collections.abc import Mapping
 from pathlib import Path
 
+import arclet.letoderea as le
 from arclet.entari import Entari
+from arclet.entari.event.command import CommandParse
 from arclet.letoderea.utils import set_event_loop
 from creart import it
 from launart import Launart
@@ -102,6 +104,7 @@ class TenkoRuntime:
             account_state_repository,
             ManagementRepository,
             feature_state_repository,
+            group_setting_repository,
             rate_limit_repository,
             startup_time_repository,
         )
@@ -112,7 +115,7 @@ class TenkoRuntime:
             feature_state_repository,
             default_enabled=self.config.features.default_enabled,
         )
-        self.rate_limiter.configure(rate_limit_repository)
+        self.rate_limiter.configure(rate_limit_repository, group_setting_repository)
         self.startup_history = StartupHistory(startup_time_repository)
 
     def _mark_runtime_state_unavailable(self) -> None:
@@ -377,13 +380,16 @@ class TenkoRuntime:
             )
             if callable(configure_evidence_directory):
                 configure_evidence_directory(self.config.exception.evidence_dir)
-        self.message_handler.command_policy = CommandPolicy(
+        # 策略挂在 Entari 已解析出命令的 CommandParse 事件上，返回 False 即阻断；
+        # 订阅在根作用域，随 Entari 清理一起释放。
+        policy = CommandPolicy(
             self.feature_service,
             self.rate_limiter,
             plugin_runtime=self.plugin_runtime,
             command_prefix=self.config.runtime.command_prefix,
             rate_limit_override_permission=self.config.ratelimit.override_permission,
         )
+        le.on(CommandParse, policy.enforce, priority=0)
         if self.config.webui.enabled:
             feature_repository = None
             group_repository = None

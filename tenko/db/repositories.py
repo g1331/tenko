@@ -365,6 +365,17 @@ class GroupSettingRepository(_Repository):
         async with self._session() as session:
             return await session.get(GroupSetting, group)
 
+    async def frequency_disabled_groups(self) -> tuple[int, ...]:
+        """返回显式关闭了频率限制的群；没有记录的群按默认开启处理。"""
+
+        async with self._session() as session:
+            result = await session.scalars(
+                select(GroupSetting.group_id)
+                .where(GroupSetting.frequency_limitation.is_(False))
+                .order_by(GroupSetting.group_id)
+            )
+            return tuple(result.all())
+
     async def set(
         self,
         group_id: str | int,
