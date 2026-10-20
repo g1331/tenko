@@ -99,7 +99,7 @@ def load_database_plugin(
             config, runtime_state_service=runtime_state_service
         )
         _prepare_sqlite_path(config, plugin_config)
-        plugin = load_plugin(_DATABASE_PLUGIN, plugin_config)
+        result = load_plugin(_DATABASE_PLUGIN, plugin_config)
     except DatabaseUnavailableError:
         raise
     except Exception as error:
@@ -107,8 +107,11 @@ def load_database_plugin(
             f"加载官方数据库插件失败: {type(error).__name__}: {error}"
         ) from error
 
-    if plugin is None:
-        raise DatabaseUnavailableError("官方数据库插件未能加载")
+    if not result:
+        raise DatabaseUnavailableError(
+            f"官方数据库插件未能加载: {type(result.error).__name__}: {result.error}"
+        )
+    plugin = result.plugin
     # 迁移任务要等 service 就绪后才执行，此时安装保护来得及。
     install_forward_only_guard()
 

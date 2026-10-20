@@ -22,6 +22,22 @@ class FakePlugin:
     is_available: bool = True
 
 
+class FakeLoadResult:
+    """模拟 Entari 0.19 的 ``load_plugin`` 结果对象；``plugin=None`` 表示加载失败。"""
+
+    def __init__(self, plugin: FakePlugin | None = None) -> None:
+        self._plugin = plugin
+        self.error = RuntimeError("加载失败")
+
+    def __bool__(self) -> bool:
+        return self._plugin is not None
+
+    @property
+    def plugin(self) -> FakePlugin:
+        assert self._plugin is not None
+        return self._plugin
+
+
 def make_plugin_dir(tmp_path: Path) -> Path:
     plugin_dir = tmp_path / "plugins"
     plugin_dir.mkdir()
@@ -68,7 +84,7 @@ def test_discover_plugin_shapes_without_reading_plugin_metadata(
 async def test_lifecycle_delegates_to_entari(monkeypatch, tmp_path: Path) -> None:
     plugin_dir = make_plugin_dir(tmp_path)
     loaded = FakePlugin("tenko.plugins.file_plugin")
-    load_plugin = Mock(return_value=loaded)
+    load_plugin = Mock(return_value=FakeLoadResult(loaded))
     unload_plugin = Mock(return_value=True)
     enable_plugin = AsyncMock(return_value=True)
     disable_plugin = AsyncMock(return_value=True)
@@ -100,7 +116,7 @@ async def test_load_all_forwards_explicit_plugin_configs(
     }
 
     def load_plugin(name: str, *args):
-        return native_plugins[name.rsplit(".", 1)[-1]]
+        return FakeLoadResult(native_plugins[name.rsplit(".", 1)[-1]])
 
     load_plugin_mock = Mock(side_effect=load_plugin)
     monkeypatch.setattr(plugin_host, "load_plugin", load_plugin_mock)
@@ -130,7 +146,9 @@ async def test_load_all_loads_explicit_configs_before_default_plugins(
         "package_plugin": FakePlugin("tenko.plugins.package_plugin"),
     }
     load_plugin_mock = Mock(
-        side_effect=lambda name, *args: native_plugins[name.rsplit(".", 1)[-1]]
+        side_effect=lambda name, *args: FakeLoadResult(
+            native_plugins[name.rsplit(".", 1)[-1]]
+        )
     )
     monkeypatch.setattr(plugin_host, "load_plugin", load_plugin_mock)
     monkeypatch.setattr(
@@ -153,7 +171,7 @@ async def test_reload_uses_native_unload_and_load(monkeypatch, tmp_path: Path) -
     plugin_dir = make_plugin_dir(tmp_path)
     first = FakePlugin("tenko.plugins.file_plugin")
     second = FakePlugin("tenko.plugins.file_plugin")
-    load_plugin = Mock(side_effect=[first, second])
+    load_plugin = Mock(side_effect=[FakeLoadResult(first), FakeLoadResult(second)])
     unload_plugin = Mock(return_value=True)
     monkeypatch.setattr(plugin_host, "load_plugin", load_plugin)
     monkeypatch.setattr(plugin_host, "unload_plugin", unload_plugin)
@@ -274,7 +292,7 @@ async def test_load_all_only_loads_enabled_external_plugins(
     state_file = tmp_path / "state" / "state.json"
     state_file.parent.mkdir()
     state_file.write_text(json.dumps({"enabled": ["on"]}), encoding="utf-8")
-    load_plugin = Mock(return_value=None)
+    load_plugin = Mock(return_value=FakeLoadResult())
     monkeypatch.setattr(plugin_host, "load_plugin", load_plugin)
 
     runtime = PluginRuntime(make_plugin_dir(tmp_path), state_file=state_file)
@@ -296,7 +314,7 @@ async def test_missing_or_malformed_state_enables_nothing(
     state_file = tmp_path / "state.json"
     if content is not None:
         state_file.write_text(content, encoding="utf-8")
-    load_plugin = Mock(return_value=None)
+    load_plugin = Mock(return_value=FakeLoadResult())
     monkeypatch.setattr(plugin_host, "load_plugin", load_plugin)
 
     runtime = PluginRuntime(make_plugin_dir(tmp_path), state_file=state_file)
@@ -320,7 +338,7 @@ async def test_failing_external_load_does_not_abort_startup(
     def load_plugin(name, *args):
         if name == "ext_bad":
             raise ImportError("broken")
-        return None
+        return FakeLoadResult()
 
     load_plugin_mock = Mock(side_effect=load_plugin)
     monkeypatch.setattr(plugin_host, "load_plugin", load_plugin_mock)
@@ -400,7 +418,7 @@ async def test_command_policy_covers_external_and_rejects_unmanaged(
     configure_command_prefix("/", use_entari_prefix=True)
     try:
         await runtime.load_all()
-        assert load_plugin("tenko_t_unmanaged") is not None
+        assert load_plugin("tenko_t_unmanaged")
 
         owner = runtime.command_owner("外部演示")
         assert (owner.source, owner.name) == ("external", "ext_demo")

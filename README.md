@@ -84,16 +84,7 @@ uv 会在项目根目录创建 .venv 并按锁文件安装依赖，之后通过 
     uv run python -m tenko
     uv run pytest -q
 
-如果不想使用 uv，也可以手动创建虚拟环境并按 requirements-entari.txt 安装
-（该文件是 uv.lock 的 pip 兼容快照，依赖以 pyproject.toml 为准）：
-
-    python -m venv .venv-entari
-    source .venv-entari/bin/activate
-    pip install -r requirements-entari.txt
-
-Windows PowerShell 的激活命令为：
-
-    .venv-entari\Scripts\Activate.ps1
+没有 uv 的环境可以先通过 `pip install uv` 或官方安装脚本安装 uv，再执行 `uv sync`。
 
 复制配置模板：
 
@@ -555,8 +546,7 @@ Node `^22.18` 或 `>=24.12`，使用 npm）：
     uv sync
 
 依赖以 pyproject.toml 声明、uv.lock 锁定；依赖变更使用 uv add / uv remove，
-不要直接编辑 pyproject.toml 的依赖表。requirements-entari.txt 是 uv.lock 的
-pip 兼容快照，仅用于无 uv 的环境。
+不要直接编辑 pyproject.toml 的依赖表。
 
 ### 代码约定
 

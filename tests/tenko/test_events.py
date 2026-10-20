@@ -8,6 +8,7 @@ from unittest.mock import AsyncMock, Mock
 import pytest
 from arclet.entari import MessageChain, SendResponse
 from arclet.letoderea import es
+from arclet.letoderea.utils import _EventSystem
 from satori import (
     Channel,
     ChannelType,
@@ -673,6 +674,8 @@ def test_message_metrics_records_entari_plugin_send_response() -> None:
 
 @pytest.mark.asyncio
 async def test_entari_send_subscriber_records_via_dispatch(monkeypatch) -> None:
+    # Letoderea 0.22 的 dispatch 用全局事件循环建任务；生产里由 runtime 设置。
+    monkeypatch.setattr(_EventSystem, "loop", asyncio.get_running_loop())
     metrics = MessageMetrics()
     monkeypatch.setattr(events_module, "message_metrics", metrics)
     account = Mock(spec=Account)

@@ -172,7 +172,7 @@ wheels = [
 
 [[package]]
 name = "arclet-entari"
-version = "0.18.6"
+version = "0.19.1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "arclet-alconna" },
@@ -183,22 +183,22 @@ dependencies = [
     { name = "satori-python-core" },
     { name = "simpleeval" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/b6/58/9a92bd6efb072c124b355846528cb167ffcd79c793f9a003ee1c9a1bb11e/arclet_entari-0.18.6.tar.gz", hash = "sha256:0b10b27edbf75010f740938a23d1164728808f7e97443b917f59fb0844dd0fed", size = 93995, upload-time = "2026-08-05T08:24:00.461Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/03/d3/380d9498b76c680f354c103559902c88494b2a12cfc34173a9d65c3ebc50/arclet_entari-0.19.1.tar.gz", hash = "sha256:799916211b06c76619ac38daccc32514ae83228a0a34d65a551a3ec5afa8dc1f", size = 122580, upload-time = "2026-10-20T06:28:22.765Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/1a/d8/d83e8eb28dd63858db231739c3373e6d86407c2d637a371d7b63cb89dd95/arclet_entari-0.18.6-py3-none-any.whl", hash = "sha256:0f51488bfdb4bc679a3b86e962c52e30c18d771863feface6e81b9c68a9ca365", size = 116461, upload-time = "2026-08-05T08:23:59.028Z" },
+    { url = "https://files.pythonhosted.org/packages/cc/40/862604365b30fcd4686df7367b333e17bccd530ffd7daecf18a93a35232a/arclet_entari-0.19.1-py3-none-any.whl", hash = "sha256:28b7d413051364331a455dd5539198e3348c7099899eef5175a7d7ec84bcc972", size = 149494, upload-time = "2026-10-20T06:28:21.513Z" },
 ]
 
 [[package]]
 name = "arclet-letoderea"
-version = "0.21.3"
+version = "0.22.1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "tarina" },
     { name = "typing-extensions" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/bb/1c/93698adaff91624045f71249dd761c412f70bfd892c15ca854e6434836c1/arclet_letoderea-0.21.3.tar.gz", hash = "sha256:4a2588d521afcd18d356804dc4289209be07b885e1d7851c8e37c8c03b954af4", size = 43593, upload-time = "2026-06-23T07:49:22.822Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/36/9a/9f42507a89269c4aeb45fafd08bbdb24b62f7dab04ffc7a8c0de6b8a81da/arclet_letoderea-0.22.1.tar.gz", hash = "sha256:575482e575ba0807d65bf38e756c1270ba94fa5f2e68fbcc57b3ccd3d754f9b8", size = 45780, upload-time = "2026-10-15T04:22:40.411Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/49/af/967d371c810b082c35e6246134f7ae5cfbd64bd2cd594f57be9ed6d49739/arclet_letoderea-0.21.3-py3-none-any.whl", hash = "sha256:ea1e235a037a193c734fbbe754969db9242d551290b11a0c0babae4e17d56d9d", size = 37048, upload-time = "2026-06-23T07:49:21.345Z" },
+    { url = "https://files.pythonhosted.org/packages/8a/5b/0e88265b54794e64c340b4176807eb979359a253f214081d73abb0029b44/arclet_letoderea-0.22.1-py3-none-any.whl", hash = "sha256:22c6310146c537430ab62a0d6bd89a434737133d7f1c0724fdea77a83fd3e376", size = 38289, upload-time = "2026-10-15T04:22:38.943Z" },
 ]
 
 [[package]]
@@ -269,7 +269,7 @@ wheels = [
 
 [[package]]
 name = "entari-plugin-database"
-version = "0.3.4"
+version = "0.4.2"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "aiosqlite" },
@@ -277,12 +277,12 @@ dependencies = [
     { name = "arclet-entari" },
     { name = "arclet-letoderea" },
     { name = "graia-amnesia" },
-    { name = "sqlalchemy" },
+    { name = "sqlalchemy", extra = ["asyncio"] },
     { name = "tarina" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/cf/00/7b8da876ef83a967c4bce0e8e04940ecc2c12c81225e2af92310b185aa73/entari_plugin_database-0.3.4.tar.gz", hash = "sha256:b817abdd1b79549977b6ef89c72d016320ee09bef9bd3337c5d09ebfae6cc97a", size = 18645, upload-time = "2026-08-16T03:37:57.976Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/63/7d/1018f8bb1f34d68010f86682dbc2853002ea09e8a9656792a58332717abd/entari_plugin_database-0.4.2.tar.gz", hash = "sha256:d1c5b3e0a86fd1a4d022a303063ff9e9778e7140f8982bcff2a550b243222a94", size = 21360, upload-time = "2026-10-20T03:55:21.392Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/e0/e8/7bbc53c6efb402585c1902e69a5eacf3152458df6dca7eba3b7522ea9e5c/entari_plugin_database-0.3.4-py3-none-any.whl", hash = "sha256:bfa3348b1958561dd232fb6f2c167d9541c728192c8f12e21a4bd425f5dbb40d", size = 21187, upload-time = "2026-08-16T03:37:56.771Z" },
+    { url = "https://files.pythonhosted.org/packages/13/fd/84cddfa509bca46a4d0e8c0b8f286b4f24afc6d961da2a8bd47d7cb3935c/entari_plugin_database-0.4.2-py3-none-any.whl", hash = "sha256:a409e36f48bcd2ed7e0f48c6b5997286fab63106ee809e76d0bcb597add2f632", size = 23989, upload-time = "2026-10-20T03:55:20.056Z" },
 ]
 
 [[package]]
@@ -369,15 +369,15 @@ wheels = [
 
 [[package]]
 name = "graia-amnesia"
-version = "0.11.5"
+version = "0.11.6"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "launart" },
     { name = "typing-extensions" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/bf/0e/8c1906e8d6d53e365dd8c72636e5fe1fa5a39b5df537893b15e3f89bb593/graia_amnesia-0.11.5.tar.gz", hash = "sha256:5cb3ff867205e1ee40dbb71499eb55a1d1475a642d77abddd732b2feb30d8350", size = 20929, upload-time = "2025-10-15T13:01:05.172Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/24/72/55c7b64d4c420b36dace78a5c9c3ee08eaa46539376a1e0496058399913a/graia_amnesia-0.11.6.tar.gz", hash = "sha256:56969bdcdc29b96a76a253d4330f57e9e4cf120eac3b4661ec1eb09862b522b7", size = 21081, upload-time = "2026-10-10T02:49:18.428Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/11/7a/086e66e76fde0a9b8a28116c4ab950800a3c66dd44991e8b0ea807424e75/graia_amnesia-0.11.5-py3-none-any.whl", hash = "sha256:454e58ac34a08d256a83b98bee44eaa64378d5438572914ebf15a00b25f7e67f", size = 27077, upload-time = "2025-10-15T13:01:04.221Z" },
+    { url = "https://files.pythonhosted.org/packages/11/85/d994bd88ef584f79d8d65c804ea750361b5a9827e4a6e3237ccbf99a73ce/graia_amnesia-0.11.6-py3-none-any.whl", hash = "sha256:af678c15f21e8a5e209fd7925af6366ac340d1e7cddee17abd40eef37eafb2a8", size = 27184, upload-time = "2026-10-10T02:49:17.327Z" },
 ]
 
 [package.optional-dependencies]
@@ -1095,11 +1095,11 @@ wheels = [
 
 [[package]]
 name = "simpleeval"
-version = "1.0.7"
+version = "1.0.8"
 source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/b4/9d/e7c9309940794dd3073cba2e5101df5874d84243595ce63b1e1c8f9b9c76/simpleeval-1.0.7.tar.gz", hash = "sha256:1e10e5f9fec597814444e20c0892ed15162fa214c8a88f434b5b077cf2fef85b", size = 30250, upload-time = "2026-03-16T10:53:03.464Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/89/3e/25326f373871a34e78cac231c0d3c18a0a5c3a80aa4813b50b9f26a5d460/simpleeval-1.0.8.tar.gz", hash = "sha256:b417f869c11f2de034eb919820a825f35d12ce99f63a43971947ce73679eb9ba", size = 31846, upload-time = "2026-09-12T10:16:08.103Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/0f/2f/f32aa85591882378bb43caa09363f3ed97df399369a5144c7f19f2275bc0/simpleeval-1.0.7-py3-none-any.whl", hash = "sha256:97ac271bfd8f2af9e7b9a36ceea67617f26fa873f9d5ae1922f64d4c1442534b", size = 18792, upload-time = "2026-03-16T10:53:02.103Z" },
+    { url = "https://files.pythonhosted.org/packages/12/33/d1ecd9f4f5f272b36ad7b268e307ba0a59c109d8ad134a231cda780baac9/simpleeval-1.0.8-py3-none-any.whl", hash = "sha256:c9c4ff42879ebf0c05f6562cb81031869948916be343bcc950b81fcc081fe9ce", size = 18925, upload-time = "2026-09-12T10:16:06.862Z" },
 ]
 
 [[package]]
@@ -1278,10 +1278,10 @@ requires-dist = [
     { name = "alembic", specifier = "==1.19.1" },
     { name = "arclet-alconna", specifier = "==1.8.44" },
     { name = "arclet-alconna-tools", specifier = "==0.7.12" },
-    { name = "arclet-entari", specifier = "==0.18.6" },
-    { name = "arclet-letoderea", specifier = "==0.21.3" },
+    { name = "arclet-entari", specifier = "==0.19.1" },
+    { name = "arclet-letoderea", specifier = "==0.22.1" },
     { name = "creart", specifier = "==0.3.0" },
-    { name = "entari-plugin-database", specifier = "==0.3.4" },
+    { name = "entari-plugin-database", specifier = "==0.4.2" },
     { name = "httpx", specifier = ">=0.27.0" },
     { name = "jinja2", specifier = ">=3.1.4" },
     { name = "launart", specifier = "==0.8.2" },
@@ -1308,8 +1308,8 @@ dev = [
 ]
 entari = [
     { name = "aiosqlite", specifier = ">=0.21.0" },
-    { name = "arclet-entari", specifier = "==0.18.6" },
-    { name = "entari-plugin-database", specifier = "==0.3.4" },
+    { name = "arclet-entari", specifier = "==0.19.1" },
+    { name = "entari-plugin-database", specifier = "==0.4.2" },
     { name = "satori-python-adapter-onebot11", specifier = "==0.5.0" },
     { name = "satori-python-client", specifier = "==1.3.7" },
     { name = "satori-python-core", specifier = "==1.3.9.post1" },

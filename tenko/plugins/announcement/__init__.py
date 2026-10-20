@@ -53,7 +53,7 @@ plugin.metadata(
     description="向开启指定功能的群推送公告，并逐条报告结果。",
     classifier=["required"],
 )
-# Entari 0.18.6 的构造函数没有 default_switch 字段。将兼容性标记保留在原生
+# Entari 0.19.1 的构造函数没有 default_switch 字段。将兼容性标记保留在原生
 # metadata 上，供 host/plugins.py 和 inspectors 使用。
 plugin.get_plugin().metadata.default_switch = True
 

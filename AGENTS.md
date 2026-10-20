@@ -32,7 +32,6 @@ examples/tenko-plugin-example/  # 第三方插件示例与模板
 webui/                        # WebUI 前端工程（Vue 3 + TS + Vite + Element Plus）
 tests/tenko/                  # 单元测试和集成式调用点测试
 config/tenko.toml.example    # 配置模板
-requirements-entari.txt      # pip 兼容出口（锁定版本快照，主路径是 uv.lock）
 ```
 
 ## 开发环境与命令
@@ -41,12 +40,9 @@ requirements-entari.txt      # pip 兼容出口（锁定版本快照，主路径
 - 依赖管理使用 uv（pyproject.toml 声明依赖，uv.lock 锁定版本）。
   在项目根目录执行 `uv sync` 创建/更新环境，随后用 `uv run <命令>` 执行
   （例如 `uv run pytest -q`、`uv run python -m tenko --dry-run`）。
-  requirements-entari.txt 是当前 uv.lock 的 pip 兼容快照，仅在无 uv 的环境
-  作为替代安装路径使用。
   依赖变更优先使用 uv 命令，不要直接编辑 pyproject.toml 的依赖表：
   `uv add <包>` / `uv remove <包>` / `uv add "包==版本"`；锁文件由 uv 自动
-  维护。变更后同步刷新 pip 快照：`uv export --format requirements-txt
-  --no-hashes > requirements-entari.txt`。
+  维护。
   服务器上的既有环境名为 `.venv-entari`，两种方式并存时以 uv 为准。
 
 - 提交前至少执行：

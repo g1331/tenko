@@ -152,8 +152,34 @@ async def test_removed_model_keeps_table_and_state(guard: GuardHarness) -> None:
     assert EVOLVE in "".join(guard.errors)
 
 
+@pytest.mark.asyncio
+async def test_explicit_custom_migration_still_runs(
+    guard: GuardHarness, monkeypatch
+) -> None:
+    """显式注册的迁移脚本是开发者的有意操作，保护不拦截它。"""
+
+    official = _official()
+    monkeypatch.setattr(official, "_CUSTOM_MIGRATIONS", {})
+    ran: list[str] = []
+
+    @official.register_custom_migration(EVOLVE, script_id="guard_script")
+    def upgrade(ops, context, table):
+        ran.append(table)
+        ops.add_column(table, Column("memo", String(50)))
+
+    guard.define(EVOLVE, Column("title", String(20)), Column("memo", String(50)))
+
+    await guard.migrate()
+
+    assert ran == [EVOLVE]
+    assert await guard.columns(EVOLVE) == ["id", "title", "memo"]
+    assert await guard.sql(f"SELECT title FROM {EVOLVE}") == [("旧数据",)]
+    assert guard.state()[EVOLVE]["custom_scripts"]["guard_script"]["current"] == "1"
+    assert not guard.errors
+
+
 def test_official_private_api_still_exists() -> None:
-    """保护依赖 entari-plugin-database 0.3.4 的私有函数；升级后它们消失则必须失败。"""
+    """保护依赖 entari-plugin-database 0.4.2 的私有函数；升级后它们消失则必须失败。"""
 
     official = _official()
     for name in (

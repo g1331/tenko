@@ -422,12 +422,21 @@ class PluginRuntime:
         """通过 Entari 加载插件。"""
 
         info = self._info(plugin)
-        loaded = (
+        result = (
             load_plugin(info.qualified_name)
             if config is None
             else load_plugin(info.qualified_name, config)
         )
-        return loaded
+        # Entari 0.19 起返回结果对象：失败时 ``.plugin`` 会抛错，错误在 ``.error``。
+        if not result:
+            logger.error(
+                "插件加载失败: {} ({}: {})",
+                info.name,
+                type(result.error).__name__,
+                result.error,
+            )
+            return None
+        return result.plugin
 
     async def load_all(
         self,
@@ -468,7 +477,7 @@ class PluginRuntime:
             except Exception:
                 logger.exception("第三方插件加载失败: {}", info.name)
             else:
-                # Entari 导入失败（含配置校验失败）只记录日志并返回 None。
+                # Entari 导入失败（含配置校验失败）时 ``load`` 记录原因并返回 None。
                 if loaded is None:
                     logger.error("第三方插件加载失败: {}", info.name)
         return self.loaded_plugins

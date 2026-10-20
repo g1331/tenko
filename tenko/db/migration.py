@@ -12,10 +12,10 @@ from .errors import DatabaseUnavailableError
 
 LEGACY_SCHEMA_REVISION = "tenko-g1-legacy-schema-v1"
 
-# shortcut: 官方迁移器没有“禁止删表/删列/改列类型”的开关，这里补丁
-# entari-plugin-database 0.3.4 的私有函数来落实 AGENTS.md 的“Schema 只前进”。
-# 升级该依赖时必须复核这些私有名称（test_database 会在它们消失时失败）；
-# 官方提供等价选项后应改用选项并删除本补丁。
+# shortcut: 官方迁移器没有“禁止删表/删列/改列类型”的开关（0.4.2 复核过），这里补丁
+# entari-plugin-database 0.4.2 的私有函数来落实 AGENTS.md 的“Schema 只前进”。
+# 升级该依赖时必须复核这些私有名称和调用关系（test_migration_guard 会在它们
+# 消失时失败）；官方提供等价选项后应改用选项并删除本补丁。
 _GUARDED_NAMES = (
     "_execute_table_drops",
     "_normalize_alembic_ops",
