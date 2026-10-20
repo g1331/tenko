@@ -2,6 +2,7 @@
 import { computed } from 'vue'
 import { Lock, Search } from '@element-plus/icons-vue'
 import PagePanel from '@/components/PagePanel.vue'
+import ExternalTag from '@/components/ExternalTag.vue'
 import StatusTag from '@/components/StatusTag.vue'
 import { featureStatus, isSwitchable } from '@/composables/status'
 import type { FeatureInfo } from '@/api'
@@ -77,6 +78,7 @@ function onGlobal(mode: string | number | boolean | undefined) {
         <h2>{{ name }}</h2>
         <div class="sw-id">
           <code>{{ feature.plugin }}</code>
+          <ExternalTag v-if="feature.source === 'external'" />
           <StatusTag kind="prot">{{ isGlobal ? '全局功能' : '群级功能' }}</StatusTag>
           <StatusTag :kind="status.kind">{{ status.label }}</StatusTag>
         </div>

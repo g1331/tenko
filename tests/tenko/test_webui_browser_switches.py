@@ -339,3 +339,32 @@ def test_deep_link_unknown_id_falls_back_to_first_item(open_panel):
     page = open_switches(open_panel, SwitchPanel(), "?view=group&id=99999")
     assert page.locator(".sw-head h2").inner_text() == "测试群一"
     assert not page.errors
+
+
+def test_external_plugins_are_tagged_like_on_the_plugins_page(open_panel):
+    panel = SwitchPanel()
+    panel.data["/api/features"]["features"].append(
+        feature(
+            "ext_demo",
+            "演示插件",
+            {"40001"},
+            source="external",
+            loaded=False,
+            enabled=True,
+        )
+    )
+    # 群视图：该群里的第三方功能行带标签，内置功能没有。
+    page = open_switches(open_panel, panel)
+    detail = page.locator("#sw-detail")
+    assert (
+        detail.locator(".sw-item", has_text="演示插件").inner_text().count("第三方")
+        == 1
+    )
+    assert "第三方" not in detail.locator(".sw-item", has_text="群管理").inner_text()
+
+    # 插件视图：列表行和详情头都带标签。
+    page = open_switches(open_panel, panel, "?view=plugin&id=ext_demo")
+    assert "第三方" in rows(page).filter(has_text="演示插件").inner_text()
+    assert "第三方" not in rows(page).filter(has_text="群管理").inner_text()
+    assert "第三方" in page.locator(".sw-head").inner_text()
+    assert not page.errors

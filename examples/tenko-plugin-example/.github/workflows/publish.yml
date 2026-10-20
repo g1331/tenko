@@ -1,0 +1,51 @@
+name: Publish
+
+# 推送与 pyproject.toml 版本一致的标签（如 v0.1.0）时发布到 PyPI。
+# 使用 PyPI Trusted Publishing，不需要保存 token：先在 PyPI 上为该项目建立
+# （pending）publisher，工作流填 publish.yml，环境填 pypi。
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+
+      - name: Verify the tag matches the project version
+        run: |
+          version=$(python3 -c "import tomllib; print(tomllib.load(open('pyproject.toml', 'rb'))['project']['version'])")
+          if [ "v$version" != "$GITHUB_REF_NAME" ]; then
+            echo "::error::标签 $GITHUB_REF_NAME 与 pyproject.toml 版本 v$version 不一致"
+            exit 1
+          fi
+
+      - name: Build sdist and wheel
+        run: uv build --out-dir dist
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    environment: pypi
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist/
+
+      - name: Publish with Trusted Publishing
+        uses: pypa/gh-action-pypi-publish@release/v1

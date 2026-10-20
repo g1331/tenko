@@ -45,7 +45,30 @@ __all__ = [
     "PluginInterfaceError",
     "PluginMetadata",
     "PluginRuntime",
+    "external_plugin_for_module",
 ]
+
+
+def external_plugin_for_module(module_name: str) -> str | None:
+    """按模块名返回所属第三方插件的 ID。
+
+    插件的入口模块及其子模块都归它所有；多个入口互为前缀时取最长的。
+    不属于任何第三方插件（包括被发现阶段拒绝的入口）时返回 ``None``。
+    """
+
+    best: Any = None
+    for entry in entry_points(group=EXTERNAL_ENTRY_POINT_GROUP):
+        if not (
+            _PLUGIN_ID.fullmatch(entry.name) and _MODULE_PATH.fullmatch(entry.value)
+        ):
+            continue
+        if module_name != entry.value and not module_name.startswith(f"{entry.value}."):
+            continue
+        if best is None or len(entry.value) > len(best.value):
+            best = entry
+    if best is None:
+        return None
+    return best.name
 
 
 @dataclass(frozen=True, slots=True)
@@ -72,6 +95,13 @@ class PluginInfo:
         )
         metadata_name = getattr(getattr(native_plugin, "metadata", None), "name", None)
         return str(metadata_name) if metadata_name else self.name
+
+    @property
+    def rate_weight(self) -> int | None:
+        """插件通过 ``declare`` 声明的限流权重；未声明时为 ``None``。"""
+
+        native_plugin = PluginRuntime._native_plugin(self)
+        return getattr(getattr(native_plugin, "metadata", None), "rate_weight", None)
 
     @property
     def lookup_names(self) -> tuple[str, ...]:
@@ -402,10 +432,13 @@ class PluginRuntime:
     async def load_all(
         self,
         configs: Mapping[str, Mapping[str, Any]] | None = None,
+        *,
+        external_configs: Mapping[str, Mapping[str, Any]] | None = None,
     ) -> Mapping[str, Plugin]:
         """发现并加载插件，可为指定插件传入 Entari 配置。
 
-        第三方插件只加载状态文件里已启用的；加载失败只记录日志，不影响启动。
+        第三方插件只加载状态文件里已启用的，配置取 ``external_configs``（即
+        ``[plugin_config.<id>]``）；加载失败只记录日志，不影响启动。
         显式配置的插件先于其他插件加载，避免某个插件的依赖导入以默认
         配置抢先创建它，之后无法再替换已注册的 Entari 服务实例。
         """
@@ -423,13 +456,21 @@ class PluginRuntime:
                 continue
             await self.load(info)
         enabled = self._enabled_external_ids()
+        external_configs = {} if external_configs is None else external_configs
         for info in self._discovered.values():
             if info.source != "external" or info.name not in enabled:
                 continue
+            config = external_configs.get(info.name)
             try:
-                await self.load(info)
+                loaded = await self.load(
+                    info, config=None if config is None else dict(config)
+                )
             except Exception:
                 logger.exception("第三方插件加载失败: {}", info.name)
+            else:
+                # Entari 导入失败（含配置校验失败）只记录日志并返回 None。
+                if loaded is None:
+                    logger.error("第三方插件加载失败: {}", info.name)
         return self.loaded_plugins
 
     def unload(self, plugin: str | PluginInfo) -> bool:

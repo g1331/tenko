@@ -564,3 +564,29 @@ def test_get_version_details_collects_git_metadata_once(
         ("branch", "--show-current"),
         ("log", "-1", "--format=%h%x1f%an%x1f%s"),
     ]
+
+
+@pytest.mark.parametrize("loaded_plugin", ["status"], indirect=True)
+def test_plugin_count_only_counts_loaded_plugins(loaded_plugin, monkeypatch) -> None:
+    """未启用（未加载）的第三方插件不计入“已加载插件”。"""
+
+    from tenko.host.plugins import PluginInfo, PluginRuntime
+
+    infos = (
+        PluginInfo("local", None, False, "mod_local"),
+        PluginInfo("ext_on", None, False, "mod_on", "external"),
+        PluginInfo("ext_off", None, False, "mod_off", "external"),
+    )
+
+    def discover(self):
+        self._discovered = {info.name: info for info in infos}
+        return infos
+
+    monkeypatch.setattr(PluginRuntime, "discover", discover)
+    monkeypatch.setattr(
+        PluginRuntime,
+        "_native_plugin",
+        staticmethod(lambda info: object() if info.name != "ext_off" else None),
+    )
+
+    assert loaded_plugin._plugin_count() == 2

@@ -337,3 +337,53 @@ def test_non_loopback_bind_requires_custom_tokens() -> None:
     TenkoConfig(
         onebot=OneBotConfig(listen_host="0.0.0.0", access_token="a", satori_token="s")
     )
+
+
+def test_plugin_config_tables_load_and_survive_entari_save(tmp_path) -> None:
+    path = tmp_path / "tenko.toml"
+    path.write_text(
+        """
+[basic]
+prefix = ["/"]
+
+[plugin_config.example]
+greeting = "你好"
+limit = 3
+
+[plugin_config.example.nested]
+enabled = true
+
+[plugin_config.other_plugin]
+token = "${{ env.OTHER_TOKEN:-none }}"
+""",
+        encoding="utf-8",
+    )
+
+    config = TenkoConfig.load(path)
+    assert config.plugin_config["example"] == {
+        "greeting": "你好",
+        "limit": 3,
+        "nested": {"enabled": True},
+    }
+    assert set(config.plugin_config) == {"example", "other_plugin"}
+    # 不是 Entari 的 [plugins]：不会触发它按配置自动加载插件。
+    assert config.entari_config.plugin == {}
+    assert config.entari_config.plugin_names == []
+
+    # WebUI / Entari 写回配置文件后，插件配置节原样保留。
+    config.entari_config.data["onebot"] = {"listen_port": 9002}
+    config.entari_config.save()
+    saved = TenkoConfig.load(path)
+    assert saved.plugin_config == config.plugin_config
+    assert saved.onebot.listen_port == 9002
+    assert "${{ env.OTHER_TOKEN:-none }}" in path.read_text(encoding="utf-8")
+
+
+def test_plugin_config_defaults_to_empty_and_rejects_bad_shapes() -> None:
+    assert TenkoConfig().plugin_config == {}
+    with pytest.raises(ValueError, match="必须是 TOML table"):
+        TenkoConfig.from_mapping({"plugin_config": {"example": "字符串"}})
+    with pytest.raises(ValueError, match="不是合法的插件 ID"):
+        TenkoConfig.from_mapping({"plugin_config": {"Bad-Name": {}}})
+    with pytest.raises(ValueError, match=r"\[plugin_config\]"):
+        TenkoConfig.from_mapping({"plugin_config": ["x"]})

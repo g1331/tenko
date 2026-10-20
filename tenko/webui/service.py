@@ -273,7 +273,7 @@ class WebUIService(Service):
         context = SimpleNamespace(chat_type="private", channel_id="")
         return build_status_data(
             context,
-            len(runtime.discover()),
+            len(runtime.loaded_plugins),
             registry=self.accounts,
             metrics=self.metrics,
         )
@@ -419,8 +419,12 @@ class WebUIService(Service):
                 scope = self._plugin_scope(info)
                 source = str(getattr(info, "source", "builtin"))
 
+            # 插件可以声明“新群默认关闭”（declare(default_enabled=False)）。
+            plugin_default = default_enabled and getattr(
+                self.feature_service, "plugin_defaults", {}
+            ).get(plugin_name, True)
             groups = {
-                group_id: self._effective_enabled(state, group_id, default_enabled)
+                group_id: self._effective_enabled(state, group_id, plugin_default)
                 for group_id in group_ids
             }
             features.append(

@@ -237,11 +237,11 @@ def _current_group_mute(context: Any, registry: AccountRegistry) -> str | None:
 
 
 def _plugin_count() -> int:
-    """与 /帮助 一致：统计业务插件而非 Entari 全局注册表。"""
+    """与 /帮助 一致：统计已加载的业务插件，未启用的第三方插件不计入。"""
 
     from tenko.host.plugins import PluginRuntime  # 局部导入避免插件加载顺序耦合
 
-    return len(PluginRuntime().discover())
+    return len(PluginRuntime().loaded_plugins)
 
 
 def build_status_data(

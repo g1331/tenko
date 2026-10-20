@@ -5,10 +5,12 @@ import asyncio
 from collections.abc import Mapping
 from typing import TYPE_CHECKING, Any
 
+from arclet.entari.plugin import get_plugin
 from loguru import logger
 
 from ..context import MessageContext
 from .perm import Permission, PermissionChecker
+from .plugins import external_plugin_for_module
 
 _FEATURE_MANAGER_NAMES = frozenset({"feature_manager", "功能开关"})
 
@@ -44,6 +46,9 @@ class FeatureService:
             raise TypeError("default_enabled 必须是布尔值")
         self._repository = repository
         self.default_enabled = default_enabled
+        # 插件通过 declare(default_enabled=False) 声明的“新群默认关闭”；这是
+        # 插件自身的属性而不是数据库状态，所以 configure() 不会清空它。
+        self.plugin_defaults: dict[str, bool] = {}
         self._plugins: dict[str, dict[str, Any]] = {}
         self._ready = repository is None
         self._persist_lock = asyncio.Lock()
@@ -166,11 +171,15 @@ class FeatureService:
     def is_enabled(self, plugin: str, group_id: str | int | None = None) -> bool:
         """返回插件在指定群是否可执行；未显式设置时使用默认开启值。"""
 
-        state = self._plugins.get(_key(plugin, "插件名"))
+        plugin = _key(plugin, "插件名")
+        state = self._plugins.get(plugin)
         if not self._ready:
             return False
+        default_enabled = self.default_enabled and self.plugin_defaults.get(
+            plugin, True
+        )
         if state is None:
-            return self.default_enabled
+            return default_enabled
         if state["maintenance"]:
             return False
         global_enabled = state.get("global_enabled")
@@ -181,7 +190,7 @@ class FeatureService:
             enabled = state["groups"].get(normalized_group)
             if enabled is not None:
                 return enabled
-        return self.default_enabled
+        return default_enabled
 
     def set_enabled(self, plugin: str, group_id: str | int, enabled: bool) -> bool:
         """更新指定群的插件开关；异步调用方随后应刷新 repository。"""
@@ -262,6 +271,40 @@ def configure_feature_service(
 
     feature_service.configure(repository, default_enabled=default_enabled)
     return feature_service
+
+
+def declare_feature(
+    *,
+    scope: str = "group",
+    default_enabled: bool = True,
+    rate_weight: int = 1,
+) -> None:
+    """为正在加载的第三方插件登记 Tenko 专有元数据（``tenko_api.features.declare``）。
+
+    写入宿主已有的 ``feature_scope`` / ``default_switch`` 元数据属性，以及
+    ``CommandPolicy`` 传给限流器的 ``rate_weight``。不提供 ``classifier``：
+    第三方插件不能把自己标记为受保护的宿主插件。
+    """
+
+    if scope not in {"group", "global"}:
+        raise ValueError(f"scope 必须是 'group' 或 'global': {scope!r}")
+    if type(default_enabled) is not bool:
+        raise TypeError("default_enabled 必须是布尔值")
+    if type(rate_weight) is not int or rate_weight <= 0:
+        raise ValueError("rate_weight 必须是正整数")
+    native = get_plugin(optional=True)
+    found = None if native is None else external_plugin_for_module(native.id)
+    if native is None or found is None:
+        raise RuntimeError("declare() 只能在第三方插件的模块导入期间调用")
+    metadata = native.metadata
+    metadata.feature_scope = scope
+    metadata.default_switch = default_enabled
+    metadata.rate_weight = rate_weight
+    plugin_id = found
+    if default_enabled:
+        feature_service.plugin_defaults.pop(plugin_id, None)
+    else:
+        feature_service.plugin_defaults[plugin_id] = False
 
 
 def _plugin_name(owner: object) -> str:
@@ -372,6 +415,9 @@ class CommandPolicy:
         override = await self.permission_checker.require_perm(
             context, self.rate_limit_override_permission
         )
+        # 插件声明过 rate_weight 才传权重，未声明沿用限流器的默认权重。
+        weight = getattr(owner, "rate_weight", None)
+        extra = {} if weight is None else {"weight": weight}
         check_and_persist = getattr(self.rate_limiter, "check_and_persist", None)
         if callable(check_and_persist):
             decision = await check_and_persist(
@@ -379,6 +425,7 @@ class CommandPolicy:
                 context.user_id,
                 command=plugin_name,
                 override=override,
+                **extra,
             )
         else:
             decision = self.rate_limiter.check(
@@ -386,6 +433,7 @@ class CommandPolicy:
                 context.user_id,
                 command=plugin_name,
                 override=override,
+                **extra,
             )
         if not decision.allowed:
             logger.debug(
@@ -402,5 +450,6 @@ __all__ = [
     "CommandPolicy",
     "FeatureService",
     "configure_feature_service",
+    "declare_feature",
     "feature_service",
 ]

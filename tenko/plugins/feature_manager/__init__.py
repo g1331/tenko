@@ -42,9 +42,11 @@ def resolve_plugin(value: str) -> PluginInfo | None:
     normalized = str(value)
     infos = plugin_runtime.discover()
     if normalized.isdigit():
+        # 编号与 /帮助 一致，只数已加载的插件（未启用的第三方插件不在其中）。
+        loaded = [info for info in infos if _native_plugin(info) is not None]
         index = int(normalized)
-        if 1 <= index <= len(infos):
-            return infos[index - 1]
+        if 1 <= index <= len(loaded):
+            return loaded[index - 1]
         return None
     for info in infos:
         if normalized in info.lookup_names or normalized == info.display_name:
@@ -59,8 +61,8 @@ def _is_protected(info: PluginInfo) -> bool:
     classifiers = getattr(getattr(native, "metadata", None), "classifier", ())
     # ``required`` 只表示插件应随宿主加载并在帮助中归入系统区域；普通
     # 功能插件仍然需要支持群级开关。``host`` 才是不能由群管理员关闭的
-    # 控制平面标记。
-    return "host" in classifiers
+    # 控制平面标记，只对内置插件有效，第三方插件不能自封受保护。
+    return info.source == "builtin" and "host" in classifiers
 
 
 def _is_global_feature(info: PluginInfo) -> bool:

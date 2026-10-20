@@ -1,0 +1,37 @@
+[project]
+name = "tenko-plugin-example"
+version = "0.1.0"
+description = "Tenko 第三方插件示例与模板"
+readme = "README.md"
+license = "GPL-3.0-only"
+requires-python = ">=3.11,<3.14"
+dependencies = [
+    # 兼容声明：解析器据此拒绝不兼容的宿主。上限写到下一个次版本（1.0 之后写到主版本）。
+    "tenko-api>=0.1,<0.2",
+    # 插件自己的依赖写在这里：只写下限，不要用 == 锁死，以免与宿主冲突。
+]
+
+# 入口名就是插件 ID（小写字母、数字、下划线，全局唯一）；值是纯模块路径。
+# 不要声明 entari.plugin 入口，Entari 会无视 Tenko 的启用状态自动加载它。
+[project.entry-points."tenko.plugins"]
+example = "tenko_plugin_example"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/tenko_plugin_example"]
+
+[dependency-groups]
+dev = [
+    "pytest>=8",
+    "pytest-asyncio>=1",
+    "ruff",
+    # 测试要加载真实的宿主。发布后请把 main 换成固定的 Tenko 版本标签。
+    "tenko @ git+https://github.com/g1331/tenko@main",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"

@@ -375,7 +375,8 @@ async def test_webui_overview_uses_status_data_metrics_and_counts(
     monkeypatch.setattr(status, "collect_process_info", lambda: process)
     monkeypatch.setattr(status, "collect_system_resources", lambda: resources)
     monkeypatch.setattr(status, "get_version_details", lambda: version_details)
-    plugin_runtime = SimpleNamespace(discover=lambda: (object(),))
+    # 概览只统计已加载的插件，未启用的第三方插件不计入。
+    plugin_runtime = SimpleNamespace(loaded_plugins={"demo": object()})
     server, _service_instance = _service(
         WebUIConfig(enabled=True),
         accounts=accounts,
@@ -838,3 +839,32 @@ async def test_external_plugin_toggle_uses_state_file_and_reports_restart(
         )
         assert response.json()["data"]["restart_required"] is False
         assert json.loads(state_file.read_text(encoding="utf-8")) == {"enabled": []}
+
+
+@pytest.mark.asyncio
+async def test_webui_features_apply_plugin_declared_default_off(tenko_database):
+    accounts = AccountRegistry()
+    accounts.register(
+        SimpleNamespace(self_id="10001", platform="onebot"),
+        available=True,
+        groups=("40001", "40002"),
+    )
+    features = FeatureService(default_enabled=True)
+    features.plugin_defaults["quiet"] = False
+    features.enable("quiet", "40002")
+    info = SimpleNamespace(
+        name="quiet", display_name="安静", lookup_names=(), source="external"
+    )
+    server, _ = _service(
+        WebUIConfig(enabled=True),
+        accounts=accounts,
+        feature_service=features,
+        plugin_runtime=SimpleNamespace(discover=lambda: (info,)),
+    )
+
+    async with _session_client(server.app) as client:
+        response = await client.get("/webui/api/features")
+
+    (row,) = response.json()["data"]["features"]
+    assert row["source"] == "external"
+    assert row["groups"] == {"40001": False, "40002": True}

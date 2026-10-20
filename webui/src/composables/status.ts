@@ -42,6 +42,11 @@ export function isSwitchable(feature: FeatureInfo): boolean {
   )
 }
 
+/** 已安装但未启用（因而未加载）的第三方插件：总览不把它算作运行统计，也不是需要处理的异常。 */
+export function isInactiveExternal(feature: FeatureInfo): boolean {
+  return feature.source === 'external' && !feature.loaded && !feature.enabled
+}
+
 export interface PluginStats {
   total: number
   loaded: number

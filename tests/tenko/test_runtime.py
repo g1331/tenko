@@ -151,7 +151,8 @@ async def test_run_async_loads_plugins_before_starting_entari(
     startup_notify = Mock()
     startup_plugin = SimpleNamespace(module=startup_notify)
 
-    async def load_all():
+    async def load_all(*, external_configs):
+        assert external_configs == runtime.config.plugin_config
         lifecycle.append("plugins")
         return {
             "startup_notify": startup_plugin,
@@ -194,7 +195,7 @@ async def test_run_async_loads_plugins_before_starting_entari(
     manager.add_component.assert_called_once()
     registered = manager.add_component.call_args.args[0]
     assert registered.id == "tenko.render"
-    plugin_runtime.load_all.assert_awaited_once_with()
+    plugin_runtime.load_all.assert_awaited_once_with(external_configs={})
     assert runtime.plugin_runtime is plugin_runtime
     assert runtime._startup_notify_module is startup_notify
     database_loader.assert_called_once_with(
@@ -262,7 +263,7 @@ async def test_run_async_registers_render_service(
     assert service.width == 1024
     assert service.quality == 91
     assert service.device_scale_factor == 3
-    plugin_runtime.load_all.assert_awaited_once_with()
+    plugin_runtime.load_all.assert_awaited_once_with(external_configs={})
 
 
 @pytest.mark.asyncio

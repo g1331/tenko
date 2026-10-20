@@ -1,0 +1,148 @@
+"""第三方插件的独立数据存储：数据目录和带版本的 JSON 存储。
+
+所有入口按调用方（或模型）所在的模块归属到插件 ID，规则见
+:func:`tenko.host.plugins.external_plugin_for_module`：模块必须属于某个
+``tenko.plugins`` 入口声明的包，否则抛出 :class:`PluginStorageError`。
+"""
+
+from __future__ import annotations
+
+import json
+import os
+import re
+import shutil
+import sys
+from collections.abc import Callable
+from pathlib import Path
+from typing import Any
+
+from loguru import logger
+
+from .plugins import external_plugin_for_module
+
+# 与 .tenko/plugins/state.json 一样相对工作目录；测试可以替换它。
+PLUGIN_DATA_ROOT = Path(".tenko/plugin-data")
+_STORE_NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.-]*")
+
+
+class PluginStorageError(RuntimeError):
+    """无法确定调用方插件，或存储文件不可用。"""
+
+
+class StoreVersionError(PluginStorageError):
+    """存储文件的版本无法被当前插件处理；文件保持原样。"""
+
+
+def _plugin_of(module_name: str) -> str:
+    found = external_plugin_for_module(module_name)
+    if found is None:
+        raise PluginStorageError(
+            f"无法确定 {module_name!r} 所属的第三方插件：存储接口只能在插件自己的"
+            "模块里调用，且包必须在 pyproject 的 tenko.plugins 入口中声明"
+        )
+    return found
+
+
+def _caller_module(depth: int) -> str:
+    return sys._getframe(depth + 1).f_globals.get("__name__", "")
+
+
+def _data_dir(plugin_id: str) -> Path:
+    path = (PLUGIN_DATA_ROOT / plugin_id).resolve()
+    path.mkdir(parents=True, exist_ok=True)
+    return path
+
+
+def data_dir() -> Path:
+    """返回调用方插件的数据目录 ``.tenko/plugin-data/<id>/``，不存在时创建。"""
+
+    return _data_dir(_plugin_of(_caller_module(1)))
+
+
+class Store:
+    """插件数据目录里带版本号的 JSON 文件。
+
+    文件内容是 ``{"version": N, "data": ...}``。同步读写：数据应当很小，并且
+    读改写之间没有 ``await``，所以多个协程不会交错。
+
+    - 版本一致：直接读取；文件不存在时 ``load()`` 返回 ``default``。
+    - 文件版本较旧：先把原文件备份为 ``<name>.json.bak-v<旧版本>``，再调用
+      ``migrate(旧版本, 数据) -> 新数据`` 并写回；没有 ``migrate`` 时抛错。
+    - 文件版本比声明的新（例如插件被降级）：抛 :class:`StoreVersionError`，
+      不读取也不覆盖。
+    """
+
+    def __init__(
+        self,
+        name: str,
+        version: int,
+        migrate: Callable[[int, Any], Any] | None = None,
+    ) -> None:
+        if not _STORE_NAME.fullmatch(name):
+            raise ValueError(
+                f"Store 名称只能包含字母、数字、下划线、点和连字符: {name!r}"
+            )
+        if type(version) is not int or version < 1:
+            raise ValueError("version 必须是正整数")
+        self.version = version
+        self.migrate = migrate
+        self.path = _data_dir(_plugin_of(_caller_module(1))) / f"{name}.json"
+
+    def _read(self) -> tuple[int, Any] | None:
+        """读取并校验文件；缺失返回 ``None``，损坏或版本更新时抛错且不改文件。"""
+
+        try:
+            raw = json.loads(self.path.read_text(encoding="utf-8"))
+            stored, data = raw["version"], raw["data"]
+            if type(stored) is not int:
+                raise TypeError("version 必须是整数")
+        except FileNotFoundError:
+            return None
+        except (OSError, ValueError, KeyError, TypeError) as error:
+            raise PluginStorageError(
+                f"存储文件 {self.path} 已损坏，未做任何修改: {error}"
+            ) from error
+        if stored > self.version:
+            raise StoreVersionError(
+                f"{self.path} 的版本 v{stored} 比插件声明的 v{self.version} 新，"
+                "已拒绝读写；请升级插件，不要降级"
+            )
+        return stored, data
+
+    def load(self, default: Any = None) -> Any:
+        """读取数据；文件不存在时返回 ``default``。"""
+
+        found = self._read()
+        if found is None:
+            return default
+        stored, data = found
+        if stored == self.version:
+            return data
+        if self.migrate is None:
+            raise StoreVersionError(
+                f"{self.path} 的版本 v{stored} 低于 v{self.version}，且没有提供 migrate"
+            )
+        backup = self.path.with_name(f"{self.path.name}.bak-v{stored}")
+        shutil.copy2(self.path, backup)
+        data = self.migrate(stored, data)
+        self.save(data)
+        logger.info(
+            "存储 {} 已从 v{} 迁移到 v{}，原文件备份为 {}",
+            self.path,
+            stored,
+            self.version,
+            backup.name,
+        )
+        return data
+
+    def save(self, data: Any) -> None:
+        """原子写入：先写同目录临时文件再 ``os.replace``。
+
+        已有文件损坏或版本比声明的新时抛错，避免覆盖无法处理的数据。
+        """
+
+        self._read()
+        text = json.dumps({"version": self.version, "data": data}, ensure_ascii=False)
+        temp = self.path.with_name(f"{self.path.name}.tmp")
+        temp.write_text(text + "\n", encoding="utf-8")
+        os.replace(temp, self.path)

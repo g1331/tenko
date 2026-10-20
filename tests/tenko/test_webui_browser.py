@@ -1,6 +1,8 @@
 """前端外壳（登录、总览、主题、登出、移动布局）的浏览器验证；后端为路由替身。"""
 
-from webui_browser_support import POLL_MS, Panel
+import copy
+
+from webui_browser_support import POLL_MS, Panel, _feature
 
 
 def log_in(page, password="correct-horse"):
@@ -114,6 +116,23 @@ def test_login_renders_overview_and_polls_every_30_seconds(open_panel):
     page.get_by_role("button", name="立即刷新").click()
     page.wait_for_timeout(300)
     assert len(panel.paths("/api/overview")) == count + 2
+    assert not page.errors
+
+
+def test_overview_ignores_installed_but_disabled_external_plugins(open_panel):
+    panel = Panel(authenticated=True)
+    data = copy.deepcopy(panel.data["/api/features"])  # 默认数据集是模块级共享的
+    total = len(data["features"])
+    data["features"].append(
+        _feature("ext_demo", "演示插件", source="external", loaded=False, enabled=False)
+    )
+    panel.data["/api/features"] = data
+    page = open_panel(panel, "overview")
+    page.locator(".stat-trio").wait_for()
+    main = page.locator("main")
+    # 未启用的第三方插件不算“未加载”，也不进入待关注列表和总数。
+    assert "演示插件" not in main.inner_text()
+    assert f"/ {total}" in page.locator(".stat-trio").inner_text()
     assert not page.errors
 
 

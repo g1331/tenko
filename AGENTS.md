@@ -27,6 +27,8 @@ tenko/
 ├── plugins/                 # Tenko 原生插件
 ├── templates/               # 离线渲染模板和资源
 └── webui/                   # WebUI 后端；static/ 是前端构建产物（勿手改）
+packages/tenko-api/          # 第三方插件的稳定接口（uv workspace 成员，发布为 tenko-api）
+examples/tenko-plugin-example/  # 第三方插件示例与模板
 webui/                        # WebUI 前端工程（Vue 3 + TS + Vite + Element Plus）
 tests/tenko/                  # 单元测试和集成式调用点测试
 config/tenko.toml.example    # 配置模板
@@ -92,7 +94,7 @@ requirements-entari.txt      # pip 兼容出口（锁定版本快照，主路径
 
 ## 第三方插件（外部包）
 
-完整方案见 issue #200；当前宿主只实现发现、启停和访问控制。
+完整方案见 issue #200；示例与模板见 `examples/tenko-plugin-example/`。
 
 - 第三方插件是标准 Python 包，在 `pyproject.toml` 声明 `tenko.plugins` 入口：
   `[project.entry-points."tenko.plugins"]` 下写 `<id> = "<module>"`。`<id>` 匹配
@@ -101,13 +103,36 @@ requirements-entari.txt      # pip 兼容出口（锁定版本快照，主路径
 - **不要声明 `entari.plugin` 入口**：Entari 会无视 Tenko 的启用状态自动加载它。
 - 第三方插件默认关闭。在 WebUI 插件页启用后写入 `.tenko/plugins/state.json`
   （`{"enabled": ["<id>"]}`），首次加载需要重启 Tenko；状态文件缺失或损坏时视为全部未启用。
+  `/状态`、总览只统计已加载的插件；`/帮助` 把已加载的第三方插件单列为“第三方”区，
+  编号与 `/开启`、`/关闭` 一致。
 - 第三方插件的命令与内置插件走同一套维护模式、功能开关和限流，功能开关以插件 ID 为键。
   Entari 里已注册命令、但未登记为内置或第三方的插件，其群聊命令会被拒绝执行。
+  第三方插件不能自封“受保护”：`classifier` 里的 `host`/`required` 对它无效。
+- **插件只依赖 `tenko-api`**（`packages/tenko-api/`，uv workspace 成员，发布到 PyPI 为
+  `tenko-api`，导入名 `tenko_api`），不要导入 `tenko.*` 内部模块。它没有运行时依赖，
+  只是转发到宿主；新增接口放在 `tenko_api` 的对应子模块，并写进 `tests/tenko/test_tenko_api.py`
+  的接口清单。宿主启动时（`tenko/__init__.py`）把 `packages/tenko-api/src` 放到
+  `sys.path` 最前，保证门面与当前宿主代码同版本；`tenko/` 内部不得依赖已安装的
+  `tenko-api` 发行版。版本号在 `tenko_api/__init__.py` 的 `__version__`，1.0 之前接口可
+  调整；发布推送标签 `tenko-api-v<版本>`（`.github/workflows/publish-api.yml`，Trusted Publishing）。
+- 元数据：插件模块导入期间调用 `tenko_api.features.declare(scope, default_enabled,
+  rate_weight)`，宿主据此设置 `feature_scope`、`default_switch` 和限流权重
+  （`CommandPolicy` 传给限流器），`default_enabled=False` 表示没有显式开启的群默认关闭。
+- 配置：`config/tenko.toml` 的 `[plugin_config.<id>]` 在加载该插件时传给
+  `load_plugin(config=...)`（`PluginRuntime.load_all(external_configs=...)`）。不要用
+  Entari 的 `[plugins.*]`，它会绕过启用状态自动加载。Entari 对标准 dataclass 配置模型
+  不做类型校验。
+- 存储：`tenko_api.storage.data_dir()` 返回 `.tenko/plugin-data/<id>/`；`Store(name,
+  version, migrate)` 是带版本号的 JSON 文件（原子写入，版本变化先备份再迁移，遇到更新
+  版本的文件拒绝读写）。调用方按模块名归属到 `tenko.plugins` 入口，只能在插件自己的
+  模块里调用（实现见 `tenko/host/plugin_storage.py`）。插件独立 SQLite 库尚未提供。
 - 插件不得删除表、删除列或修改列类型：宿主在官方迁移器上安装了“Schema 只前进”
   保护，遇到这类变更会回滚该模块的结构迁移并拒绝删表（实现见 `tenko/db/migration.py`）。
 - 开发第三方插件时可用 `pip install "tenko @ git+https://github.com/g1331/tenko@<tag>"`
   安装宿主本体（`pyproject.toml` 提供 `[build-system]`；生产环境仍用 `uv sync`，
   不安装本项目）。
+- 示例插件的测试由 `tests/tenko/test_example_plugin.py` 在子进程里对当前检出运行
+  （用临时 dist-info 提供入口），随普通 `pytest` 一起执行。
 
 ## 代码与提交规范
 

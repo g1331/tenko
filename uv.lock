@@ -2,6 +2,12 @@ version = 1
 revision = 3
 requires-python = ">=3.11, <3.14"
 
+[manifest]
+members = [
+    "tenko",
+    "tenko-api",
+]
+
 [[package]]
 name = "aiohappyeyeballs"
 version = "2.7.1"
@@ -1243,6 +1249,7 @@ dependencies = [
     { name = "satori-python-client" },
     { name = "satori-python-server" },
     { name = "sqlalchemy" },
+    { name = "tenko-api" },
     { name = "tomli-w" },
 ]
 
@@ -1288,6 +1295,7 @@ requires-dist = [
     { name = "satori-python-client", specifier = "==1.3.7" },
     { name = "satori-python-server", specifier = "==1.3.7" },
     { name = "sqlalchemy", specifier = "==2.0.52" },
+    { name = "tenko-api", editable = "packages/tenko-api" },
     { name = "tomli-w", specifier = ">=1.0" },
 ]
 
@@ -1309,6 +1317,10 @@ entari = [
     { name = "sqlalchemy", extras = ["asyncio"], specifier = ">=2.0.42" },
     { name = "tomli", specifier = "==2.2.1" },
 ]
+
+[[package]]
+name = "tenko-api"
+source = { editable = "packages/tenko-api" }
 
 [[package]]
 name = "tomli"

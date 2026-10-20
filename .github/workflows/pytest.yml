@@ -44,3 +44,9 @@ jobs:
 
       - name: Run tests
         run: uv run --no-sync python -m pytest -q
+
+      # tenko-api 要发布到 PyPI：保证它能构建，并且没有运行时依赖。
+      - name: Build tenko-api
+        run: |
+          uv build --package tenko-api --out-dir "$RUNNER_TEMP/tenko-api-dist"
+          ! unzip -p "$RUNNER_TEMP"/tenko-api-dist/*.whl '*/METADATA' | grep -q '^Requires-Dist:'

@@ -447,3 +447,94 @@ async def test_command_policy_covers_external_and_rejects_unmanaged(
         for module in ("tenko_t_external", "tenko_t_unmanaged"):
             unload_plugin(module)
             sys.modules.pop(module, None)
+
+
+CONFIG_PLUGIN = """
+from arclet.entari import BasicConfModel, plugin
+
+class Cfg(BasicConfModel):
+    greeting: str = "默认"
+    limit: int = 1
+
+    def __post_init__(self):
+        # Entari 对标准 dataclass 配置模型不做类型校验，需要时由插件自己检查。
+        if not isinstance(self.limit, int):
+            raise ValueError("limit 必须是整数")
+
+plugin.metadata("配置演示", author=["t"], version="0.0.1", config=Cfg)
+config = plugin.get_config(Cfg)
+"""
+
+
+@pytest.mark.asyncio
+async def test_external_plugin_receives_its_plugin_config_table(
+    entari_plugin_host, monkeypatch, tmp_path: Path, log_lines
+) -> None:
+    from arclet.entari.plugin import unload_plugin
+
+    (tmp_path / "tenko_t_cfg.py").write_text(CONFIG_PLUGIN, encoding="utf-8")
+    (tmp_path / "tenko_t_cfg_off.py").write_text(CONFIG_PLUGIN, encoding="utf-8")
+    monkeypatch.syspath_prepend(tmp_path)
+    patch_entry_points(
+        monkeypatch,
+        tenko=[_entry("cfg", "tenko_t_cfg"), _entry("cfg_off", "tenko_t_cfg_off")],
+    )
+    state_file = tmp_path / "state.json"
+    state_file.write_text(json.dumps({"enabled": ["cfg"]}), encoding="utf-8")
+    runtime = PluginRuntime(tmp_path / "no_builtin", state_file=state_file)
+    try:
+        await runtime.load_all(
+            external_configs={
+                "cfg": {"greeting": "你好", "limit": 5},
+                # 没有启用的插件不会被加载，它的配置也不会被使用。
+                "cfg_off": {"greeting": "不应出现"},
+            }
+        )
+        module = runtime.loaded_plugins["cfg"].module
+        assert (module.config.greeting, module.config.limit) == ("你好", 5)
+        assert not runtime.is_loaded("cfg_off")
+    finally:
+        for module in ("tenko_t_cfg", "tenko_t_cfg_off"):
+            unload_plugin(module)
+            sys.modules.pop(module, None)
+
+
+@pytest.mark.asyncio
+async def test_external_plugin_without_config_table_uses_model_defaults(
+    entari_plugin_host, monkeypatch, tmp_path: Path
+) -> None:
+    from arclet.entari.plugin import unload_plugin
+
+    (tmp_path / "tenko_t_cfg2.py").write_text(CONFIG_PLUGIN, encoding="utf-8")
+    monkeypatch.syspath_prepend(tmp_path)
+    patch_entry_points(monkeypatch, tenko=[_entry("cfg2", "tenko_t_cfg2")])
+    state_file = tmp_path / "state.json"
+    state_file.write_text(json.dumps({"enabled": ["cfg2"]}), encoding="utf-8")
+    runtime = PluginRuntime(tmp_path / "no_builtin", state_file=state_file)
+    try:
+        await runtime.load_all()
+        assert runtime.loaded_plugins["cfg2"].module.config.greeting == "默认"
+    finally:
+        unload_plugin("tenko_t_cfg2")
+        sys.modules.pop("tenko_t_cfg2", None)
+
+
+@pytest.mark.asyncio
+async def test_invalid_plugin_config_fails_only_that_plugin(
+    entari_plugin_host, monkeypatch, tmp_path: Path, log_lines
+) -> None:
+    from arclet.entari.plugin import unload_plugin
+
+    (tmp_path / "tenko_t_cfg3.py").write_text(CONFIG_PLUGIN, encoding="utf-8")
+    monkeypatch.syspath_prepend(tmp_path)
+    patch_entry_points(monkeypatch, tenko=[_entry("cfg3", "tenko_t_cfg3")])
+    state_file = tmp_path / "state.json"
+    state_file.write_text(json.dumps({"enabled": ["cfg3"]}), encoding="utf-8")
+    runtime = PluginRuntime(tmp_path / "no_builtin", state_file=state_file)
+    try:
+        await runtime.load_all(external_configs={"cfg3": {"limit": "不是数字"}})
+        assert not runtime.is_loaded("cfg3")
+        assert "第三方插件加载失败: cfg3" in "".join(log_lines)
+    finally:
+        unload_plugin("tenko_t_cfg3")
+        sys.modules.pop("tenko_t_cfg3", None)

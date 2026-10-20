@@ -1,0 +1,66 @@
+name: Publish tenko-api
+
+# 推送 tenko-api-v<版本> 标签（如 tenko-api-v0.1.0）时发布 packages/tenko-api 到 PyPI。
+# 使用 PyPI Trusted Publishing，不保存任何 token；PyPI 端的 publisher 配置为：
+# 项目 tenko-api、所有者 g1331、仓库 tenko、工作流 publish-api.yml、环境 pypi。
+on:
+  push:
+    tags:
+      - "tenko-api-v*"
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build distributions
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+
+      - name: Verify the tag matches __version__
+        run: |
+          version=$(sed -n 's/^__version__ = "\(.*\)"$/\1/p' packages/tenko-api/src/tenko_api/__init__.py)
+          tag_version="${GITHUB_REF_NAME#tenko-api-v}"
+          if [ -z "$version" ] || [ "$version" != "$tag_version" ]; then
+            echo "::error::标签 ${GITHUB_REF_NAME} 与 tenko_api.__version__ (${version:-未找到}) 不一致"
+            exit 1
+          fi
+
+      - name: Build sdist and wheel
+        run: uv build --package tenko-api --out-dir dist
+
+      # tenko-api 不能有运行时依赖，否则会干扰插件自己的依赖解析。
+      - name: Verify the wheel has no runtime dependencies
+        run: |
+          if unzip -p dist/*.whl '*/METADATA' | grep -q '^Requires-Dist:'; then
+            echo "::error::tenko-api 的 wheel 声明了运行时依赖"
+            exit 1
+          fi
+
+      - name: Upload distributions
+        uses: actions/upload-artifact@v4
+        with:
+          name: tenko-api-dist
+          path: dist/
+
+  publish:
+    name: Publish to PyPI
+    needs: build
+    runs-on: ubuntu-latest
+    environment: pypi
+    permissions:
+      id-token: write
+    steps:
+      - name: Download distributions
+        uses: actions/download-artifact@v4
+        with:
+          name: tenko-api-dist
+          path: dist/
+
+      - name: Publish with Trusted Publishing
+        uses: pypa/gh-action-pypi-publish@release/v1

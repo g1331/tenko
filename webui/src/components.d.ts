@@ -45,6 +45,7 @@ declare module 'vue' {
     ElTableColumn: typeof import('element-plus/es')['ElTableColumn']
     ElTag: typeof import('element-plus/es')['ElTag']
     ElTooltip: typeof import('element-plus/es')['ElTooltip']
+    ExternalTag: typeof import('./components/ExternalTag.vue')['default']
     GithubLink: typeof import('./components/GithubLink.vue')['default']
     PageContainer: typeof import('./components/PageContainer.vue')['default']
     PagePanel: typeof import('./components/PagePanel.vue')['default']

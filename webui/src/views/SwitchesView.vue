@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, nextTick } from 'vue'
+import ExternalTag from '@/components/ExternalTag.vue'
 import PageContainer from '@/components/PageContainer.vue'
 import ResourceBoundary from '@/components/ResourceBoundary.vue'
 import StatusTag from '@/components/StatusTag.vue'
@@ -127,6 +128,7 @@ async function pickAndReveal(id: string) {
                 >
               </span>
               <span class="row-side">
+                <ExternalTag v-if="item.source === 'external'" />
                 <template v-if="item.scope === 'global' || isSwitchable(item)">
                   <StatusTag v-if="featureStatus(item).kind === 'pending'" kind="pending">{{
                     featureStatus(item).label

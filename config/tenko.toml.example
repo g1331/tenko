@@ -156,3 +156,12 @@ check_interval_hours = 24
 # 仅这些用户能执行 /检查更新、/升级、/回滚；省略时继承 [basic].superusers。
 # 显式填写（包括 []）会覆盖继承；ID 可写字符串或整数。
 # superuser_ids = ["YOUR_QQ_ID"]
+
+# 第三方插件配置：[plugin_config.<插件 ID>] 在加载该插件时传给它，由插件通过
+# plugin.metadata(config=...) 声明的模型接收；字段含义见各插件的文档。
+# 只有已在 WebUI 插件页启用的第三方插件才会被加载（启用后需重启），未启用插件的配置不会被读取。
+# 不要写成 Entari 原生的 [plugins.<名称>]：Entari 会按它自动加载插件，绕过 Tenko 的启用状态。
+# Entari 对标准 dataclass 配置模型不做类型校验，需要时由插件自己检查。
+# 密钥请用环境变量，不要写进仓库：token = "${{ env.EXAMPLE_TOKEN }}"
+# [plugin_config.example]
+# greeting = "你好"

@@ -562,7 +562,9 @@ pip 兼容快照，仅用于无 uv 的环境。
 
 - 插件位于 tenko/plugins/，遵循 Entari 插件生命周期，命令统一 / 前缀；
   第三方插件通过 `tenko.plugins` 入口提供，默认关闭，在 WebUI 插件页启用后重启
-  生效（规则见 AGENTS.md「第三方插件」）；
+  生效（规则见 AGENTS.md「第三方插件」）。写第三方插件请从
+  [examples/tenko-plugin-example](examples/tenko-plugin-example) 开始，它只依赖
+  [tenko-api](packages/tenko-api)；
 - 数据库访问集中在 tenko/db/，宿主服务在 tenko/host/；
 - 提交遵循 Conventional Commits，功能、修复、文档分开提交；
 - 开发细节见 AGENTS.md。

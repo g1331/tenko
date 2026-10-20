@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import type { FeatureInfo } from '@/api'
+import ExternalTag from '@/components/ExternalTag.vue'
 import StatusTag from '@/components/StatusTag.vue'
 import { featureStatus } from '@/composables/status'
 
@@ -70,15 +71,7 @@ const accent = computed(() =>
       >
         维护中
       </el-tag>
-      <el-tag
-        v-if="feature.source === 'external'"
-        size="small"
-        effect="plain"
-        type="warning"
-        disable-transitions
-      >
-        第三方
-      </el-tag>
+      <ExternalTag v-if="feature.source === 'external'" />
       <el-tag v-if="feature.protected" size="small" effect="plain" disable-transitions
         >受保护</el-tag
       >

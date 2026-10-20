@@ -1,0 +1,32 @@
+[project]
+name = "tenko-api"
+dynamic = ["version"]
+description = "Tenko 第三方插件的稳定宿主接口（运行时转发到 Tenko 宿主）"
+readme = "README.md"
+license = "GPL-3.0-only"
+requires-python = ">=3.11,<3.14"
+# 刻意不声明任何运行时依赖：它不能影响插件自己的依赖解析。
+dependencies = []
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Framework :: AsyncIO",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Typing :: Typed",
+]
+
+[project.urls]
+Homepage = "https://github.com/g1331/tenko"
+Issues = "https://github.com/g1331/tenko/issues"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.version]
+path = "src/tenko_api/__init__.py"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/tenko_api"]

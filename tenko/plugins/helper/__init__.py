@@ -38,6 +38,8 @@ _HELP_SECTIONS = (
     ("required", "系统插件", "系统必需功能"),
     ("available", "运行插件", "当前可用功能"),
     ("unavailable", "维护插件", "暂不可用功能"),
+    # 仅在有已加载的第三方插件时显示。
+    ("third_party", "第三方", "第三方插件包"),
 )
 _COMMAND_HELP_FIELDS = (("说明", "description"), ("用法", "usage"), ("示例", "example"))
 
@@ -198,7 +200,17 @@ def build_help_data(group_id: str | int | None = None) -> dict[str, Any]:
     }
     for number, (info, native_plugin) in enumerate(_help_plugins(), 1):
         classifiers = _classifiers(native_plugin)
-        if "host" in classifiers:
+        if info.source == "external":
+            # 第三方插件自带的 classifier 不可信，不能借 host/required 进入系统区。
+            key = "third_party"
+            state_label = (
+                "维护中"
+                if feature_service.is_maintenance(info.name)
+                else "运行中"
+                if feature_service.is_enabled(info.name, group_id)
+                else "已关闭"
+            )
+        elif "host" in classifiers:
             key = "required"
             state_label = "受保护"
         elif feature_service.is_maintenance(info.name):
@@ -231,6 +243,7 @@ def build_help_data(group_id: str | int | None = None) -> dict[str, Any]:
             "count": len(sections[key]),
         }
         for key, title, subtitle in _HELP_SECTIONS
+        if key != "third_party" or sections[key]
     )
     return {
         "title": "Tenko 已注册命令",
@@ -241,14 +254,16 @@ def build_help_data(group_id: str | int | None = None) -> dict[str, Any]:
         "required": tuple(sections["required"]),
         "available": tuple(sections["available"]),
         "unavailable": tuple(sections["unavailable"]),
+        "third_party": tuple(sections["third_party"]),
         "total": number,
         "enabled_count": sum(
-            item["state"] in {"required", "available"}
-            and item["state_label"] != "已关闭"
+            item["state"] in {"required", "available", "third_party"}
+            and item["state_label"] not in {"已关闭", "维护中"}
             for item in (
                 *sections["required"],
                 *sections["available"],
                 *sections["unavailable"],
+                *sections["third_party"],
             )
         ),
     }

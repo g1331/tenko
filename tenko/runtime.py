@@ -331,7 +331,9 @@ class TenkoRuntime:
         # 插件，因此不需要注册 Launart 组件。将其放在数据库模型和
         # RenderService 注册之后、run_async 之前。
         self.plugin_runtime = PluginRuntime()
-        loaded_plugins = await self.plugin_runtime.load_all()
+        loaded_plugins = await self.plugin_runtime.load_all(
+            external_configs=self.config.plugin_config
+        )
         self._startup_notify_module = self._plugin_module(
             loaded_plugins, "startup_notify"
         )

@@ -5,14 +5,23 @@ import PagePanel from '@/components/PagePanel.vue'
 import ResourceBoundary from '@/components/ResourceBoundary.vue'
 import StatusTag from '@/components/StatusTag.vue'
 import { durationText, isNumber, numberText, platformText } from '@/composables/format'
-import { accountStatus, pluginStats, type StatusKind } from '@/composables/status'
+import {
+  accountStatus,
+  isInactiveExternal,
+  pluginStats,
+  type StatusKind,
+} from '@/composables/status'
 import { usePanelData } from '@/composables/usePanelData'
 
 const { overview, accounts, features } = usePanelData()
 
 const accountList = computed(() => accounts.data.value?.accounts ?? null)
 const featureList = computed(() => features.data.value?.features ?? null)
-const stats = computed(() => (featureList.value ? pluginStats(featureList.value) : null))
+const stats = computed(() =>
+  featureList.value
+    ? pluginStats(featureList.value.filter((item) => !isInactiveExternal(item)))
+    : null,
+)
 const offlineCount = computed(() => accountList.value?.filter((item) => !item.online).length ?? 0)
 
 const accountDelta = computed(() => {
@@ -64,6 +73,7 @@ const attention = computed<AttentionItem[]>(() => {
       items.push({ kind: 'danger', tag: '异常', text: `账号 ${account.id} 离线`, to: '/accounts' })
   }
   for (const feature of featureList.value ?? []) {
+    if (isInactiveExternal(feature)) continue
     const name = feature.name || feature.plugin
     if (!feature.loaded)
       items.push({ kind: 'pending', tag: '提示', text: `${name} 未加载`, to: '/plugins' })

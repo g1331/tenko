@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import ipaddress
+import re
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -138,6 +139,19 @@ def _normalize_basic_section(section: Mapping[str, Any]) -> dict[str, Any]:
             platform: list(user_ids) for platform, user_ids in users.items()
         }
     return normalized
+
+
+def _plugin_config(data: Mapping[str, Any]) -> dict[str, dict[str, Any]]:
+    """读取 ``[plugin_config.<id>]``；它不是 Entari 的 ``[plugins]``，不会自动加载。"""
+
+    result: dict[str, dict[str, Any]] = {}
+    for plugin_id, table in _section(data, "plugin_config").items():
+        if not re.fullmatch(r"[a-z][a-z0-9_]*", plugin_id):
+            raise ValueError(f"[plugin_config.{plugin_id}] 不是合法的插件 ID")
+        if not isinstance(table, Mapping):
+            raise ValueError(f"配置节 [plugin_config.{plugin_id}] 必须是 TOML table")
+        result[plugin_id] = dict(table)
+    return result
 
 
 def _basic_superusers(basic: BasicConfig) -> dict[str, tuple[str, ...]]:
@@ -905,6 +919,8 @@ class TenkoConfig:
     exception: ExceptionConfig = field(default_factory=ExceptionConfig)
     database: DatabaseConfig = field(default_factory=DatabaseConfig)
     notify_group: str | None = None
+    # 第三方插件配置 ``[plugin_config.<id>]``，加载时按 ID 传给 load_plugin。
+    plugin_config: Mapping[str, Mapping[str, Any]] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         onebot = self.onebot
@@ -965,6 +981,7 @@ class TenkoConfig:
             exception=ExceptionConfig.from_mapping(_section(normalized, "exception")),
             database=DatabaseConfig.from_mapping(_section(normalized, "database")),
             notify_group=_optional_identifier(normalized, "notify_group", None),
+            plugin_config=_plugin_config(normalized),
         )
 
     @classmethod

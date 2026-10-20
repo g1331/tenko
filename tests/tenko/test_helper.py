@@ -337,3 +337,75 @@ def test_plugin_help_indents_multiline_metadata(monkeypatch, loaded_plugin) -> N
     assert loaded_plugin._plugin_help(native_plugin) == (
         "/测试\n├ 用法：/测试 <参数>\n└ 示例：/测试 1\n  /测试 2"
     )
+
+
+@pytest.mark.parametrize("loaded_plugin", ["helper"], indirect=True)
+def test_help_lists_loaded_external_plugins_in_their_own_section(
+    monkeypatch, loaded_plugin
+):
+    def info(name: str, source: str):
+        return loaded_plugin.PluginInfo(name, None, False, f"mod_{name}", source)
+
+    infos = (
+        info("local", "builtin"),
+        info("ext_on", "external"),
+        info("ext_off", "external"),  # 已发现但未启用：没有原生插件，不显示
+    )
+
+    def native(name: str, *classifier: str):
+        return SimpleNamespace(
+            id=f"mod_{name}",
+            metadata=SimpleNamespace(
+                name=f"{name} plugin", description="", classifier=classifier
+            ),
+        )
+
+    # 外部插件自带的 host / required 标记不能让它进入系统插件区。
+    natives = (native("local"), native("ext_on", "required", "host"))
+
+    class FakeFeatureService:
+        @staticmethod
+        def is_maintenance(plugin_name):
+            return False
+
+        @staticmethod
+        def is_enabled(plugin_name, group_id):
+            return True
+
+    monkeypatch.setattr(loaded_plugin.plugin_runtime, "discover", lambda: infos)
+    monkeypatch.setattr(loaded_plugin, "get_plugins", lambda *, subplugged: natives)
+    monkeypatch.setattr(loaded_plugin, "feature_service", FakeFeatureService())
+
+    data = loaded_plugin.build_help_data("40001")
+
+    assert [item["plugin"] for item in data["third_party"]] == ["ext_on"]
+    assert data["third_party"][0]["state_label"] == "运行中"
+    assert data["required"] == ()
+    assert [item["plugin"] for item in data["available"]] == ["local"]
+    assert [section["title"] for section in data["sections"]] == [
+        "系统插件",
+        "运行插件",
+        "维护插件",
+        "第三方",
+    ]
+    assert data["total"] == 2 and data["enabled_count"] == 2
+    text = loaded_plugin.format_help_text(data)
+    assert text.index("运行插件：") < text.index("第三方：")
+    assert "2. ext_on plugin（运行中）" in text.split("第三方：")[1]
+
+
+@pytest.mark.parametrize("loaded_plugin", ["helper"], indirect=True)
+def test_help_hides_third_party_section_when_none_loaded(monkeypatch, loaded_plugin):
+    info = loaded_plugin.PluginInfo("local", None, False, "mod_local")
+    native = SimpleNamespace(
+        id="mod_local", metadata=SimpleNamespace(name="本地", classifier=())
+    )
+    monkeypatch.setattr(loaded_plugin.plugin_runtime, "discover", lambda: (info,))
+    monkeypatch.setattr(loaded_plugin, "get_plugins", lambda *, subplugged: (native,))
+    data = loaded_plugin.build_help_data()
+    assert [section["key"] for section in data["sections"]] == [
+        "required",
+        "available",
+        "unavailable",
+    ]
+    assert "第三方" not in loaded_plugin.format_help_text(data)

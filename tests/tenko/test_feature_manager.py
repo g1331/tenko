@@ -169,3 +169,50 @@ async def test_feature_commands_reject_non_admin_and_unknown_plugin(loaded_plugi
         make_session(), Match("not-a-plugin", True)
     )
     assert unknown_result.extract_plain_text() == "编号不在运行插件范围内~"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("loaded_plugin", ["feature_manager"], indirect=True)
+async def test_feature_numbers_match_help_and_external_cannot_claim_protection(
+    loaded_plugin, monkeypatch
+) -> None:
+    def info(name: str, source: str) -> object:
+        return loaded_plugin.PluginInfo(
+            name,
+            None,
+            False,
+            f"mod_{name}",
+            source,  # type: ignore[arg-type]
+        )
+
+    infos = (
+        info("local", "builtin"),
+        info("ext_off", "external"),
+        info("ext_on", "external"),
+    )
+    natives = (
+        SimpleNamespace(
+            id="mod_local", metadata=SimpleNamespace(name="本地", classifier=())
+        ),
+        # 第三方插件自带 classifier=host 也不能让它变成受保护插件。
+        SimpleNamespace(
+            id="mod_ext_on",
+            metadata=SimpleNamespace(name="外部", classifier=("required", "host")),
+        ),
+    )
+    monkeypatch.setattr(loaded_plugin.plugin_runtime, "discover", lambda: infos)
+    monkeypatch.setattr(loaded_plugin, "get_plugins", lambda *, subplugged: natives)
+    service = FeatureService()
+    monkeypatch.setattr(loaded_plugin, "feature_service", service)
+    loaded_plugin.permission_checker = PermissionChecker(registry=PermissionRegistry())
+
+    # /帮助 只列出已加载的插件：ext_on 是第 2 号，而不是发现顺序里的第 3 号。
+    assert loaded_plugin.resolve_plugin("2").name == "ext_on"
+    assert loaded_plugin.resolve_plugin("3") is None
+    assert not loaded_plugin._is_protected(infos[2])
+
+    result = await loaded_plugin.disable.callable_target(
+        make_session(), Match("2", True)
+    )
+    assert result.extract_plain_text() == "功能<ext_on>已关闭~"
+    assert not service.is_enabled("ext_on", "40001")
