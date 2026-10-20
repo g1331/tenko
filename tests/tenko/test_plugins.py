@@ -265,11 +265,20 @@ async def test_load_all_only_loads_enabled_external_plugins(
 ) -> None:
     patch_entry_points(
         monkeypatch,
-        tenko=[_entry("on", "ext_on"), _entry("off", "ext_off")],
+        tenko=[
+            _entry("on", "ext_on"),
+            _entry("off", "ext_off"),
+            # 已启用但要求旧版 tenko-api：不加载（uv pip 会降级环境里的包而不是拒绝安装）。
+            SimpleNamespace(
+                name="old",
+                value="ext_old",
+                dist=SimpleNamespace(name="old", requires=["tenko-api<0.2,>=0.1"]),
+            ),
+        ],
     )
     state_file = tmp_path / "state" / "state.json"
     state_file.parent.mkdir()
-    state_file.write_text(json.dumps({"enabled": ["on"]}), encoding="utf-8")
+    state_file.write_text(json.dumps({"enabled": ["on", "old"]}), encoding="utf-8")
     load_plugin = Mock(return_value=FakeLoadResult())
     monkeypatch.setattr(plugin_host, "load_plugin", load_plugin)
 

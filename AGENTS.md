@@ -45,7 +45,7 @@ config/tenko.toml.example    # 配置模板
   维护。
   服务器上的既有环境名为 `.venv-entari`，两种方式并存时以 uv 为准。
   自更新（`/升级`、`/回滚`）按目标版本目录的 `uv.lock` 执行
-  `uv sync --frozen --inexact --no-install-workspace`，实现见 `UvDependencySync`。
+  `uv sync --frozen --inexact --no-editable`，实现见 `UvDependencySync`。
   第三方插件装在同一个环境里，所以不能手动或在更新器里用默认的精确 `uv sync`
   （会卸载插件依赖）；手工同步生产环境时同样加 `--inexact`。
 

@@ -377,10 +377,10 @@ remote（例如 `origin`），会在加载配置时用 `git remote get-url` 将�
    执行切换后的健康检查，然后在 fresh Python 进程中重新执行 active 版本。配置、
    SQLite 数据库和 `.tenko/` 下的运行状态仍使用稳定根目录中的原有路径。
 
-依赖同步等价于 `uv sync --frozen --inexact --no-install-workspace --project <版本目录>`，
+依赖同步等价于 `uv sync --frozen --inexact --no-editable --project <版本目录>`，
 目标是当前运行的虚拟环境。第三方插件与宿主共用这个环境，所以用 `--inexact` 保留锁文件
-之外的插件依赖（默认的精确同步会把它们卸载）；`tenko-api` 由宿主通过 `sys.path` 提供，
-不安装。需要 `uv` 可执行文件（`PATH` 或环境变量 `UV`）；没有 `uv.lock` 的旧版本目录
+之外的插件依赖（默认的精确同步会把它们卸载）；`tenko-api` 以普通包装入，
+环境里登记的版本始终与宿主一致。需要 `uv` 可执行文件（`PATH` 或环境变量 `UV`）；没有 `uv.lock` 的旧版本目录
 跳过同步。插件自己需要的包版本与锁文件冲突时以锁文件为准，导入检查会暴露由此造成的
 插件加载失败。
 

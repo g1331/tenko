@@ -1531,9 +1531,9 @@ class UvDependencySync:
 
     第三方插件与宿主共用同一个虚拟环境，所以不用 ``uv sync`` 默认的精确同步
     （会卸载锁文件之外的插件依赖），而是 ``--inexact``：只安装、升级或降级锁文件
-    里的包，不删除多余的包。``--no-install-workspace`` 跳过 ``tenko-api``：宿主启动时
-    已把 ``packages/tenko-api/src`` 放到 ``sys.path`` 最前，不需要也不应安装指向
-    可能被清理的版本目录的可编辑安装。升级和回滚都调用它：回滚时传入上一版本目录，
+    里的包，不删除多余的包。``--no-editable`` 把 ``tenko-api`` 作为普通包装入：
+    环境里登记的版本要跟随宿主，插件解析依赖时看到的才是真实版本；可编辑安装又会
+    指向可能被清理的版本目录。升级和回滚都调用它：回滚时传入上一版本目录，
     即恢复上一版本的锁文件。
     """
 
@@ -1561,7 +1561,7 @@ class UvDependencySync:
             "sync",
             "--frozen",
             "--inexact",
-            "--no-install-workspace",
+            "--no-editable",
             "--project",
             str(release_root),
         ]

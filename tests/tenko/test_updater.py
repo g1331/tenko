@@ -1770,7 +1770,7 @@ def test_uv_dependency_sync_is_inexact_and_targets_running_environment(
         "sync",
         "--frozen",
         "--inexact",
-        "--no-install-workspace",
+        "--no-editable",
         "--project",
         str(release),
     ]

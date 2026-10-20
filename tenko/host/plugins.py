@@ -23,6 +23,7 @@ from arclet.entari.plugin import (
     plugin_service,
 )
 from loguru import logger
+from packaging.requirements import InvalidRequirement, Requirement
 
 from ..context import MessageContext
 
@@ -79,6 +80,32 @@ def external_plugin_version(plugin_id: str) -> str:
             dist = getattr(entry, "dist", None)
             return str(getattr(dist, "version", None) or "unknown")
     return "unknown"
+
+
+def api_incompatibility(plugin_id: str) -> str | None:
+    """插件声明的 ``tenko-api`` 范围不包含宿主版本时返回原因，否则 ``None``。
+
+    ``uv pip install`` 遇到不兼容的范围不会拒绝，而是把环境里的 ``tenko-api`` 换成
+    插件要的版本；宿主却始终用自带的源码，所以加载前按宿主实际版本再查一次。
+    """
+
+    from tenko_api import __version__ as host_version
+
+    for entry in entry_points(group=EXTERNAL_ENTRY_POINT_GROUP):
+        if entry.name != plugin_id or entry.dist is None:
+            continue
+        for line in getattr(entry.dist, "requires", None) or ():
+            try:
+                requirement = Requirement(line)
+            except InvalidRequirement:
+                continue
+            if requirement.name.replace("_", "-").lower() != "tenko-api":
+                continue
+            if requirement.marker and not requirement.marker.evaluate({"extra": ""}):
+                continue
+            if not requirement.specifier.contains(host_version, prereleases=True):
+                return f"要求 tenko-api{requirement.specifier}，宿主提供 {host_version}"
+    return None
 
 
 @dataclass(frozen=True, slots=True)
@@ -435,6 +462,9 @@ class PluginRuntime:
         external_configs = {} if external_configs is None else external_configs
         for info in self._discovered.values():
             if info.source != "external" or info.name not in enabled:
+                continue
+            if reason := api_incompatibility(info.name):
+                logger.error("第三方插件 {} 未加载：{}", info.name, reason)
                 continue
             config = external_configs.get(info.name)
             try:
