@@ -88,7 +88,8 @@ print(json.dumps(rows))
 """.strip()
 
 SourceKind = Literal["pypi", "git"]
-Trust = Literal["official", "registered", "unlisted"]
+_PLUGIN_PREFIXES = ("tenko-plugin-", "entari-plugin-")
+Trust = Literal["official", "listed", "unlisted"]
 
 
 class PluginManagerError(RuntimeError):
@@ -117,15 +118,16 @@ class PluginManagerError(RuntimeError):
 class PluginSource:
     """一次安装的来源。
 
-    P3 的插件目录（registry）只需要产出同样的结构：把目录条目解析成 ``requirement``
-    （固定版本或提交号）和 ``expected_id``，并把 ``trust`` 设为 ``official`` 或
-    ``registered``；聊天命令据此决定是否要二次确认。
+    插件目录的条目由 :func:`tenko.host.registry.source_for` 转成同样的结构：``requirement``
+    固定到版本或提交号，``trust`` 取目录的等级，``expected_id`` 是目录登记的插件 ID，
+    ``pins`` 是目录登记的文件哈希（解析出的哈希必须都在其中）。
     """
 
     requirement: str
     kind: SourceKind
     trust: Trust = "unlisted"
     expected_id: str | None = None
+    pins: tuple[str, ...] = ()
 
 
 def parse_source(spec: str) -> PluginSource:
@@ -145,6 +147,13 @@ def parse_source(spec: str) -> PluginSource:
     if requirement.url:
         raise PluginManagerError(
             "解析来源", "只接受 PyPI 包名或 Git URL，不接受其他直接链接"
+        )
+    # 防止插件 ID 打错或目录不可用时，把同名的无关 PyPI 包当成插件装上（安装即执行代码）。
+    if not canonicalize_name(requirement.name).startswith(_PLUGIN_PREFIXES):
+        raise PluginManagerError(
+            "解析来源",
+            f"{requirement.name} 不在插件目录里，且不是 tenko-plugin-* 或 "
+            "entari-plugin-* 包；请检查插件 ID 或包名",
         )
     return PluginSource(str(requirement), "pypi")
 
@@ -773,6 +782,19 @@ class PluginManager:
         }
 
     @staticmethod
+    def _check_pins(source: PluginSource, lock: str, dist: str) -> None:
+        """目录来源：解析出的文件哈希必须都是目录登记过的。"""
+
+        if not source.pins:
+            return
+        block = _lock_entries(lock).get(canonicalize_name(dist), "")
+        hashes = set(_HASH.findall(block))
+        if not hashes or not hashes <= set(source.pins):
+            raise PluginManagerError(
+                "解析依赖", f"{dist} 的文件哈希与插件目录登记的不一致，已停止"
+            )
+
+    @staticmethod
     def _git_dist(old_lock: str, new_lock: str) -> str:
         old, new = _lock_entries(old_lock), _lock_entries(new_lock)
         urls = [
@@ -801,6 +823,7 @@ class PluginManager:
             )
             if any(canonicalize_name(r["dist"]) == dist for r in records.values()):
                 raise PluginManagerError("解析来源", f"{dist} 已安装，请用 /更新插件")
+            self._check_pins(source, new_lock, dist)
             created: list[tuple[str, dict[str, Any]]] = []
 
             def make(entries):
@@ -820,7 +843,10 @@ class PluginManager:
             )
 
     def _update(
-        self, plugin_id: str | None, source: PluginSource | None, actor: str | None
+        self,
+        plugin_id: str | None,
+        sources: Mapping[str, PluginSource],
+        actor: str | None,
     ) -> list[PluginChange]:
         with self._exclusive():
             records = _records(self.runtime.read_state())
@@ -828,20 +854,20 @@ class PluginManager:
                 raise PluginManagerError(
                     "解析来源", f"{plugin_id} 不是由插件管理器安装的"
                 )
+            for pid, source in sources.items():
+                if pid not in records or source.kind != records[pid]["source"]:
+                    raise PluginManagerError(
+                        "解析来源", "新来源必须属于已安装的插件，且与原来的来源类型一致"
+                    )
             targets = (
                 [plugin_id]
                 if plugin_id
                 else [i for i, r in records.items() if r["source"] == "pypi"]
             )
-            if source is not None and (
-                plugin_id is None or source.kind != records[plugin_id]["source"]
-            ):
-                raise PluginManagerError(
-                    "解析来源", "新来源必须指定插件，且与原来的来源类型一致"
-                )
-            requirements = {i: r["requirement"] for i, r in records.items()}
-            if source is not None:
-                requirements[plugin_id] = source.requirement
+            requirements = {
+                i: sources[i].requirement if i in sources else r["requirement"]
+                for i, r in records.items()
+            }
             old_lock = self._read_lock()
             new_lock = self._compile(
                 list(requirements.values()),
@@ -849,23 +875,25 @@ class PluginManager:
                 upgrade=[
                     records[i]["dist"]
                     for i in targets
-                    if records[i]["source"] == "pypi"
+                    if records[i]["source"] == "pypi" and i not in sources
                 ],
             )
-            if new_lock == old_lock and source is None:
+            if new_lock == old_lock and not sources:
                 return []
+            for pid, source in sources.items():
+                self._check_pins(source, new_lock, records[pid]["dist"])
             new_records: dict[str, dict[str, Any]] = {}
 
             def make(entries):
                 nonlocal new_records
                 new_records = {}
                 for pid, old in records.items():
-                    if pid not in targets and (pid != plugin_id):
+                    if pid not in targets and pid not in sources:
                         new_records[pid] = old
                         continue
-                    dist = canonicalize_name(old["dist"])
+                    trust = sources[pid].trust if pid in sources else old["trust"]
                     pid_new, rec = self._record(
-                        dist, old["source"], old["trust"],
+                        canonicalize_name(old["dist"]), old["source"], trust,
                         requirements[pid], new_lock, entries,
                         expected_id=pid, actor=actor, known_ids={}, previous=old,
                     )  # fmt: skip
@@ -878,7 +906,8 @@ class PluginManager:
                     "update", pid, rec["dist"], records[pid]["version"], rec["version"]
                 )
                 for pid, rec in new_records.items()
-                if rec["version"] != records[pid]["version"] or source is not None
+                if rec["version"] != records[pid]["version"]
+                or rec["requirement"] != records[pid]["requirement"]
             ]
 
     def _uninstall(
@@ -1069,12 +1098,23 @@ class PluginManager:
         plugin_id: str | None = None,
         source: PluginSource | None = None,
         *,
+        sources: Mapping[str, PluginSource] | None = None,
         actor: str | None = None,
     ) -> list[PluginChange]:
-        """更新插件；不带 ID 时更新全部 PyPI 来源的插件，``[]`` 表示已是最新。"""
+        """更新插件；``[]`` 表示已是最新。
 
+        不带 ID 时把全部 PyPI 来源的插件升级到兼容的最新版本；``sources`` 为若干插件
+        指定新来源（目录里的新版本、新的 Git tag）。``source`` 是只更新 ``plugin_id``
+        时的简写。
+        """
+
+        targets = dict(sources or {})
+        if source is not None:
+            if plugin_id is None:
+                raise PluginManagerError("解析来源", "指定新来源时必须给出插件 ID")
+            targets[plugin_id] = source
         return await asyncio.to_thread(
-            self._audited, "update", actor, lambda: self._update(plugin_id, source, actor),
+            self._audited, "update", actor, lambda: self._update(plugin_id, targets, actor),
             plugin=plugin_id,
         )  # fmt: skip
 

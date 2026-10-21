@@ -634,6 +634,23 @@ class DebugConfig:
 
 
 @dataclass(frozen=True, slots=True)
+class RegistryConfig:
+    """第三方插件目录地址，按顺序回退。"""
+
+    urls: tuple[str, ...] = (
+        "https://g1331.github.io/tenko-registry/index.json",
+        "https://cdn.jsdelivr.net/gh/g1331/tenko-registry@gh-pages/index.json",
+    )
+
+    @classmethod
+    def from_mapping(cls, section: Mapping[str, Any]) -> RegistryConfig:
+        urls = _string_sequence(section, "urls", cls().urls)
+        if not urls or not all(url.startswith("https://") for url in urls):
+            raise ValueError("[registry] urls 必须是非空的 https 地址列表")
+        return cls(urls=urls)
+
+
+@dataclass(frozen=True, slots=True)
 class UpgradeConfig:
     """宿主升级策略配置。
 
@@ -921,6 +938,7 @@ class TenkoConfig:
     runtime: RuntimeConfig = field(default_factory=RuntimeConfig)
     upgrade: UpgradeConfig = field(default_factory=UpgradeConfig)
     debug: DebugConfig = field(default_factory=DebugConfig)
+    registry: RegistryConfig = field(default_factory=RegistryConfig)
     accounts: AccountsConfig = field(default_factory=AccountsConfig)
     features: FeaturesConfig = field(default_factory=FeaturesConfig)
     ratelimit: RateLimitConfig = field(default_factory=RateLimitConfig)
@@ -983,6 +1001,7 @@ class TenkoConfig:
             upgrade=UpgradeConfig.from_mapping(
                 _section(normalized, "upgrade"), inherited_superuser_ids=superuser_ids
             ),
+            registry=RegistryConfig.from_mapping(_section(normalized, "registry")),
             accounts=AccountsConfig.from_mapping(_section(normalized, "accounts")),
             features=FeaturesConfig.from_mapping(_section(normalized, "features")),
             ratelimit=RateLimitConfig.from_mapping(_section(normalized, "ratelimit")),

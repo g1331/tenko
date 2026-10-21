@@ -29,6 +29,7 @@ from .host.account_management import AccountManagement
 from .host.actions import action_service
 from .host.features import CommandPolicy, configure_feature_service
 from .host.plugin_manager import get_plugin_manager
+from .host.registry import configure_registry
 from .host.plugins import PluginRuntime
 from .host.quote import quote_group_reply
 from .host.ratelimit import configure_rate_limiter
@@ -63,6 +64,7 @@ class TenkoRuntime:
             blacklist_seconds=config.ratelimit.blacklist_seconds,
         )
         startup_history.configure(None)
+        configure_registry(config.registry.urls)
         stable_root = Path.cwd().resolve()
         self.updater = UpgradeManager.from_config(
             config.upgrade,

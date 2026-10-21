@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import sqlite3
+from dataclasses import replace
 import subprocess
 import sys
 from contextlib import closing
@@ -115,6 +116,9 @@ def test_parse_source_requires_ref_and_rejects_credentials() -> None:
         parse_source("https://github.com/o/r")
     with pytest.raises(PluginManagerError, match="令牌"):
         parse_source("https://u:secret@github.com/o/r@v1")
+    # 不在目录里的普通包名（比如打错的插件 ID）不能当成插件安装。
+    with pytest.raises(PluginManagerError, match="tenko-plugin-"):
+        parse_source("requests")
 
 
 @pytest.mark.asyncio
@@ -129,6 +133,12 @@ async def test_install_pins_host_api_and_locks_plugin_only(env, tmp_path) -> Non
         await manager.install(parse_source("tenko-plugin-bad"))
     assert raised.value.step == "解析依赖" and raised.value.restored is None
     assert env.freeze() == before and lock_text(tmp_path) == ""
+
+    # 目录来源：解析出的哈希不在目录登记的范围内时停止，环境不动。
+    pinned = replace(parse_source("tenko-plugin-foo"), trust="listed", pins=("0" * 64,))
+    with pytest.raises(PluginManagerError, match="哈希"):
+        await manager.install(pinned)
+    assert env.freeze() == before
 
     change = await manager.install(parse_source("tenko-plugin-foo"), actor="1")
     lock = lock_text(tmp_path)
@@ -338,3 +348,31 @@ async def test_precheck_reports_plugins_incompatible_with_new_host(
 
     assert list(await manager.incompatible(release)) == ["foo"]  # 插件要求 <1
     assert env.freeze() == before
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("loaded_plugin", ["plugin_manager"], indirect=True)
+async def test_blocked_plugins_are_disabled_but_kept(
+    loaded_plugin, tmp_path, monkeypatch
+) -> None:
+    from external_plugin_support import entry, patch_entry_points
+
+    from tenko.host.registry import parse_index
+
+    monkeypatch.chdir(tmp_path)
+    patch_entry_points(monkeypatch, entry("evil", "tenko_t_evil"), entry("fine", "x"))
+    runtime = PluginRuntime()
+    runtime.write_state({"enabled": ["evil", "fine"]})
+    index = parse_index(
+        {
+            "schema_version": 1,
+            "plugins": {},
+            "blocked": {"evil": {"reason": "恶意代码"}},
+        }
+    )
+
+    stopped = await loaded_plugin.enforce_blocklist(index)
+
+    assert stopped == ["<evil>：恶意代码"]
+    assert runtime.read_state()["enabled"] == ["fine"]
+    assert "evil" in {i.name for i in runtime.discover()}  # 只停用，不卸载

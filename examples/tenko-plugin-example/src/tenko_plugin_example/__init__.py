@@ -31,6 +31,8 @@ plugin.metadata(
     version="0.1.0",
     description="记录每位用户使用示例命令的次数，并保存备注。",
     config=ExampleConfig,
+    # 可选：插件目录会下载这张图，处理成 128×128 PNG 后自行托管。
+    # icon="https://raw.githubusercontent.com/you/tenko-plugin-example/main/icon.png",
 )
 # Tenko 专有元数据：按群开关、新群默认开启、每次调用计入限流窗口的权重，以及
 # 插件要求的群等级（低于它的群里命令被静默忽略，ActiveGroup 即默认值）。

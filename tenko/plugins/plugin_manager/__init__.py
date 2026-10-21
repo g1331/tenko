@@ -1,27 +1,52 @@
-"""第三方插件的安装、更新、卸载与回滚命令（Master，群聊和私聊都可用）。
+"""第三方插件的目录、安装、更新、卸载与回滚命令（Master，群聊和私聊都可用）。
 
-操作都在重启后才生效，复用 ``/重启``。来源不在插件目录里的（目前所有来源都是）
-安装前要二次确认；确认只接受发起命令的同一个人在同一个会话里的回复。
+操作都在重启后才生效，复用 ``/重启``。插件目录里的插件直接安装；不在目录里的来源
+安装前要二次确认，确认只接受发起命令的同一个人在同一个会话里的回复。目录每小时刷新
+一次，已安装的插件被目录封禁时立即停用，并私聊通知 Master。
 """
 
 from __future__ import annotations
 
 import asyncio
+from datetime import timedelta
 
 from arclet.alconna import Alconna, Args, CommandMeta
-from arclet.entari import MessageChain, MessageCreatedEvent, Session, command, plugin
+from arclet.entari import (
+    MessageChain,
+    MessageCreatedEvent,
+    Ready,
+    Session,
+    command,
+    plugin,
+    scheduler,
+)
 from arclet.entari.command import Match, Query
 from arclet.entari.plugin import PluginRole
+from loguru import logger
+from packaging.requirements import Requirement
+from packaging.version import Version
+from satori import Text
 
+from tenko.host.accounts import account_registry
 from tenko.host.guards import require
-from tenko.host.perm import Permission
+from tenko.host.perm import Permission, superuser_ids
 from tenko.host.plugin_manager import (
     PluginChange,
     PluginManagerError,
+    PluginSource,
     get_plugin_manager,
     parse_source,
 )
 from tenko.host.plugins import PluginRuntime, api_incompatibility
+from tenko.host.registry import (
+    RegistryError,
+    RegistryIndex,
+    RegistryPlugin,
+    compatible,
+    get_registry,
+    source_for,
+    why_incompatible,
+)
 from tenko.plugins._common import context_from_session
 
 plugin.metadata(
@@ -29,11 +54,13 @@ plugin.metadata(
     PluginRole.NORMAL,
     author=["Tenko"],
     version="0.1.0",
-    description="安装、更新、卸载、回滚第三方插件，并恢复插件环境。",
+    description="浏览插件目录，安装、更新、卸载、回滚第三方插件，并恢复插件环境。",
     classifier=["required", "host"],
 )
 
 _YES = frozenset({"是", "y", "yes", "确认"})
+_TIER = {"official": "官方", "listed": "已收录", "unlisted": "未收录"}
+_MARKET_LIMIT = 20
 _UNLISTED_WARNING = (
     "来源未经 Tenko 检查：插件与 bot 拥有相同的权限（账号、数据库、文件系统）。"
     "Git 来源在安装时还会运行仓库里的构建脚本。"
@@ -77,22 +104,47 @@ install_command = Alconna(
     "安装插件",
     Args["source", str],
     meta=CommandMeta(
-        "安装第三方插件（PyPI 包名或带 tag/提交号的 Git URL），重启后生效",
-        usage="安装插件 <包名[版本范围]|Git URL@tag>",
-        example="/安装插件 tenko-plugin-example\n/安装插件 https://github.com/o/r@v1.0.0",
+        "安装第三方插件：插件目录里的 ID（可带 @版本），或未收录的 PyPI 包名、"
+        "带 tag/提交号的 Git URL；重启后生效",
+        usage="安装插件 <插件ID[@版本]|包名|Git URL@tag>",
+        example="/安装插件 example\n/安装插件 example@0.1.0\n"
+        "/安装插件 https://github.com/o/r@v1.0.0",
         compact=False,
     ),
 )
+
+
+async def resolve_source(spec: str) -> tuple[PluginSource, str]:
+    """先查插件目录，查不到再按未收录来源解析；返回来源和给 Master 看的说明。"""
+
+    if "://" not in spec and (found := await get_registry().resolve(spec)):
+        entry, version = found
+        authors = "、".join(entry.authors) or "未署名"
+        return source_for(entry, version), (
+            f"{entry.name}（{entry.id}）{version.version}，"
+            f"{_TIER[entry.tier]}，作者 {authors}"
+        )
+    parsed = parse_source(spec)
+    index = get_registry().cached()
+    if index and (reason := index.blocked_reason(None, _dist_of(parsed))):
+        raise PluginManagerError("预检", f"该来源已被插件目录封禁：{reason}")
+    return parsed, parsed.requirement
+
+
+def _dist_of(source: PluginSource) -> str | None:
+    return Requirement(source.requirement).name if source.kind == "pypi" else None
 
 
 @command.on(install_command)
 @require(Permission.Master)
 async def install(session: Session, source: Match[str]):
     try:
-        parsed = parse_source(source.result)
+        parsed, label = await resolve_source(source.result)
     except PluginManagerError as error:
         return str(error)
-    if parsed.trust == "unlisted":
+    if parsed.trust != "unlisted":
+        await session.send(f"正在安装 {label}，请稍候…")
+    else:
         if not await ask(
             session,
             f"将从未收录的来源安装：{parsed.requirement}\n{_UNLISTED_WARNING}\n"
@@ -106,7 +158,7 @@ async def install(session: Session, source: Match[str]):
             frozenset({"确认安装"}),
         ):
             return "已取消"
-    await session.send("正在解析依赖并安装，请稍候…")
+        await session.send("正在解析依赖并安装，请稍候…")
     try:
         change = await get_plugin_manager().install(parsed, actor=_actor(session))
     except PluginManagerError as error:
@@ -121,7 +173,8 @@ update_command = Alconna(
     "更新插件",
     Args["plugin_id?", str]["source?", str],
     meta=CommandMeta(
-        "更新插件；不带 ID 时更新全部 PyPI 来源的插件，Git 来源需给出新的 URL@tag",
+        "更新插件；已收录的插件更新到目录里最新的可用版本，其余 PyPI 来源更新到兼容的"
+        "最新版本，未收录的 Git 来源需给出新的 URL@tag",
         usage="更新插件 [插件ID] [新的 Git URL@tag]",
         example="/更新插件\n/更新插件 example",
         compact=False,
@@ -136,6 +189,7 @@ async def update(
     plugin_id: Query[str] = Query("plugin_id", None),
     source: Query[str] = Query("source", None),
 ):
+    target = plugin_id.result if plugin_id.available else None
     try:
         parsed = parse_source(source.result) if source.available else None
     except PluginManagerError as error:
@@ -143,8 +197,9 @@ async def update(
     await session.send("正在检查并更新，请稍候…")
     try:
         changes = await get_plugin_manager().update(
-            plugin_id.result if plugin_id.available else None,
+            target,
             parsed,
+            sources={} if parsed else await registry_updates(target),
             actor=_actor(session),
         )
     except PluginManagerError as error:
@@ -153,6 +208,28 @@ async def update(
         return "已是最新版本"
     lines = [f"<{c.plugin_id}> {_version_change(c)}" for c in changes]
     return "已更新：\n" + "\n".join(lines) + "\n执行 /重启 后生效；不满意可 /回滚插件。"
+
+
+async def registry_updates(plugin_id: str | None) -> dict[str, PluginSource]:
+    """已收录的插件在目录里有更新的可用版本时，给出新来源（固定版本和哈希）。"""
+
+    rows = [r for r in get_plugin_manager().status() if r.trust != "unlisted"]
+    if not rows:
+        return {}
+    try:
+        index = await get_registry().load()
+    except RegistryError as error:
+        logger.warning("{}", error)
+        return {}
+    sources = {}
+    for row in rows:
+        if plugin_id not in (None, row.plugin_id):
+            continue
+        entry = index.plugins.get(row.plugin_id)
+        latest = entry and compatible(entry)
+        if latest and Version(latest.version) > Version(row.version):
+            sources[row.plugin_id] = source_for(entry, latest)
+    return sources
 
 
 uninstall_command = Alconna(
@@ -273,11 +350,16 @@ async def list_plugins(session: Session):
     rows = manager.status()
     if not rows:
         return "没有已安装的第三方插件"
+    index = get_registry().cached()  # 不联网；目录每小时刷新
     lines = []
     for row in rows:
         state = "已启用" if row.enabled else "未启用"
         restart = "，需要重启" if row.restart_required else ""
-        lines.append(f"{row.plugin_id} {row.version}（{row.source}，{state}{restart}）")
+        note = _registry_note(index, row) if index else ""
+        lines.append(
+            f"{row.plugin_id} {row.version}（{_TIER.get(row.trust, row.trust)}，"
+            f"{state}{restart}）{note}"
+        )
     try:
         drift = await asyncio.to_thread(manager.drift)
     except PluginManagerError:
@@ -309,6 +391,21 @@ disable_command = Alconna(
 )
 
 
+def _registry_note(index: RegistryIndex, row) -> str:
+    if reason := index.blocked_reason(row.plugin_id, row.dist):
+        return f" 已被目录封禁：{reason}"
+    entry = index.plugins.get(row.plugin_id)
+    if entry is None or row.trust == "unlisted":
+        return ""
+    installed = next((v for v in entry.versions if v.version == row.version), None)
+    if installed and installed.yanked:
+        return f" 此版本已撤回：{installed.yanked}"
+    latest = compatible(entry)
+    if latest and Version(latest.version) > Version(row.version):
+        return f" 可更新到 {latest.version}"
+    return ""
+
+
 async def _toggle(plugin_id: str, enabled: bool) -> str:
     runtime = PluginRuntime()
     info = next(
@@ -323,6 +420,13 @@ async def _toggle(plugin_id: str, enabled: bool) -> str:
         return f"没有已安装的第三方插件 {plugin_id}，见 /插件列表"
     if enabled and (reason := api_incompatibility(plugin_id)):
         return f"无法启用插件<{plugin_id}>：{reason}"
+    index = get_registry().cached()
+    row = next(
+        (r for r in get_plugin_manager().status() if r.plugin_id == plugin_id), None
+    )
+    dist = row.dist if row else None
+    if enabled and index and (reason := index.blocked_reason(plugin_id, dist)):
+        return f"无法启用插件<{plugin_id}>：已被插件目录封禁（{reason}）"
     if not await runtime.set_enabled(info, enabled):
         return f"插件<{plugin_id}>状态切换失败"
     if enabled:
@@ -342,3 +446,181 @@ async def enable(plugin_id: Match[str]):
 @require(Permission.Master)
 async def disable(plugin_id: Match[str]):
     return await _toggle(plugin_id.result, False)
+
+
+market_command = Alconna(
+    "插件市场",
+    Args["keyword?", str],
+    meta=CommandMeta(
+        "搜索插件目录，官方插件和能装在当前版本上的排在前面",
+        usage="插件市场 [关键词]",
+        example="/插件市场\n/插件市场 工具",
+        compact=False,
+    ),
+)
+detail_command = Alconna(
+    "插件详情",
+    Args["plugin_id", str],
+    meta=CommandMeta(
+        "查看插件目录里某个插件的简介、作者、来源和版本兼容性",
+        usage="插件详情 <插件ID>",
+        example="/插件详情 example",
+        compact=False,
+    ),
+)
+
+
+async def _index() -> RegistryIndex | str:
+    try:
+        return await get_registry().load()
+    except RegistryError as error:
+        return str(error)
+
+
+@command.on(market_command)
+@require(Permission.Master)
+async def market(keyword: Query[str] = Query("keyword", None)):
+    index = await _index()
+    if isinstance(index, str):
+        return index
+    hits = index.search(keyword.result if keyword.available else "")
+    if not hits:
+        return "插件目录里没有匹配的插件"
+    installed = {r.plugin_id for r in get_plugin_manager().status()}
+    lines = []
+    for entry in hits[:_MARKET_LIMIT]:
+        latest = compatible(entry)
+        tags = "".join(
+            f"[{t}]"
+            for t, on in (
+                (_TIER[entry.tier], entry.tier == "official"),
+                ("已安装", entry.id in installed),
+                ("不兼容", latest is None),
+            )
+            if on
+        )
+        version = latest.version if latest else ""
+        summary = entry.description[:40]
+        lines.append(f"{entry.id} {entry.name} {version}{tags} — {summary}".strip())
+    more = (
+        f"（共 {len(hits)} 个，只显示前 {_MARKET_LIMIT} 个）"
+        if len(hits) > _MARKET_LIMIT
+        else ""
+    )
+    return (
+        f"插件目录{more}：\n"
+        + "\n".join(lines)
+        + "\n/插件详情 <ID> 查看详情，/安装插件 <ID> 安装"
+    )
+
+
+def format_detail(entry: RegistryPlugin, installed: str | None) -> str:
+    source = (
+        f"PyPI {entry.package}"
+        if entry.source_type == "pypi"
+        else f"Git {entry.git_url}"
+        + (f"（{entry.subdirectory}）" if entry.subdirectory else "")
+    )
+    latest = compatible(entry)
+    if latest:
+        state = f"可安装 {latest.version}"
+    elif entry.versions:
+        state = f"不能安装：{why_incompatible(entry.versions[0])}"
+    else:
+        state = "目录里还没有版本"
+    lines = [
+        f"{entry.name}（{entry.id}）",
+        f"等级：{_TIER[entry.tier]}",
+        f"作者：{'、'.join(entry.authors) or '未署名'}",
+        f"简介：{entry.description or '无'}",
+        f"来源：{source}",
+    ]
+    lines += [f"主页：{entry.homepage}"] if entry.homepage else []
+    lines += [f"许可证：{entry.license}"] if entry.license else []
+    lines += [f"标签：{'、'.join(entry.tags)}"] if entry.tags else []
+    lines.append(f"状态：{state}" + (f"（已安装 {installed}）" if installed else ""))
+    if entry.versions:
+        lines.append("最近版本：")
+        for item in entry.versions[:5]:
+            lines.append(f"- {item.version} {why_incompatible(item) or '可安装'}")
+    return "\n".join(lines)
+
+
+@command.on(detail_command)
+@require(Permission.Master)
+async def detail(plugin_id: Match[str]):
+    index = await _index()
+    if isinstance(index, str):
+        return index
+    entry = index.find(plugin_id.result)
+    if entry is None:
+        return f"插件目录里没有 {plugin_id.result}"
+    if reason := index.blocked_reason(entry.id, entry.dist):
+        return f"插件 {entry.id} 已被目录封禁：{reason}"
+    row = next(
+        (r for r in get_plugin_manager().status() if r.plugin_id == entry.id), None
+    )
+    return format_detail(entry, row.version if row else None)
+
+
+async def enforce_blocklist(index: RegistryIndex) -> list[str]:
+    """停用被目录封禁、仍在启用的插件（不卸载，数据保留），返回停用说明。"""
+
+    runtime = PluginRuntime()
+    infos = {i.name: i for i in runtime.discover() if i.source == "external"}
+    rows = {r.plugin_id: r for r in get_plugin_manager().status()}
+    enabled = set(runtime.read_state()["enabled"])
+    stopped = []
+    for plugin_id in sorted(enabled & set(infos)):
+        row = rows.get(plugin_id)
+        reason = index.blocked_reason(plugin_id, row.dist if row else None)
+        if reason and await runtime.set_enabled(infos[plugin_id], False):
+            stopped.append(f"<{plugin_id}>：{reason}")
+    return stopped
+
+
+async def notify_masters(text: str) -> None:
+    """用第一个在线账号私聊该平台的全部 Master。"""
+
+    account = next(
+        (
+            a
+            for a in account_registry.accounts.values()
+            if account_registry.is_available(a)
+        ),
+        None,
+    )
+    if account is None:
+        logger.warning("没有在线账号，无法通知 Master：{}", text)
+        return
+    for user_id in superuser_ids(getattr(account, "platform", "onebot")):
+        try:
+            await account.protocol.send_private_message(user_id, [Text(text)])
+        except Exception:
+            logger.exception("通知 Master {} 失败", user_id)
+
+
+async def refresh_registry() -> None:
+    try:
+        index = await get_registry().load(refresh=True)
+    except RegistryError as error:
+        logger.warning("{}", error)
+        return
+    if stopped := await enforce_blocklist(index):
+        text = (
+            "以下第三方插件已被插件目录封禁，已自动停用（未卸载，数据保留）：\n"
+            + "\n".join(stopped)
+            + "\n确认后可用 /卸载插件 移除。"
+        )
+        logger.warning(text)
+        await notify_masters(text)
+
+
+@plugin.listen(Ready)
+async def on_ready():
+    await refresh_registry()
+
+
+@scheduler.schedule(lambda: timedelta(hours=1), label="tenko-plugin-registry")
+async def scheduled_refresh():
+    await refresh_registry()

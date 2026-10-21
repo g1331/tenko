@@ -179,6 +179,14 @@ _POSITIVE_CASES: dict[str, dict[str, tuple[str, ...]]] = {
         "positive": ("/插件列表",),
         "boundary": ("/插件列表-1", "/ 插件列表"),
     },
+    "插件市场": {
+        "positive": ("/插件市场", "/插件市场 工具"),
+        "boundary": ("/插件市场-1", "/ 插件市场"),
+    },
+    "插件详情": {
+        "positive": ("/插件详情 example",),
+        "boundary": ("/插件详情-1", "/ 插件详情"),
+    },
     "启用插件": {
         "positive": ("/启用插件 example",),
         "boundary": ("/启用插件-1", "/ 启用插件"),

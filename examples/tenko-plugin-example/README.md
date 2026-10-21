@@ -81,6 +81,16 @@ uv run ruff check .
 `uv pip install "tenko-plugin-xxx @ git+https://github.com/<你>/<仓库>@<标签或提交>"`，
 请固定到标签或提交哈希。
 
+## 收录到插件目录
+
+发布到 PyPI（或打好 Git 标签）后，在 [tenko-registry](https://github.com/g1331/tenko-registry)
+用投稿表单填写来源即可。插件 ID、名称、简介、作者、许可证和兼容范围都由目录的 CI 从
+`pyproject.toml` 和 `plugin.metadata(...)` 读取，之后的新版本也会自动追加。
+
+图标可选：在 `plugin.metadata(icon="https://…")` 里给出图片地址，或在投稿表单里上传。接受
+PNG、WebP、JPEG，边长至少 64 px；目录会裁成正方形、缩放到 128×128 PNG 并自行托管，Tenko
+只显示目录托管的图标。
+
 ## 兼容性
 
 `tenko-api` 遵循语义化版本（1.0 之前为预览，接口可能调整）。插件声明的范围由宿主在

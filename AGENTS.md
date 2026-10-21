@@ -180,8 +180,13 @@ config/tenko.toml.example    # 配置模板
   入口和版本或提交号、`DefaultHealthChecker` 的子进程导入检查并额外导入目标插件）→ 提交
   （`_commit`：临时锁 → `state.json` 记锁哈希，这是提交点 → 替换锁；`startup_check` 补完中断的
   提交）；失败即按旧锁恢复。卸载用 `defer=True`：只改锁和记录，包记进 `pending_removal`，
-  由 `startup_check`（`TenkoRuntime` 在加载插件前调用）或 `reconcile` 删除。来源由 `parse_source` 解析为 `PluginSource`，P3 的插件目录只需产出带
-  `trust`、`expected_id` 的同一结构。命令仅限 Master（群聊私聊均可），未收录来源二次确认，
+  由 `startup_check`（`TenkoRuntime` 在加载插件前调用）或 `reconcile` 删除。来源由 `parse_source` 解析为 `PluginSource`；未收录的 PyPI 包名必须以
+  `tenko-plugin-` 或 `entari-plugin-` 开头。插件目录客户端在 `tenko/host/registry.py`：
+  `[registry] urls` 按序回退，内存和 `.tenko/plugins/registry/` 缓存一小时，只解析 schema v1
+  的已知字段（坏条目跳过），图标按文件名里的哈希前缀校验后缓存到本地；`source_for` 把目录条目
+  转成固定版本加 `pins`（登记的文件哈希，`_check_pins` 要求解析出的哈希都在其中）的
+  `PluginSource`。目录在 Ready 和每小时刷新，被封禁（按 ID 或分发名）的已启用插件立即停用并
+  私聊 Master。命令仅限 Master（群聊私聊均可），未收录来源二次确认，
   确认只接受同一人同一会话的回复。WebUI 直接调用 `PluginManager` 的公开方法。变更不热加载，
   重启后生效。宿主升级时 `UpgradeManager.prepare` 先用 `plugin_check`（即
   `PluginManager.incompatible`）以候选版本的宿主锁预检，不兼容抛 `PluginCompatibilityError`；
