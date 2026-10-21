@@ -99,18 +99,15 @@ class TenkoRuntime:
         )
 
     async def _check_plugin_environment(self) -> None:
-        """环境与插件锁不一致（例如执行了 uv sync）时告警，不自动联网安装。"""
+        """加载插件前核对插件环境：删除已卸载插件的包；不一致时只告警，不自动联网安装。"""
 
         try:
-            drift = await asyncio.to_thread(get_plugin_manager().drift)
+            problems = await asyncio.to_thread(get_plugin_manager().startup_check)
         except Exception as error:  # noqa: BLE001 - uv 缺失等不应阻止启动
             logger.warning("无法核对插件环境: {}", error)
             return
-        if drift:
-            logger.warning(
-                "插件环境与 plugins.lock 不一致（{}），Master 可执行 /同步插件环境 恢复",
-                "、".join(drift),
-            )
+        for problem in problems:
+            logger.warning(problem)
 
     def _configure_database_repositories(self) -> None:
         """将官方 database service 接入六类运行期状态。"""

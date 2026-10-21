@@ -6,6 +6,7 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 import pytest
+from arclet.entari.command import Match
 from satori import (
     Channel,
     ChannelType,
@@ -32,6 +33,8 @@ from tenko.host.updater import (
     UpdateChannel,
     Version,
 )
+
+NO_DROP = Match(None, False)
 
 
 def make_session(user_id: str, role: str = "member"):
@@ -192,7 +195,7 @@ async def test_upgrade_command_prepares_and_requests_external_install(
 
     session = make_session("90001")
 
-    result = await loaded_plugin.upgrade.callable_target(session)
+    result = await loaded_plugin.upgrade.callable_target(session, NO_DROP)
 
     assert result is None  # 提示已经通过 session 发出
     session.send.assert_awaited_once_with(
@@ -216,7 +219,7 @@ async def test_upgrade_command_installs_release_already_prepared(
     monkeypatch.setattr(manager, "spawn_restart_watcher", lambda: False)
     loaded_plugin.updater = manager
 
-    result = await loaded_plugin.upgrade.callable_target(make_session("90001"))
+    result = await loaded_plugin.upgrade.callable_target(make_session("90001"), NO_DROP)
 
     assert "升级操作失败" not in str(result)
     assert manager.layout.handoff_file.is_file()
@@ -234,7 +237,7 @@ async def test_upgrade_command_reports_no_update_without_preparing(
     )
     loaded_plugin.updater = fake
 
-    result = await loaded_plugin.upgrade.callable_target(make_session("90001"))
+    result = await loaded_plugin.upgrade.callable_target(make_session("90001"), NO_DROP)
 
     assert "当前已是最新版本" in str(result)
     assert fake.prepare_calls == 0
@@ -271,7 +274,7 @@ async def test_upgrade_command_only_mentions_manual_restart_when_watcher_arm_fai
     fake.watcher_armed = False
     loaded_plugin.updater = fake
 
-    result = await loaded_plugin.upgrade.callable_target(make_session("90001"))
+    result = await loaded_plugin.upgrade.callable_target(make_session("90001"), NO_DROP)
 
     message = str(result)
     assert "请手动重启" in message

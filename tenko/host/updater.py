@@ -134,6 +134,20 @@ class DependencySyncError(UpdaterError):
     """按版本锁文件同步依赖失败。"""
 
 
+class PluginCompatibilityError(UpdaterError):
+    """已安装的第三方插件与新版本的宿主依赖不兼容；``reasons`` 是插件 ID 到原因。"""
+
+    def __init__(self, version: Version, reasons: Mapping[str, str]):
+        self.reasons = dict(reasons)
+        lines = [
+            f"- {'插件组合冲突' if pid == '*' else pid}：{_redact_text(why)[-300:]}"
+            for pid, why in self.reasons.items()
+        ]
+        super().__init__(
+            f"以下插件与 {version} 不兼容，已停止升级：\n" + "\n".join(lines)
+        )
+
+
 class UpgradeConfigError(UpdaterError, ValueError):
     """升级器配置无法构造。"""
 
@@ -2184,7 +2198,8 @@ class UpgradeManager:
         compatibility_checker: ConfigCompatibilityChecker | None = None,
         health_checker: Any | None = None,
         dependency_sync: Callable[[Path], Awaitable[None]] | None = None,
-        plugin_sync: Callable[[Path], Awaitable[None]] | None = None,
+        plugin_sync: Callable[..., Awaitable[None]] | None = None,
+        plugin_check: Callable[[Path], Awaitable[Mapping[str, str]]] | None = None,
         audit: AuditLogger | None = None,
         shutdown_callback: Callable[[], bool] | None = None,
     ) -> None:
@@ -2233,6 +2248,8 @@ class UpgradeManager:
         self.dependency_sync = dependency_sync
         # 宿主依赖同步之后重新应用并校验插件锁（见 PluginManager.reconcile）。
         self.plugin_sync = plugin_sync
+        # 准备新版本时用它的宿主锁预检插件（见 PluginManager.incompatible）。
+        self.plugin_check = plugin_check
         self.audit = audit or AuditLogger(self.layout.audit_file)
         self._shutdown_callback = shutdown_callback
         self._operation_lock = asyncio.Lock()
@@ -2421,6 +2438,10 @@ class UpgradeManager:
                 )
                 if not _health_ok(health):
                     raise HealthCheckFailed(_health_reason(health))
+                if self.plugin_check is not None and (
+                    reasons := await self.plugin_check(acquired)
+                ):
+                    raise PluginCompatibilityError(release.version, reasons)
                 final_path = self.layout.promote(acquired, release.version)
                 pending = {
                     # 指针字段保存可稳定解析的规范版本；原始 tag 保存在
@@ -2679,11 +2700,20 @@ class UpgradeManager:
         if not _health_ok(result):
             raise HealthCheckFailed(_health_reason(result))
 
-    async def _sync_dependencies(self, release: Path, *, strict: bool = True) -> None:
+    async def _sync_dependencies(
+        self,
+        release: Path,
+        *,
+        strict: bool = True,
+        leaving: Path | None = None,
+        restore: bool = False,
+    ) -> None:
         """同步宿主依赖，再重新应用并校验插件锁。
 
         ``strict`` 时插件环境不兼容会让切换失败并恢复旧版本（升级的默认行为）；
         回滚是紧急出口，不能被插件挡住，所以只记录审计，由 Master 事后处理。
+        ``leaving`` 和 ``restore`` 交给插件管理器：保存离开版本的插件锁，回到
+        某个版本时恢复它当时的插件锁。
         """
 
         if self.dependency_sync is not None:
@@ -2692,7 +2722,7 @@ class UpgradeManager:
         if self.plugin_sync is None:
             return
         try:
-            await self.plugin_sync(release)
+            await self.plugin_sync(release, leaving=leaving, restore=restore)
         except Exception as exc:
             reason = _redact_text(str(exc) or exc.__class__.__name__)
             if strict:
@@ -2700,11 +2730,13 @@ class UpgradeManager:
             logger.error("插件环境检查失败（已忽略，请执行 /同步插件环境）: {}", reason)
             self.audit.record("plugin-sync", result="failed", error=reason)
 
-    async def _restore_dependencies(self, release: Path) -> str:
+    async def _restore_dependencies(self, release: Path, leaving: Path) -> str:
         """切换失败后尽力把依赖恢复到仍在运行的版本；返回要追加到原因里的说明。"""
 
         try:
-            await self._sync_dependencies(release, strict=False)
+            await self._sync_dependencies(
+                release, strict=False, leaving=leaving, restore=True
+            )
         except Exception as exc:
             error = _redact_text(str(exc) or exc.__class__.__name__)
             logger.error(
@@ -2955,7 +2987,7 @@ class UpgradeManager:
                 # active.json 的替换是唯一切换点；应用根目录从不被覆盖。
                 if not already_active:
                     self.layout.write_pointer(target_path, target_version)
-                await self._sync_dependencies(target_path)
+                await self._sync_dependencies(target_path, leaving=source.path)
                 await self._health(target_path, phase="post-switch")
             except Exception as exc:
                 self.layout.write_pointer(source.path, source.version)
@@ -2970,7 +3002,7 @@ class UpgradeManager:
                 self.layout.clear_pending()
                 self.layout.clear_handoff()
                 reason = (str(exc) or exc.__class__.__name__) + (
-                    await self._restore_dependencies(source.path)
+                    await self._restore_dependencies(source.path, target_path)
                 )
                 logger.error(
                     "Tenko 升级到 {} 失败，已恢复 {}: {}",
@@ -3035,13 +3067,15 @@ class UpgradeManager:
         try:
             if not already_active:
                 self.layout.write_pointer(previous.path, previous.version)
-            await self._sync_dependencies(previous.path, strict=False)
+            await self._sync_dependencies(
+                previous.path, strict=False, leaving=source.path, restore=True
+            )
             await self._health(previous.path, phase="rollback")
         except Exception as exc:
             self.layout.write_pointer(source.path, source.version)
             failed_handoff, quarantine_error = self._discard_live_handoff(isolate=True)
             reason = (str(exc) or exc.__class__.__name__) + (
-                await self._restore_dependencies(source.path)
+                await self._restore_dependencies(source.path, previous.path)
             )
             logger.error(
                 "Tenko 回滚到 {} 失败，已恢复 {}: {}",
@@ -3245,6 +3279,10 @@ class UpgradeManager:
         data_dir = Path(configured_data_dir).expanduser()
         if not data_dir.is_absolute():
             data_dir = root / data_dir
+        # plugin_manager 依赖本模块，延迟导入避免循环。
+        from .plugin_manager import PluginManager
+
+        plugins = PluginManager()
         health_checker = DefaultHealthChecker(
             config.health_command,
             timeout=config.health_timeout,
@@ -3271,15 +3309,9 @@ class UpgradeManager:
             database_backup_enabled=database_backup_enabled,
             health_checker=health_checker,
             dependency_sync=UvDependencySync(),
-            plugin_sync=_plugin_environment_sync(),
+            plugin_sync=plugins.reconcile,
+            plugin_check=plugins.incompatible,
         )
-
-
-def _plugin_environment_sync() -> Callable[[Path], Awaitable[None]]:
-    # plugin_manager 依赖本模块，延迟导入避免循环。
-    from .plugin_manager import PluginManager
-
-    return PluginManager().reconcile
 
 
 def spawn_restart_watcher(

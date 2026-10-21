@@ -17,6 +17,7 @@ import pytest
 
 from tenko.config import TenkoConfig, UpgradeConfig
 from tenko.host.updater import (
+    PluginCompatibilityError,
     ArtifactVerificationError,
     AuditLogger,
     backup_sqlite_database,
@@ -1740,9 +1741,18 @@ async def test_incompatible_plugins_stop_upgrade_but_never_block_rollback(
     )
     broken = True
 
-    async def plugin_sync(release: Path) -> None:
+    async def plugin_sync(release: Path, **_kwargs) -> None:
         if broken:
             raise RuntimeError("tenko-plugin-x 要求 tenko-api<0.2")
+
+    async def plugin_check(release: Path) -> dict[str, str]:
+        return {"x": "tenko-plugin-x 要求 tenko-api<0.2"}
+
+    manager.plugin_check = plugin_check  # 准备阶段的预检：环境和指针都不动
+    with pytest.raises(PluginCompatibilityError, match="x：tenko-plugin-x"):
+        await manager.prepare()
+    assert not manager.layout.pending_file.exists()
+    manager.plugin_check = None
 
     manager.plugin_sync = plugin_sync
     await manager.prepare()

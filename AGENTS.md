@@ -177,12 +177,17 @@ config/tenko.toml.example    # 配置模板
   哈希或提交号、安装人和时间）在同目录 `state.json` 的 `plugins` 节。安装、更新、卸载、回滚走
   `PluginManager._transaction`：解析（环境不动）→ 备份到 `history/`（保留 5 份）→ 应用（卸载
   只在旧锁里的包，再 `uv pip install -r 锁 --no-deps`，从不碰宿主的包）→ 校验（环境符合锁、
-  入口和版本或提交号、`DefaultHealthChecker` 的子进程导入检查并额外导入目标插件）→ 提交；
-  失败即按旧锁恢复。来源由 `parse_source` 解析为 `PluginSource`，P3 的插件目录只需产出带
+  入口和版本或提交号、`DefaultHealthChecker` 的子进程导入检查并额外导入目标插件）→ 提交
+  （`_commit`：临时锁 → `state.json` 记锁哈希，这是提交点 → 替换锁；`startup_check` 补完中断的
+  提交）；失败即按旧锁恢复。卸载用 `defer=True`：只改锁和记录，包记进 `pending_removal`，
+  由 `startup_check`（`TenkoRuntime` 在加载插件前调用）或 `reconcile` 删除。来源由 `parse_source` 解析为 `PluginSource`，P3 的插件目录只需产出带
   `trust`、`expected_id` 的同一结构。命令仅限 Master（群聊私聊均可），未收录来源二次确认，
   确认只接受同一人同一会话的回复。WebUI 直接调用 `PluginManager` 的公开方法。变更不热加载，
-  重启后生效。宿主升级时 `UpgradeManager.plugin_sync`（即 `PluginManager.reconcile`）在
-  依赖同步后补回缺失的插件包并 `uv pip check`：升级严格（不兼容则失败并恢复旧版本），回滚只记审计。
+  重启后生效。宿主升级时 `UpgradeManager.prepare` 先用 `plugin_check`（即
+  `PluginManager.incompatible`）以候选版本的宿主锁预检，不兼容抛 `PluginCompatibilityError`；
+  切换时 `plugin_sync`（即 `PluginManager.reconcile`）把当时的插件锁存到离开的版本名下
+  （`.tenko/plugins/releases/`），回滚或失败退回时恢复目标版本存下的插件锁，再补回缺失的插件包并
+  `uv pip check`：升级严格（不兼容则失败并恢复旧版本），回滚只记审计。
   插件回滚到旧版本时通过 `request_db_restore` 让插件库在下次启动前还原为旧版本的备份。
   测试用本地 wheel 目录加 `UV_FIND_LINKS` / `UV_NO_INDEX`（`external_plugin_support.build_wheel`），不访问网络。
 - 插件不得删除表、删除列或修改列类型：宿主在官方迁移器上安装了“Schema 只前进”

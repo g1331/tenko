@@ -10,17 +10,20 @@ from __future__ import annotations
 import time
 from datetime import UTC, datetime, timedelta
 
-from arclet.alconna import Alconna, CommandMeta
+from arclet.alconna import Alconna, Args, CommandMeta
 from arclet.entari import Ready, Session, command, plugin, scheduler
+from arclet.entari.command import Match
 from arclet.entari.plugin import PluginRole
 from loguru import logger
 
 from tenko.host.guards import require
 from tenko.host.perm import Permission
+from tenko.host.plugin_manager import PluginManagerError, get_plugin_manager
 from tenko.host.updater import (
     CheckResult,
     HandoffResult,
     NoUpdateAvailable,
+    PluginCompatibilityError,
     PrepareResult,
     RollbackResult,
     UpdaterError,
@@ -57,10 +60,12 @@ check_command = Alconna(
 )
 upgrade_command = Alconna(
     "升级",
+    Args["drop?", "卸载不兼容插件"],
     meta=CommandMeta(
-        "下载并准备经过校验的 Tenko 宿主版本",
-        usage="升级",
-        example="/升级",
+        "下载并准备经过校验的 Tenko 宿主版本；带“卸载不兼容插件”时先卸载"
+        "与新版本不兼容的第三方插件（数据保留）",
+        usage="升级 [卸载不兼容插件]",
+        example="/升级\n/升级 卸载不兼容插件",
         compact=True,
     ),
 )
@@ -114,12 +119,23 @@ async def check_update(session: Session):
 
 @command.on(upgrade_command)
 @require(Permission.Master, checker=permission_checker)
-async def upgrade(session: Session):
+async def upgrade(session: Session, drop: Match[str]):
     try:
         checked = await updater.check()
         if checked.candidate is None:
             return _format_check(checked)
-        prepared = await updater.prepare(checked.candidate)
+        try:
+            prepared = await updater.prepare(checked.candidate)
+        except PluginCompatibilityError as exc:
+            if "*" in exc.reasons:  # 组合冲突：卸哪个由 Master 决定
+                return str(exc)
+            if not drop.available:
+                return f"{exc}\n可发送 /升级 卸载不兼容插件，先卸载它们（数据保留）再升级。"
+            for plugin_id in exc.reasons:
+                await get_plugin_manager().uninstall(
+                    plugin_id, actor=context_from_session(session).user_id
+                )
+            prepared = await updater.prepare(checked.candidate)
         handoff = await updater.request_install()
         watcher_armed = _arm_restart_watcher()
         response = _format_upgrade(prepared, handoff, watcher_armed)
@@ -128,7 +144,7 @@ async def upgrade(session: Session):
         return response
     except NoUpdateAvailable:
         return "没有可安装的新版本"
-    except UpdaterError as exc:
+    except (UpdaterError, PluginManagerError) as exc:
         return _error_message(exc)
 
 

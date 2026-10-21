@@ -12,12 +12,17 @@
 所以必须靠约束让解析器失败。
 
 所有变更（安装、更新、卸载、回滚）走同一个事务：解析（环境未动）→ 备份 → 应用 → 校验 →
-提交。应用或校验失败时按备份把环境恢复到原状。操作在重启后才生效，不做热加载。
+提交。应用或校验失败时按备份把环境恢复到原状。操作在重启后才生效，不做热加载；卸载连包也
+留到重启时（加载插件之前）再删，运行中的插件不会丢文件。
+
+``state.json`` 是提交点：它记录插件锁的哈希，锁先写到临时文件，``state.json`` 写完后再
+替换。两步之间中断时，启动检查会用临时文件补完提交。
 """
 
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 import os
 import re
@@ -232,6 +237,29 @@ def _now() -> str:
     return datetime.now(UTC).isoformat()
 
 
+def _sha(text: str) -> str:
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+
+def _commit_of(pin: str) -> str:
+    """Git 来源比较提交号；``uv pip freeze`` 和插件锁里 URL 的写法可能不同。"""
+
+    return m.group(1) if (m := _COMMIT.search(pin)) else pin
+
+
+def _api_version(host_root: Path) -> str | None:
+    """读取某个宿主版本目录里 tenko-api 的版本（用于升级前预检）。"""
+
+    path = host_root / "packages/tenko-api/src/tenko_api/__init__.py"
+    try:
+        matched = re.search(
+            r'^__version__\s*=\s*"([^"]+)"', path.read_text(encoding="utf-8"), re.M
+        )
+    except OSError:
+        return None
+    return matched.group(1) if matched else None
+
+
 class PluginManager:
     """插件锁与共享虚拟环境的管理器；公开方法都可由聊天命令或 WebUI 直接调用。"""
 
@@ -276,11 +304,36 @@ class PluginManager:
         except FileNotFoundError:
             return ""
 
-    def _write_lock(self, text: str) -> None:
-        self.lock_file.parent.mkdir(parents=True, exist_ok=True)
-        temp = self.lock_file.with_name(f"{LOCK_NAME}.tmp")
-        temp.write_text(text, encoding="utf-8")
-        os.replace(temp, self.lock_file)
+    @property
+    def _staged_lock(self) -> Path:
+        return self.lock_file.with_name(f"{LOCK_NAME}.tmp")
+
+    def _commit(self, lock: str, state: dict[str, Any]) -> None:
+        """提交插件锁和状态：临时锁 → ``state.json``（提交点）→ 替换锁。"""
+
+        self.plugin_dir.mkdir(parents=True, exist_ok=True)
+        self._staged_lock.write_text(lock, encoding="utf-8")
+        state["lock_sha256"] = _sha(lock)
+        self.runtime.write_state(state)
+        os.replace(self._staged_lock, self.lock_file)
+
+    def _repair_lock(self) -> str | None:
+        """锁与 ``state.json`` 记录的哈希不符时补完上次中断的提交；补不了时返回说明。"""
+
+        want = self.runtime.read_state().get("lock_sha256")
+        if want is None or _sha(self._read_lock()) == want:
+            self._staged_lock.unlink(missing_ok=True)  # 提交点之前中断：丢弃
+            return None
+        if self._staged_lock.is_file() and (
+            _sha(self._staged_lock.read_text(encoding="utf-8")) == want
+        ):
+            os.replace(self._staged_lock, self.lock_file)
+            logger.warning("插件锁上次没有写完，已按 state.json 补完")
+            return None
+        return (
+            "plugins.lock 与 state.json 记录的不一致（可能被手工修改过），"
+            "插件记录可能与环境不符；请用 /回滚插件 或重新安装相关插件"
+        )
 
     # ------------------------------------------------------------------ uv
 
@@ -321,13 +374,19 @@ class PluginManager:
                 )
         return installed
 
-    def _host_constraints(self, directory: Path) -> tuple[Path, frozenset[str]]:
+    def _host_constraints(
+        self, directory: Path, host_root: Path | None = None
+    ) -> tuple[Path, frozenset[str]]:
         """宿主锁加上宿主实际的 tenko-api 版本，作为解析约束。"""
 
         from tenko_api import __version__ as api_version
 
+        if host_root is None:
+            host_root = self.host_root
+        else:  # 预检新版本：用新版本自带的 tenko-api 版本
+            api_version = _api_version(host_root) or api_version
         lines: list[str] = []
-        if (self.host_root / "uv.lock").is_file():
+        if (host_root / "uv.lock").is_file():
             exported = self._uv(
                 "读取宿主锁",
                 "export",
@@ -338,7 +397,7 @@ class PluginManager:
                 "--no-annotate",
                 "--no-header",
                 "--project",
-                str(self.host_root),
+                str(host_root),
             ).stdout
             lines = [
                 line
@@ -347,7 +406,7 @@ class PluginManager:
                 and canonicalize_name(m["name"]) != "tenko-api"
             ]
         else:
-            logger.warning("{} 没有 uv.lock，插件解析只约束 tenko-api", self.host_root)
+            logger.warning("{} 没有 uv.lock，插件解析只约束 tenko-api", host_root)
         lines.append(f"tenko-api=={api_version}")
         names = frozenset(
             canonicalize_name(m["name"]) for line in lines if (m := _PIN.match(line))
@@ -362,6 +421,7 @@ class PluginManager:
         previous_lock: str,
         *,
         upgrade: Sequence[str] = (),
+        host_root: Path | None = None,
     ) -> str:
         """解析出完整的插件锁（环境不受影响）；以现有锁为偏好，未被要求升级的包不变。"""
 
@@ -369,7 +429,7 @@ class PluginManager:
             return _render_lock({})
         with tempfile.TemporaryDirectory(prefix="tenko-plugins-") as work:
             directory = Path(work)
-            constraints, host_names = self._host_constraints(directory)
+            constraints, host_names = self._host_constraints(directory, host_root)
             source, output = directory / "requirements.in", directory / LOCK_NAME
             source.write_text("\n".join(requirements) + "\n", encoding="utf-8")
             output.write_text(previous_lock, encoding="utf-8")
@@ -412,8 +472,12 @@ class PluginManager:
         bad = []
         for name, block in entries.items():
             pin = _pin(block)
-            have = installed.get(name)
-            if have is None or (pin["op"] == "==" and have != f"=={pin['value']}"):
+            have, want = installed.get(name), f"{pin['op']}{pin['value']}"
+            if have is None or (
+                have != want
+                if pin["op"] == "=="
+                else _commit_of(have) != _commit_of(want)
+            ):
                 bad.append(
                     f"{name}{pin['op']}{pin['value']}" if pin["op"] == "==" else name
                 )
@@ -533,8 +597,13 @@ class PluginManager:
         make_records: Callable[[list[dict[str, Any]]], dict[str, dict[str, Any]]],
         *,
         consume: Path | None = None,
+        defer: bool = False,
     ) -> dict[str, dict[str, Any]]:
-        """备份 → 应用 → 校验 → 提交；应用或校验失败时恢复环境并抛出异常。"""
+        """备份 → 应用 → 校验 → 提交；应用或校验失败时恢复环境并抛出异常。
+
+        ``defer`` 只用于卸载：不动环境，把要删的包记进 ``pending_removal``，
+        下次启动加载插件之前再删。
+        """
 
         state = self.runtime.read_state()
         old_records = _records(state)
@@ -550,20 +619,28 @@ class PluginManager:
         )
         step, new_records = "应用", None
         try:
-            self._apply(old_lock, new_lock)
-            step = "校验"
-            entries = self._entries()
-            new_records = make_records(entries)
-            self._verify(new_lock, old_records, new_records, entries)
-            changed = [
-                pid
-                for pid, rec in new_records.items()
-                if rec.get("version") != old_records.get(pid, {}).get("version")
-                or rec.get("requirement") != old_records.get(pid, {}).get("requirement")
-            ]
-            step = "子进程导入检查"
-            if not (result := self.import_check(changed)).ok:
-                raise PluginManagerError(step, result.reason)
+            if defer:
+                new_records = make_records([])
+                gone = set(_lock_entries(old_lock)) - set(_lock_entries(new_lock))
+                state["pending_removal"] = sorted(
+                    gone | set(state.get("pending_removal") or ())
+                )
+            else:
+                self._apply(old_lock, new_lock)
+                step = "校验"
+                entries = self._entries()
+                new_records = make_records(entries)
+                self._verify(new_lock, old_records, new_records, entries)
+                changed = [
+                    pid
+                    for pid, rec in new_records.items()
+                    if rec.get("version") != old_records.get(pid, {}).get("version")
+                    or rec.get("requirement")
+                    != old_records.get(pid, {}).get("requirement")
+                ]
+                step = "子进程导入检查"
+                if not (result := self.import_check(changed)).ok:
+                    raise PluginManagerError(step, result.reason)
         except Exception as error:
             restored = self._restore(old_lock, new_lock)
             for plugin_id in set(new_records or ()) - set(old_records) - had_data:
@@ -578,13 +655,12 @@ class PluginManager:
                 step, f"{type(error).__name__}: {error}", restored=restored
             ) from error
 
-        # 提交：先锁后状态；记录和启用列表写在同一个文件里。
-        self._write_lock(new_lock)
+        # 记录和启用列表写在同一个 state.json 里，和锁一起提交。
         state["plugins"] = new_records
         state["enabled"] = sorted(
             i for i in state["enabled"] if i in new_records or i not in old_records
         )
-        self.runtime.write_state(state)
+        self._commit(new_lock, state)
         if consume is not None:
             shutil.rmtree(consume, ignore_errors=True)
         return new_records
@@ -825,8 +901,9 @@ class PluginManager:
                 [r["requirement"] for r in records.values()], self._read_lock()
             )
             self._transaction(
-                "uninstall", actor, plugin_id, new_lock, lambda _e: dict(records)
-            )
+                "uninstall", actor, plugin_id, new_lock, lambda _e: dict(records),
+                defer=True,
+            )  # fmt: skip
             cleared = (
                 plugin_storage.clear_plugin_data(plugin_id) if clear_data else None
             )
@@ -889,8 +966,68 @@ class PluginManager:
                 )
             return bad
 
-    def _reconcile(self) -> None:
+    def _remove_pending(self) -> list[str]:
+        """删除卸载时留到重启才删的包；之后又被装回插件锁或属于宿主的包不删。"""
+
+        state = self.runtime.read_state()
+        if not (pending := state.get("pending_removal")):
+            return []
+        keep = set(_lock_entries(self._read_lock()))
+        with tempfile.TemporaryDirectory(prefix="tenko-plugins-") as work:
+            keep |= self._host_constraints(Path(work))[1]
+        if names := [n for n in pending if n not in keep]:
+            self._uv("卸载", "pip", "uninstall", "--python", self.python, *names)
+        state["pending_removal"] = []
+        self.runtime.write_state(state)
+        return names
+
+    def _release_file(self, release_root: Path) -> Path:
+        return self.plugin_dir / "releases" / f"{release_root.name}.json"
+
+    def _save_release(self, release_root: Path) -> None:
+        """宿主切换前，把插件锁和记录存到离开的那个版本名下，回滚到它时恢复。"""
+
+        path = self._release_file(release_root)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        state = self.runtime.read_state()
+        path.write_text(
+            json.dumps(
+                {"lock": self._read_lock(), "plugins": _records(state)},
+                ensure_ascii=False,
+                indent=2,
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+        saved = sorted(path.parent.glob("*.json"), key=lambda p: p.stat().st_mtime)
+        for stale in saved[:-HISTORY_KEEP]:
+            stale.unlink(missing_ok=True)
+
+    def _restore_release(self, release_root: Path) -> None:
+        path = self._release_file(release_root)
+        if not path.is_file():
+            return
+        saved = json.loads(path.read_text(encoding="utf-8"))
+        state = self.runtime.read_state()
+        old_records = _records(state)
+        self._apply(self._read_lock(), saved["lock"])
+        state["plugins"] = saved["plugins"]
+        state["enabled"] = sorted(
+            i for i in state["enabled"] if i in saved["plugins"] or i not in old_records
+        )
+        self._commit(saved["lock"], state)
+        logger.info("已恢复 {} 时的插件锁", release_root.name)
+
+    def _reconcile(
+        self, release_root: Path | None, leaving: Path | None, restore: bool
+    ) -> None:
         with self._exclusive(wait=True):
+            self._repair_lock()
+            if leaving is not None:
+                self._save_release(leaving)
+            if restore and release_root is not None:
+                self._restore_release(release_root)
+            self._remove_pending()
             lock = self._read_lock()
             names = set(_lock_entries(lock))
             if not names:
@@ -965,11 +1102,64 @@ class PluginManager:
         repaired = await asyncio.to_thread(self._audited, "sync", actor, self._sync_env)
         return repaired
 
-    async def reconcile(self, release_root: Path | None = None) -> None:
-        """宿主升级或回滚同步依赖之后调用：补回缺失的插件包，并检查与新依赖是否兼容。"""
+    async def reconcile(
+        self,
+        release_root: Path | None = None,
+        leaving: Path | None = None,
+        restore: bool = False,
+    ) -> None:
+        """宿主升级或回滚同步依赖之后调用：补回缺失的插件包，并检查与新依赖是否兼容。
 
-        del release_root
-        await asyncio.to_thread(self._audited, "reconcile", None, self._reconcile)
+        ``leaving`` 是切换前的宿主版本目录，当时的插件锁存到它名下；``restore`` 时
+        （回滚，或升级失败退回）恢复 ``release_root`` 名下存过的插件锁。
+        """
+
+        await asyncio.to_thread(
+            self._audited, "reconcile", None,
+            lambda: self._reconcile(release_root, leaving, restore),
+        )  # fmt: skip
+
+    def _incompatible(self, host_root: Path) -> dict[str, str]:
+        records = _records(self.runtime.read_state())
+        lock = self._read_lock()
+
+        def failure(requirements: list[str]) -> str | None:
+            try:
+                self._compile(requirements, lock, host_root=host_root)
+            except PluginManagerError as error:
+                return error.detail
+            return None
+
+        if (reason := failure([r["requirement"] for r in records.values()])) is None:
+            return {}
+        bad = {
+            pid: why
+            for pid, rec in records.items()
+            if (why := failure([rec["requirement"]])) is not None
+        }
+        return bad or {"*": reason}  # 单个都能解析，合在一起冲突
+
+    async def incompatible(self, host_root: Path) -> dict[str, str]:
+        """用新版本的宿主锁重新解析插件锁（环境不受影响），返回不兼容的插件和原因。
+
+        键 ``"*"`` 表示每个插件单独都兼容，但合在一起冲突。
+        """
+
+        return await asyncio.to_thread(self._incompatible, host_root)
+
+    def startup_check(self) -> list[str]:
+        """启动加载插件之前：补完中断的提交，删除待删的包，返回需要告警的问题。"""
+
+        with self._exclusive(wait=True):
+            problems = [p for p in [self._repair_lock()] if p]
+            if removed := self._remove_pending():
+                logger.info("已删除卸载插件留下的包: {}", "、".join(removed))
+            if drift := self._drift(self._read_lock()):
+                problems.append(
+                    f"插件环境与 plugins.lock 不一致（{'、'.join(drift)}），"
+                    "Master 可执行 /同步插件环境 恢复"
+                )
+            return problems
 
     # ------------------------------------------------------------ 查询
 

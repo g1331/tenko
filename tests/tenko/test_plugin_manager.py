@@ -188,7 +188,10 @@ async def test_uninstall_keeps_data_unless_cleared(env, tmp_path) -> None:
     wiped = await manager.uninstall("wipe", clear_data=True)
     assert wiped.data_cleared is True
     assert not (tmp_path / ".tenko/plugin-data/wipe").exists()
-    assert "tenko-plugin" not in env.freeze() and manager.status() == []
+    # 包留到重启：运行中的插件不能丢文件；启动检查在加载插件前删掉。
+    assert manager.status() == [] and "tenko-plugin-keep" in env.freeze()
+    assert manager.startup_check() == []
+    assert "tenko-plugin" not in env.freeze()
 
 
 @pytest.mark.asyncio
@@ -264,3 +267,74 @@ def test_install_confirmation_only_accepts_same_user_in_same_channel(
     assert not same_conversation(origin, event("other", "group-1"))
     # 同一个 Master 在私聊里回复，不能确认群里发起的安装。
     assert not same_conversation(origin, event("master", "private-master"))
+
+
+def test_drift_compares_git_sources_by_commit(env, tmp_path) -> None:
+    lock = tmp_path / ".tenko/plugins/plugins.lock"
+    lock.parent.mkdir(parents=True)
+    lock.write_text(f"tenko-plugin-g @ git+https://h/o/r@{'a' * 40}\n")
+    manager = env.manager()
+    installed = {"tenko-plugin-g": f"@ git+https://h/o/r.git@{'a' * 40}"}
+    manager._freeze = lambda: installed
+    assert manager.drift() == []
+    installed["tenko-plugin-g"] = f"@ git+https://h/o/r@{'b' * 40}"
+    assert manager.drift() == ["tenko-plugin-g"]
+
+
+@pytest.mark.asyncio
+async def test_startup_finishes_lock_commit_interrupted_after_state(
+    env, tmp_path
+) -> None:
+    env.plugin("foo")
+    manager = env.manager()
+    await manager.install(parse_source("tenko-plugin-foo"))
+    locked = lock_text(tmp_path)
+    lock = tmp_path / ".tenko/plugins/plugins.lock"
+    # state.json 已写入新锁的哈希，替换锁之前进程退出。
+    lock.rename(lock.with_name("plugins.lock.tmp"))
+    lock.write_text("")
+
+    assert manager.startup_check() == []
+    assert lock_text(tmp_path) == locked
+
+    lock.write_text("# edited by hand\n")
+    assert "不一致" in manager.startup_check()[0]
+
+
+@pytest.mark.asyncio
+async def test_host_rollback_restores_plugin_lock_saved_at_upgrade(
+    env, tmp_path
+) -> None:
+    env.plugin("foo")
+    env.plugin("bar")
+    manager = env.manager()
+    await manager.install(parse_source("tenko-plugin-foo"))
+    uv("pip", "install", "--python", str(env.python), f"tenko-api=={API_VERSION}")
+    old_lock = lock_text(tmp_path)
+    old, new = tmp_path / "v1", tmp_path / "v2"
+    await manager.reconcile(new, leaving=old)  # 升级 v1 -> v2
+    await manager.install(parse_source("tenko-plugin-bar"))
+
+    await manager.reconcile(old, leaving=new, restore=True)  # 回滚 v2 -> v1
+
+    assert lock_text(tmp_path) == old_lock
+    assert [row.plugin_id for row in manager.status()] == ["foo"]
+    assert "tenko-plugin-bar" not in env.freeze()
+
+
+@pytest.mark.asyncio
+async def test_precheck_reports_plugins_incompatible_with_new_host(
+    env, tmp_path
+) -> None:
+    env.plugin("foo")
+    manager = env.manager()
+    await manager.install(parse_source("tenko-plugin-foo"))
+    release = tmp_path / "release"
+    api = release / "packages/tenko-api/src/tenko_api/__init__.py"
+    api.parent.mkdir(parents=True)
+    api.write_text('__version__ = "1.0.0"\n')
+    env.wheel("tenko-api", "1.0.0")
+    before = env.freeze()
+
+    assert list(await manager.incompatible(release)) == ["foo"]  # 插件要求 <1
+    assert env.freeze() == before
