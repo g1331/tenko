@@ -79,7 +79,9 @@ async function save() {
             </el-select>
           </el-form-item>
         </div>
-        <p class="hint">绑定群：{{ account.groups.join('、') || '无' }}</p>
+        <p class="hint">
+          绑定 {{ account.groups.length }} 个群；响应策略在“群响应策略”面板中管理。
+        </p>
       </el-form>
     </template>
     <template #footer>

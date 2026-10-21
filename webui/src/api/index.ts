@@ -6,6 +6,8 @@ import type {
   AccountsData,
   AccountUpdateBody,
   AccountUpdateResult,
+  GroupResponseBody,
+  GroupResponseResult,
   AuthState,
   FeaturesData,
   FeatureToggleBody,
@@ -62,6 +64,8 @@ export const api = {
         `/manage/accounts/${segment(platform)}/${segment(id)}/${action}`,
         { body },
       ),
+    setGroupResponse: (groupId: string, body: GroupResponseBody) =>
+      request<GroupResponseResult>(`/manage/groups/${segment(groupId)}/response`, { body }),
     pairing: () => request<PairingInfo>('/manage/pairing'),
     pairingAction: (body: PairingActionBody) => request<PairingInfo>('/manage/pairing', { body }),
     togglePlugin: (plugin: string, body: PluginToggleBody) =>

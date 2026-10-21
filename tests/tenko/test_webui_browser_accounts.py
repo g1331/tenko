@@ -25,6 +25,10 @@ def managed(account_id, **overrides):
     }
 
 
+def strategy(group_id, kind, account):
+    return {"group_id": group_id, "strategy": kind, "deterministic_account": account}
+
+
 class AccountsPanel(Panel):
     """在通用替身上补充账户数据集与配对接口。"""
 
@@ -34,20 +38,32 @@ class AccountsPanel(Panel):
             "accounts": [
                 {
                     "id": "10001",
+                    "ref": "10001",
                     "platform": "onebot",
                     "online": True,
                     "group_count": 2,
                     "response_strategies": [
-                        {"group_id": "40001", "strategy": "random"},
-                        {"group_id": "40002", "strategy": "deterministic"},
+                        strategy("40001", "random", "10001"),
+                        strategy("40002", "deterministic", "10001"),
                     ],
                 },
                 {
                     "id": "10002",
+                    "ref": "10002",
                     "platform": "onebot",
                     "online": False,
                     "group_count": 0,
                     "response_strategies": [],
+                },
+                {
+                    "id": "10003",
+                    "ref": "10003",
+                    "platform": "onebot",
+                    "online": True,
+                    "group_count": 1,
+                    "response_strategies": [
+                        strategy("40002", "deterministic", "10001")
+                    ],
                 },
             ]
         }
@@ -80,6 +96,22 @@ class AccountsPanel(Panel):
             self.requests.append((request.method, path, request.headers, body))
             data = {**self.data[path], "access_token": "tok-secret"}
             route.fulfill(json={"ok": True, "data": data})
+        elif (
+            request.method == "POST"
+            and path.endswith("/response")
+            and path not in self.failures
+        ):
+            body = json.loads(request.post_data)
+            group_id = path.split("/")[-2]
+            for account in self.data["/api/accounts"]["accounts"]:
+                for item in account["response_strategies"]:
+                    if item["group_id"] == group_id:
+                        item["strategy"] = body["strategy"]
+                        item["deterministic_account"] = (
+                            body["account"] or item["deterministic_account"]
+                        )
+            self.requests.append((request.method, path, request.headers, body))
+            route.fulfill(json={"ok": True, "data": {}})
         else:
             super().handle(route)
 
@@ -115,6 +147,34 @@ def test_accounts_render_stats_table_and_strategies(open_panel):
     page.get_by_placeholder("搜索群名 / 群号 / 账号").fill("测试群一")
     assert strategy.count() == 1
     assert "共 2 个群" in main
+    assert not page.errors
+
+
+def test_group_strategy_edit_posts_body_and_failure_keeps_value(open_panel):
+    panel = AccountsPanel()
+    page = open_accounts(open_panel, panel)
+    row = page.locator(".strategy-table .el-table__row", has_text="40002")
+    # 40002 绑定了两个账号：定向下出现账号选择；单账号的 40001 没有。
+    assert row.get_by_label("40002 定向账号").count() == 1
+    assert (
+        page.locator(".strategy-table .el-table__row", has_text="测试群一")
+        .get_by_label("定向账号")
+        .count()
+        == 0
+    )
+    row.locator(".el-select").click()
+    page.locator(".el-select-dropdown__item:visible", has_text="10003").click()
+    toast(page, "已设为定向响应")
+    assert panel.calls("POST", "/api/manage/groups/40002/response")[0][3] == {
+        "strategy": "deterministic",
+        "account": "10003",
+    }
+
+    # 失败时提示服务端消息，并保持原策略。
+    panel.failures["/api/manage/groups/40002/response"] = "账号未绑定"
+    row.get_by_text("随机", exact=True).click()
+    toast(page, "修改失败：账号未绑定")
+    assert row.locator(".el-segmented__item.is-selected").inner_text() == "定向"
     assert not page.errors
 
 

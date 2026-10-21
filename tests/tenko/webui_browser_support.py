@@ -79,13 +79,21 @@ ACCOUNTS = {
     "accounts": [
         {
             "id": "10001",
+            "ref": "10001",
             "platform": "onebot",
             "online": True,
             "group_count": 9,
-            "response_strategies": [{"group_id": "40001", "strategy": "random"}],
+            "response_strategies": [
+                {
+                    "group_id": "40001",
+                    "strategy": "random",
+                    "deterministic_account": "10001",
+                }
+            ],
         },
         {
             "id": "10002",
+            "ref": "10002",
             "platform": "onebot",
             "online": False,
             "group_count": 5,

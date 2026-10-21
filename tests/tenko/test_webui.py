@@ -254,21 +254,35 @@ async def test_webui_read_only_apis_expose_safe_account_and_feature_data(
             "accounts": [
                 {
                     "id": "10001",
+                    "ref": "10001",
                     "platform": "onebot",
                     "online": True,
                     "group_count": 2,
                     "response_strategies": [
-                        {"group_id": "40001", "strategy": "random"},
-                        {"group_id": "40002", "strategy": "random"},
+                        {
+                            "group_id": "40001",
+                            "strategy": "random",
+                            "deterministic_account": "10001",
+                        },
+                        {
+                            "group_id": "40002",
+                            "strategy": "random",
+                            "deterministic_account": "10001",
+                        },
                     ],
                 },
                 {
                     "id": "10002",
+                    "ref": '["satori", "10002"]',
                     "platform": "satori",
                     "online": False,
                     "group_count": 1,
                     "response_strategies": [
-                        {"group_id": "40002", "strategy": "random"},
+                        {
+                            "group_id": "40002",
+                            "strategy": "random",
+                            "deterministic_account": "10001",
+                        },
                     ],
                 },
             ]
@@ -735,6 +749,41 @@ async def test_plugin_and_group_switches_use_host_state_and_protect_control_plan
         ).status_code == 200
         assert not features.is_enabled("status", "40001")
         assert service is not None
+
+
+@pytest.mark.asyncio
+async def test_group_response_strategy_can_be_set_from_panel(tenko_database):
+    accounts = AccountRegistry()
+    accounts.register(
+        SimpleNamespace(self_id="10001", platform="onebot"), groups=("40001",)
+    )
+    accounts.register(
+        SimpleNamespace(self_id="10002", platform="onebot"), groups=("40001",)
+    )
+    server, _service_instance = _service(WebUIConfig(enabled=True), accounts=accounts)
+    url = "/webui/api/manage/groups/40001/response"
+
+    async with _session_client(server.app) as client:
+        chosen = await client.post(
+            url, json={"strategy": "deterministic", "account": "10002"}
+        )
+        unbound = await client.post(
+            url, json={"strategy": "deterministic", "account": "9"}
+        )
+        random_with_account = await client.post(
+            url, json={"strategy": "random", "account": "10002"}
+        )
+        unknown_group = await client.post(
+            "/webui/api/manage/groups/49999/response",
+            json={"strategy": "random", "account": None},
+        )
+
+    assert chosen.json()["data"]["deterministic_account"] == "10002"
+    assert accounts.response_type_for_group("40001") == "deterministic"
+    # 失败的请求不留下半改的状态。
+    assert unbound.status_code == 404 and random_with_account.status_code == 400
+    assert accounts.deterministic_account_for_group("40001") == "10002"
+    assert unknown_group.status_code == 400
 
 
 @pytest.mark.asyncio

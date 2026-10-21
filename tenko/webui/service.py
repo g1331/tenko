@@ -244,6 +244,7 @@ class WebUIService(Service):
                 ["POST"],
                 self.manage_account,
             ),
+            ("/api/manage/groups/{group_id}/response", ["POST"], self.manage_response),
             ("/api/manage/pairing", ["GET", "POST"], self.pairing),
             ("/api/manage/plugins/{plugin}", ["POST"], self.manage_plugin),
             ("/api/manage/features/{plugin}", ["POST"], self.manage_feature),
@@ -329,7 +330,13 @@ class WebUIService(Service):
                 )
             groups = self.accounts.groups_for_account(account_id)
             response_strategies = [
-                {"group_id": group_id, "strategy": strategy}
+                {
+                    "group_id": group_id,
+                    "strategy": strategy,
+                    "deterministic_account": (
+                        self.accounts.deterministic_account_for_group(group_id)
+                    ),
+                }
                 for group_id in groups
                 if (strategy := self.accounts.response_type_for_group(group_id))
                 is not None
@@ -337,6 +344,7 @@ class WebUIService(Service):
             accounts.append(
                 {
                     "id": str(account.self_id),
+                    "ref": str(account_id),
                     "platform": str(platform or "unknown"),
                     "online": bool(self.accounts.is_available(account_id)),
                     "group_count": len(groups),
@@ -810,6 +818,42 @@ class WebUIService(Service):
                 "plugin": info.name,
                 "enabled": enabled,
                 "restart_required": self.plugin_runtime.restart_required(info),
+            }
+
+        return await self._manage(request, change)
+
+    async def manage_response(self, request: Request) -> JSONResponse:
+        """设置群响应策略；定向时 account 为 null 表示按绑定顺序的默认账号。"""
+
+        async def change():
+            group_id = request.path_params["group_id"]
+            if group_id not in self.accounts.group_ids:
+                raise ValueError("群 ID 不在已知路由中")
+            body = await self._body(request)
+            strategy, account = body.get("strategy"), body.get("account")
+            if set(body) != {"strategy", "account"} or strategy not in (
+                "random",
+                "deterministic",
+            ):
+                raise ValueError("strategy 必须是 random 或 deterministic")
+            if account is not None and (
+                strategy != "deterministic" or not isinstance(account, str)
+            ):
+                raise ValueError("只有定向策略可以指定账号")
+            if strategy == "deterministic":
+                if account is None:
+                    self.accounts.clear_deterministic_account(group_id)
+                else:
+                    # 先于改策略执行：账号未绑定到该群时抛 KeyError（404），不留半改状态。
+                    self.accounts.set_deterministic_account(group_id, account)
+            self.accounts.set_response_type(group_id, strategy)
+            await self.accounts.persist_state()
+            return {
+                "group_id": group_id,
+                "strategy": strategy,
+                "deterministic_account": (
+                    self.accounts.deterministic_account_for_group(group_id)
+                ),
             }
 
         return await self._manage(request, change)

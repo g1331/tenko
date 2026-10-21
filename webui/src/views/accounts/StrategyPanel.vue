@@ -1,44 +1,89 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
-import type { AccountSummary } from '@/api'
+import { api, ApiError, type AccountSummary } from '@/api'
 import PagePanel from '@/components/PagePanel.vue'
 import { numberText, platformText } from '@/composables/format'
-import { strategyLabel } from './helpers'
+import { usePanelData } from '@/composables/usePanelData'
 
-// 每个群在各账号下的响应策略：可按群名 / 群号 / 账号搜索，并按策略筛选。
+// 群响应策略：一行一个群，可按群名 / 群号 / 账号搜索、按策略筛选，并直接修改策略与定向账号。
 const props = defineProps<{ summaries: AccountSummary[]; groupNames: Record<string, string> }>()
 
+const { refresh } = usePanelData()
 const query = ref('')
 const strategy = ref('')
+const pending = ref(new Set<string>())
 
-const rows = computed(() =>
-  props.summaries
-    .flatMap((account) =>
-      account.response_strategies.map((item) => ({
-        key: `${account.platform}/${account.id}/${item.group_id}`,
+const strategyOptions = [
+  { label: '随机', value: 'random' },
+  { label: '定向', value: 'deterministic' },
+]
+
+const rows = computed(() => {
+  const groups = new Map<
+    string,
+    {
+      groupId: string
+      groupName: string
+      strategy: string
+      deterministicAccount: string | null
+      accounts: { ref: string; id: string; platform: string }[]
+    }
+  >()
+  for (const account of props.summaries)
+    for (const item of account.response_strategies) {
+      const row = groups.get(item.group_id) ?? {
         groupId: item.group_id,
         groupName: props.groupNames[item.group_id] ?? '',
-        account: account.id,
-        platform: account.platform,
         strategy: item.strategy,
-      })),
-    )
-    .sort(
-      (a, b) =>
-        a.groupId.length - b.groupId.length ||
-        a.groupId.localeCompare(b.groupId) ||
-        a.account.localeCompare(b.account),
-    ),
-)
+        deterministicAccount: item.deterministic_account,
+        accounts: [],
+      }
+      row.accounts.push({ ref: account.ref, id: account.id, platform: account.platform })
+      groups.set(item.group_id, row)
+    }
+  return [...groups.values()].sort(
+    (a, b) => a.groupId.length - b.groupId.length || a.groupId.localeCompare(b.groupId),
+  )
+})
+type Row = (typeof rows.value)[number]
 
 const filtered = computed(() => {
   const text = query.value.trim().toLowerCase()
   return rows.value.filter(
     (row) =>
       (!strategy.value || row.strategy === strategy.value) &&
-      (!text || `${row.groupId} ${row.groupName} ${row.account}`.toLowerCase().includes(text)),
+      (!text ||
+        `${row.groupId} ${row.groupName} ${row.accounts.map((a) => a.id).join(' ')}`
+          .toLowerCase()
+          .includes(text)),
   )
 })
+
+const label = (row: Row) => row.groupName || row.groupId
+
+async function save(row: Row, next: 'random' | 'deterministic', account: string | null) {
+  if (pending.value.has(row.groupId)) return
+  pending.value = new Set(pending.value).add(row.groupId)
+  try {
+    await api.manage.setGroupResponse(row.groupId, { strategy: next, account })
+    await refresh()
+    ElMessage.success(`${label(row as Row)} 已设为${next === 'random' ? '随机' : '定向'}响应`)
+  } catch (reason) {
+    ElMessage.error(`修改失败：${reason instanceof ApiError ? reason.message : String(reason)}`)
+  } finally {
+    const rest = new Set(pending.value)
+    rest.delete(row.groupId)
+    pending.value = rest
+  }
+}
+
+// 切回定向时沿用该群已指定的账号，只有单账号群才不传账号。
+const setStrategy = (row: Row, value: string | number | boolean) =>
+  save(
+    row,
+    value as 'random' | 'deterministic',
+    value === 'deterministic' && row.accounts.length > 1 ? row.deterministicAccount : null,
+  )
 </script>
 
 <template>
@@ -58,7 +103,7 @@ const filtered = computed(() => {
           <el-option label="定向" value="deterministic" />
         </el-select>
       </div>
-      <el-table :data="filtered" row-key="key" max-height="380" class="strategy-table">
+      <el-table :data="filtered" row-key="groupId" max-height="380" class="strategy-table">
         <template #empty>没有匹配的群</template>
         <el-table-column label="群" min-width="150">
           <template #default="{ row }">
@@ -66,20 +111,45 @@ const filtered = computed(() => {
             <span v-if="row.groupName" class="tk-mono sub">{{ row.groupId }}</span>
           </template>
         </el-table-column>
-        <el-table-column label="账号" min-width="100">
+        <el-table-column label="绑定账号" min-width="110">
           <template #default="{ row }">
-            <span class="tk-mono" :title="platformText(row.platform)">{{ row.account }}</span>
+            <span
+              v-for="account in row.accounts"
+              :key="account.ref"
+              class="tk-mono account"
+              :title="platformText(account.platform)"
+              >{{ account.id }}</span
+            >
           </template>
         </el-table-column>
-        <el-table-column label="策略" width="84" align="right">
+        <el-table-column label="策略" min-width="250">
           <template #default="{ row }">
-            <el-tag
-              size="small"
-              :effect="row.strategy === 'deterministic' ? 'dark' : 'plain'"
-              disable-transitions
-            >
-              {{ strategyLabel(row.strategy) }}
-            </el-tag>
+            <div class="control">
+              <el-segmented
+                :model-value="row.strategy"
+                :options="strategyOptions"
+                size="small"
+                :disabled="pending.has(row.groupId)"
+                :aria-label="`${label(row as Row)} 响应策略`"
+                @change="(value: string | number | boolean) => setStrategy(row as Row, value)"
+              />
+              <el-select
+                v-if="row.strategy === 'deterministic' && row.accounts.length > 1"
+                :model-value="row.deterministicAccount"
+                size="small"
+                placeholder="选择账号"
+                :disabled="pending.has(row.groupId)"
+                :aria-label="`${label(row as Row)} 定向账号`"
+                @change="(value: string) => save(row as Row, 'deterministic', value)"
+              >
+                <el-option
+                  v-for="account in row.accounts"
+                  :key="account.ref"
+                  :label="account.id"
+                  :value="account.ref"
+                />
+              </el-select>
+            </div>
           </template>
         </el-table-column>
       </el-table>
@@ -119,5 +189,18 @@ const filtered = computed(() => {
 }
 .sub {
   display: block;
+}
+.account {
+  display: inline-block;
+  margin-right: 10px;
+}
+.control {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+.control .el-select {
+  flex: 0 0 140px;
 }
 </style>

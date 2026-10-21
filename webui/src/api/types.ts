@@ -67,9 +67,13 @@ export type ResponseStrategyName = 'random' | 'deterministic' | (string & {})
 export interface AccountResponseStrategy {
   group_id: string
   strategy: ResponseStrategyName
+  /** 定向模式下负责应答的账号（ref）；各账号列表里同一个群的值相同。 */
+  deterministic_account: string | null
 }
 export interface AccountSummary {
   id: string
+  /** 写接口里引用该账号的键；OneBot 下等于 id。 */
+  ref: string
   platform: string
   online: boolean
   group_count: number
@@ -170,6 +174,17 @@ export type FeatureToggleBody =
 export interface FeatureToggleResult {
   plugin: string
   state: { maintenance?: boolean; global_enabled?: boolean; groups?: Record<string, boolean> }
+}
+
+export interface GroupResponseBody {
+  strategy: 'random' | 'deterministic'
+  /** 仅定向可非空；null 表示默认（第一个绑定的）账号。 */
+  account: string | null
+}
+export interface GroupResponseResult {
+  group_id: string
+  strategy: 'random' | 'deterministic'
+  deterministic_account: string | null
 }
 
 export type FriendRequestMode = 'off' | 'admins' | 'all'
