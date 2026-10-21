@@ -198,9 +198,10 @@ async def test_upgrade_command_prepares_and_requests_external_install(
     result = await loaded_plugin.upgrade.callable_target(session, NO_DROP)
 
     assert result is None  # 提示已经通过 session 发出
-    session.send.assert_awaited_once_with(
-        "版本 v2.0.0 已下载、校验通过，正在自动重启进入新版本。"
-    )
+    assert [call.args[0] for call in session.send.await_args_list] == [
+        "发现新版本 v2.0.0，正在下载并校验，通常需要一两分钟…",
+        "版本 v2.0.0 已下载、校验通过，正在自动重启进入新版本。",
+    ]
     assert fake.check_calls == 1
     assert fake.prepare_calls == 1
     assert fake.request_install_calls == 1

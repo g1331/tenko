@@ -124,6 +124,10 @@ async def upgrade(session: Session, drop: Match[str]):
         checked = await updater.check()
         if checked.candidate is None:
             return _format_check(checked)
+        # 下载、同步依赖和导入检查要一两分钟，先告诉 Master 已经开始。
+        await session.send(
+            f"发现新版本 {checked.candidate.tag}，正在下载并校验，通常需要一两分钟…"
+        )
         try:
             prepared = await updater.prepare(checked.candidate)
         except PluginCompatibilityError as exc:
