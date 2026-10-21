@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import bisect
 import importlib.metadata
 import inspect
 import json
@@ -126,48 +125,6 @@ class StartupHistory:
 startup_history = StartupHistory()
 
 
-def calculate_beaten_percent(
-    duration: float,
-    history: Sequence[float],
-) -> float | None:
-    """按历史耗时计算当前启动速度超过的比例。
-
-    历史耗时按从快到慢排序，使用相邻样本之间的线性插值；因此耗时越短，
-    返回值越高。最短边界为 100%，最长边界为 0%。
-    """
-
-    current = _duration(duration)
-    samples = tuple(sorted(_duration(value, "历史启动耗时") for value in history))
-    if not samples:
-        return None
-    if len(samples) == 1:
-        if current < samples[0]:
-            return 100.0
-        if current > samples[0]:
-            return 0.0
-        return 50.0
-    if current <= samples[0]:
-        return 100.0
-    if current >= samples[-1]:
-        return 0.0
-
-    upper_index = bisect.bisect_right(samples, current)
-    lower_index = upper_index - 1
-    lower = samples[lower_index]
-    upper = samples[upper_index]
-    fraction = 0.0 if lower == upper else (current - lower) / (upper - lower)
-    position = lower_index + fraction
-    beaten = (len(samples) - 1 - position) / (len(samples) - 1) * 100
-    return max(0.0, min(100.0, beaten))
-
-
-def calculate_percentile(duration: float, history: Sequence[float]) -> float | None:
-    """返回与 ``calculate_beaten_percent`` 相反方向的慢速百分位。"""
-
-    beaten = calculate_beaten_percent(duration, history)
-    return None if beaten is None else 100.0 - beaten
-
-
 def _project_version() -> str:
     try:
         return importlib.metadata.version("tenko")
@@ -188,32 +145,20 @@ def _project_version() -> str:
     return str(version)
 
 
-def _format_percent(value: float) -> str:
-    return f"{value:.1f}".rstrip("0").rstrip(".")
-
-
-def build_startup_notice(
-    version: str,
-    duration: float,
-    history: Sequence[float],
-) -> str:
+def build_startup_notice(version: str, duration: float) -> str:
     """组装启动通知文本。"""
 
     normalized_duration = _duration(duration)
     version_text = str(version).strip() or "0.0.0"
     if not version_text.lower().startswith("v"):
         version_text = f"v{version_text}"
-    beaten = calculate_beaten_percent(normalized_duration, history)
-    lines = [
-        "🎉 Tenko 已启动！",
-        f"版本：{version_text}",
-        f"启动耗时：{normalized_duration:.2f} 秒",
-    ]
-    if beaten is None:
-        lines.append("首次启动，暂无对比数据")
-    else:
-        lines.append(f"您的 bot 启动耗时已经打败了 {_format_percent(beaten)}% 的 bot！")
-    return "\n".join(lines)
+    return "\n".join(
+        (
+            "🎉 Tenko 已启动！",
+            f"版本：{version_text}",
+            f"启动耗时：{normalized_duration:.2f} 秒",
+        )
+    )
 
 
 class StartupNotifier:
@@ -292,21 +237,9 @@ class StartupNotifier:
                 return
 
             duration = max(float(self.clock()) - self.started_at, 0.0)
+            notice = build_startup_notice(self.version_provider(), duration)
             try:
-                history = await self.history.load()
-            except Exception as error:
-                history = ()
-                logger.warning(
-                    "Could not load startup duration history: {}",
-                    error,
-                )
-            notice = build_startup_notice(
-                self.version_provider(),
-                duration,
-                history,
-            )
-            try:
-                await self.history.record(duration, previous=history)
+                await self.history.record(duration)
             except Exception:
                 logger.exception(
                     "Could not persist startup duration history",
@@ -394,6 +327,4 @@ __all__ = [
     "StartupNotifier",
     "startup_history",
     "build_startup_notice",
-    "calculate_beaten_percent",
-    "calculate_percentile",
 ]

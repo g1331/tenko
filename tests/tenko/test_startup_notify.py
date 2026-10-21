@@ -12,8 +12,6 @@ from tenko.host.startup import (
     StartupHistory,
     StartupNotifier,
     build_startup_notice,
-    calculate_beaten_percent,
-    calculate_percentile,
 )
 
 
@@ -51,19 +49,10 @@ def make_notifier(
     )
 
 
-def test_startup_notice_without_history_contains_version_and_duration() -> None:
-    notice = build_startup_notice("4.0.0-pre6", 2.5, ())
+def test_startup_notice_contains_version_and_duration() -> None:
+    notice = build_startup_notice("4.0.0-pre6", 2.5)
 
-    assert "Tenko 已启动" in notice
-    assert "版本：v4.0.0-pre6" in notice
-    assert "启动耗时：2.50 秒" in notice
-    assert "首次启动，暂无对比数据" in notice
-
-
-def test_beaten_percent_uses_sorted_linear_interpolation() -> None:
-    assert calculate_beaten_percent(1.5, [3.0, 1.0, 2.0]) == pytest.approx(75.0)
-    assert calculate_percentile(1.5, [3.0, 1.0, 2.0]) == pytest.approx(25.0)
-    assert calculate_beaten_percent(1.5, ()) is None
+    assert notice == "🎉 Tenko 已启动！\n版本：v4.0.0-pre6\n启动耗时：2.50 秒"
 
 
 @pytest.mark.parametrize("loaded_plugin", ["startup_notify"], indirect=True)
@@ -121,7 +110,7 @@ async def test_startup_notifier_waits_for_framework_and_account() -> None:
     group_id, notice = actions.group_messages[0]
     assert group_id == "40002"
     assert "启动耗时：2.50 秒" in notice
-    assert "首次启动，暂无对比数据" in notice
+    assert "打败" not in notice
     assert await notifier.history.load() == (2.5,)
 
 
@@ -145,7 +134,7 @@ async def test_startup_notifier_persists_history_in_database(repositories) -> No
         SimpleNamespace(self_id="10001", platform="onebot")
     )
 
-    assert "首次启动，暂无对比数据" in actions.group_messages[0][1]
+    assert "Tenko 已启动" in actions.group_messages[0][1]
     assert await repositories["startup"].list_durations() == (2.5,)
     restarted = StartupHistory(repositories["startup"])
     assert await restarted.load() == (2.5,)
@@ -178,7 +167,7 @@ async def test_startup_notifier_continues_when_history_database_is_unavailable()
         SimpleNamespace(self_id="10001", platform="onebot")
     )
 
-    assert "首次启动，暂无对比数据" in actions.group_messages[0][1]
+    assert "Tenko 已启动" in actions.group_messages[0][1]
     assert not notifier.history.ready
 
 
