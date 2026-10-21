@@ -17,8 +17,11 @@
    入口 `[project.entry-points."tenko.plugins"]` 里的 `<插件 ID> = "<模块>"`。
    插件 ID 匹配 `[a-z][a-z0-9_]*`，全局唯一，不能和内置插件同名；它是功能开关、
    配置节和数据目录的键。
-3. **不要声明 `entari.plugin` 入口**：Entari 会无视 Tenko 的启用状态自动加载它。
-4. 依赖只写 `tenko-api` 的兼容范围（预览期为 `>=0.2,<0.3`）和插件自己的依赖，
+3. 换成你自己的信息：`plugin.metadata` 的 `author`、`description`，以及 `pyproject.toml`
+   的 `[project.urls]`（插件目录靠这里的 GitHub 地址确认仓库归你所有）。示例本身作为真实
+   插件发布在 PyPI 上，这些地方写的是 Tenko 维护者的信息。
+4. **不要声明 `entari.plugin` 入口**：Entari 会无视 Tenko 的启用状态自动加载它。
+5. 依赖只写 `tenko-api` 的兼容范围（预览期为 `>=0.2,<0.3`）和插件自己的依赖，
    不要依赖 `tenko` 本体，也不要用 `==` 锁死依赖版本。
 
 ## 开发与测试

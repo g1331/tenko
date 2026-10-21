@@ -27,7 +27,7 @@ class ExampleConfig(BasicConfModel):
 
 plugin.metadata(
     "示例插件",
-    author=["you"],
+    author=["13"],
     version="0.1.0",
     description="记录每位用户使用示例命令的次数，并保存备注。",
     config=ExampleConfig,
