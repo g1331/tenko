@@ -27,7 +27,7 @@ from tenko.plugins._common import master_id_for_account
 plugin.metadata(
     "好友申请",
     PluginRole.NORMAL,
-    author=["Tenko"],
+    author=["13"],
     version="0.1.0",
     description="按全局策略处理好友申请，Master 私聊或 WebUI 可随时调整。",
     classifier=["required", "host"],

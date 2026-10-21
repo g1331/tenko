@@ -16,7 +16,7 @@ from tenko.webui.auth import default_repository, reset_password
 plugin.metadata(
     "面板账号",
     PluginRole.NORMAL,
-    author=["Tenko"],
+    author=["13"],
     version="0.1.0",
     description="Master 在私聊中查看面板账号、重置密码并让所有登录会话下线。",
     classifier=["required", "host"],

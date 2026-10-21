@@ -87,9 +87,9 @@ uv run ruff check .
 用投稿表单填写来源即可。插件 ID、名称、简介、作者、许可证和兼容范围都由目录的 CI 从
 `pyproject.toml` 和 `plugin.metadata(...)` 读取，之后的新版本也会自动追加。
 
-图标可选：在 `plugin.metadata(icon="https://…")` 里给出图片地址，或在投稿表单里上传。接受
-PNG、WebP、JPEG，边长至少 64 px；目录会裁成正方形、缩放到 128×128 PNG 并自行托管，Tenko
-只显示目录托管的图标。
+图标可选：在 `plugin.metadata(icon="https://…")` 里给出图片地址，或在投稿表单里上传。要求
+透明背景的单色图形（PNG 或 WebP，不接受 JPEG、SVG 和动图），短边至少 64 px；目录会裁成
+正方形、缩放到 128×128 PNG 并自行托管，Tenko 只显示目录托管的图标。
 
 ## 兼容性
 

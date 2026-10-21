@@ -1,0 +1,59 @@
+name: Publish tenko-plugin-example
+
+# 推送 tenko-plugin-example-v<版本> 标签（如 tenko-plugin-example-v0.1.0）时发布
+# examples/tenko-plugin-example 到 PyPI，供插件目录收录、给使用者做安装示范。
+# 使用 PyPI Trusted Publishing，不保存任何 token；PyPI 端的 publisher 配置为：
+# 项目 tenko-plugin-example、所有者 g1331、仓库 tenko、工作流 publish-example.yml、环境 pypi。
+on:
+  push:
+    tags:
+      - "tenko-plugin-example-v*"
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build distributions
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+
+      - name: Verify the tag matches the project version
+        run: |
+          version=$(python3 -c "import tomllib; print(tomllib.load(open('examples/tenko-plugin-example/pyproject.toml', 'rb'))['project']['version'])")
+          tag_version="${GITHUB_REF_NAME#tenko-plugin-example-v}"
+          if [ "$version" != "$tag_version" ]; then
+            echo "::error::标签 ${GITHUB_REF_NAME} 与 pyproject.toml 版本 ${version} 不一致"
+            exit 1
+          fi
+
+      - name: Build sdist and wheel
+        run: uv build examples/tenko-plugin-example --out-dir dist
+
+      - name: Upload distributions
+        uses: actions/upload-artifact@v4
+        with:
+          name: tenko-plugin-example-dist
+          path: dist/
+
+  publish:
+    name: Publish to PyPI
+    needs: build
+    runs-on: ubuntu-latest
+    environment: pypi
+    permissions:
+      id-token: write
+    steps:
+      - name: Download distributions
+        uses: actions/download-artifact@v4
+        with:
+          name: tenko-plugin-example-dist
+          path: dist/
+
+      - name: Publish with Trusted Publishing
+        uses: pypa/gh-action-pypi-publish@release/v1

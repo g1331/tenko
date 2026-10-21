@@ -13,6 +13,11 @@ dependencies = [
     "sqlalchemy>=2.0",
 ]
 
+# 插件目录用这些链接确认提交者对仓库的归属，并取 Homepage 作为主页。
+[project.urls]
+Homepage = "https://github.com/g1331/tenko/tree/main/examples/tenko-plugin-example"
+Repository = "https://github.com/g1331/tenko"
+
 # 入口名就是插件 ID（小写字母、数字、下划线，全局唯一）；值是纯模块路径。
 # 不要声明 entari.plugin 入口，Entari 会无视 Tenko 的启用状态自动加载它。
 [project.entry-points."tenko.plugins"]
