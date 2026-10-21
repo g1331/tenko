@@ -1,20 +1,22 @@
 from __future__ import annotations
 
 from collections.abc import Iterable
+from pathlib import Path
 from typing import Any
 
 from arclet.alconna import Alconna, Args, CommandMeta, Option
 from arclet.alconna import command_manager
 from arclet.entari import Session, command, plugin
 from arclet.entari.command import Query
-from arclet.entari.plugin import PluginRole, get_plugin_commands
+from arclet.entari.plugin import Plugin, PluginRole, get_plugin_commands
 
 from tenko.host.features import feature_service
 from tenko.host.guards import command_requirements, require, requirement_text
 from tenko.host.perm import Permission
 from tenko.host.plugins import PluginInfo, PluginRuntime
+from tenko.host.registry import get_registry
 from tenko.plugins._common import context_from_session, render_or_text
-from tenko.render import RenderService
+from tenko.render import RenderService, data_uri
 
 
 plugin.metadata(
@@ -37,6 +39,23 @@ _HELP_SECTIONS = (
     ("third_party", "第三方", "第三方插件包"),
 )
 _COMMAND_HELP_FIELDS = (("说明", "description"), ("用法", "usage"), ("示例", "example"))
+_ICON_DIR = Path(__file__).resolve().parents[2] / "templates" / "assets" / "icons"
+# 内置插件的菜单图标（Phosphor fill）；未列出的插件用 package。
+_BUILTIN_ICONS = {
+    "announcement": "megaphone",
+    "exception_catcher": "bug",
+    "feature_manager": "toggle-right",
+    "friend_request": "user-plus",
+    "group_manager": "shield-check",
+    "helper": "question",
+    "perm_manager": "key",
+    "plugin_manager": "puzzle-piece",
+    "response_manager": "robot",
+    "startup_notify": "bell-ringing",
+    "status": "pulse",
+    "updater": "arrow-circle-up",
+    "webui_account": "browser",
+}
 
 
 help_command = Alconna(
@@ -181,6 +200,29 @@ def _classifiers(native_plugin: object | None) -> tuple[str, ...]:
     return ()
 
 
+def _plugin_icon(info: PluginInfo) -> str:
+    """内置插件用自带图标，第三方插件用 registry 缓存里的图标，都没有时用默认图标。"""
+
+    if info.source == "builtin" and info.name in _BUILTIN_ICONS:
+        return data_uri(_ICON_DIR / f"{_BUILTIN_ICONS[info.name]}.svg")
+    if info.source == "external":
+        registry = get_registry()
+        index = registry.cached()
+        entry = index.find(info.name) if index is not None else None
+        if entry is not None and (path := registry.icon_path(entry)) is not None:
+            return data_uri(path)
+    return data_uri(_ICON_DIR / "package.svg")
+
+
+def _plugin_command_names(native_plugin: object | None) -> list[str]:
+    if not isinstance(native_plugin, Plugin):
+        return []
+    return [
+        f"{_command_prefix(command_manager.get_command(name), prefixes)}{name}"
+        for prefixes, name in get_plugin_commands(native_plugin)
+    ]
+
+
 def _plugin_item(
     info: PluginInfo,
     native_plugin: object | None,
@@ -197,6 +239,8 @@ def _plugin_item(
         "description": str(description),
         "state": state,
         "state_label": state_label,
+        "icon": _plugin_icon(info),
+        "commands": _plugin_command_names(native_plugin),
     }
 
 

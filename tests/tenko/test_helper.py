@@ -430,3 +430,26 @@ def test_help_hides_third_party_section_when_none_loaded(monkeypatch, loaded_plu
         "unavailable",
     ]
     assert "第三方" not in loaded_plugin.format_help_text(data)
+
+
+@pytest.mark.parametrize("loaded_plugin", ["helper"], indirect=True)
+def test_help_icon_uses_registry_icon_then_default(
+    tmp_path, monkeypatch, loaded_plugin
+):
+    icon = tmp_path / "ext-0123abcd.png"
+    icon.write_bytes(b"\x89PNG\r\n\x1a\n")
+    entries = {"ext": SimpleNamespace(id="ext")}
+    registry = SimpleNamespace(
+        cached=lambda: SimpleNamespace(find=entries.get),
+        icon_path=lambda entry: icon,
+    )
+    monkeypatch.setattr(loaded_plugin, "get_registry", lambda: registry)
+
+    def icon_of(name: str, source: str) -> str:
+        info = loaded_plugin.PluginInfo(name, None, False, f"mod_{name}", source)
+        return loaded_plugin._plugin_icon(info)
+
+    assert icon_of("ext", "external").startswith("data:image/png;base64,")
+    default = icon_of("unknown", "external")
+    assert default.startswith("data:image/svg+xml;base64,")
+    assert icon_of("helper", "builtin") not in {default, icon_of("ext", "external")}

@@ -1,6 +1,9 @@
 from __future__ import annotations
 
 import asyncio
+import base64
+import functools
+import mimetypes
 from collections.abc import Awaitable, Callable, Mapping
 from pathlib import Path
 from typing import Any, ParamSpec
@@ -39,6 +42,16 @@ class RenderTimeoutError(RenderError):
 
 
 _TEMPLATE_DIR = Path(__file__).with_name("templates")
+_MIME_TYPES = {".woff2": "font/woff2", ".svg": "image/svg+xml"}
+
+
+@functools.cache
+def data_uri(path: Path) -> str:
+    """把模板资源内联成 data URI；页面用 set_content 载入，无法引用本地文件。"""
+
+    mime = _MIME_TYPES.get(path.suffix) or mimetypes.guess_type(path.name)[0]
+    payload = base64.b64encode(path.read_bytes()).decode()
+    return f"data:{mime or 'application/octet-stream'};base64,{payload}"
 
 
 class RenderService(Service):
@@ -232,6 +245,10 @@ class RenderService(Service):
             loader=FileSystemLoader(str(self.template_dir.resolve())),
             autoescape=select_autoescape(["html", "xml"]),
             undefined=StrictUndefined,
+        )
+        assets = self.template_dir / "assets"
+        self._template_environment.globals["asset"] = lambda name: data_uri(
+            assets / name
         )
         return self._template_environment
 
