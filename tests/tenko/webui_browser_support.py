@@ -150,6 +150,7 @@ class Panel:
         self.data = dict(DATA)
         self.login_error = None  # (状态码, error.code, 额外字段)
         self.sessions = copy.deepcopy(SESSIONS)
+        self.events = None  # /api/events 的 SSE 响应体；None 表示实时通道不可用
         self.failures = {}  # 写接口路径 -> 409 conflict 的错误消息
         self.write_results = {}  # 写接口路径 -> 成功响应的 data（缺省为 {}）
 
@@ -172,6 +173,16 @@ class Panel:
             asset = STATIC / path.lstrip("/")
             kind = mimetypes.guess_type(asset.name)[0] or "application/octet-stream"
             route.fulfill(path=asset, content_type=kind)
+            return
+        if path == "/api/events":  # 实时通道不计入请求记录
+            if self.events is None or not self.authenticated:
+                route.abort()
+            else:
+                route.fulfill(
+                    body=self.events,
+                    content_type="text/event-stream",
+                    headers={"Cache-Control": "no-store"},
+                )
             return
         body = json.loads(request.post_data) if request.post_data else None
         self.requests.append((request.method, path, request.headers, body))
@@ -222,6 +233,12 @@ class Panel:
             ok({"files": [], "lines": ["12:00 INFO hello"], "history_enabled": True})
         else:
             ok(self.data.get(path, {}))
+
+
+def sse(event, data, event_id=None):
+    """拼一个 SSE 事件，测试里用来构造 Panel.events。"""
+    head = f"id: {event_id}\n" if event_id is not None else ""
+    return f"{head}event: {event}\ndata: {json.dumps(data)}\n\n"
 
 
 def confirm_box(page, title, button="确认"):

@@ -9,18 +9,22 @@ import { clockText, timeText } from '@/composables/format'
 const route = useRoute()
 const router = useRouter()
 const auth = useAuth()
-const { sync, lastSynced, refreshing, refresh } = usePanelData()
+const { sync, live, lastSynced, refreshing, refresh, retryLive } = usePanelData()
 
 const meta = computed(() => route.meta)
 const username = computed(() => auth.state.username || '—')
 
-const syncText = computed(() => {
+// 只在需要提醒时显示状态：实时连接中断优先，其次是部分数据读取失败。
+const warning = computed(() => {
+  if (live.value === 'down') return '实时连接中断，正在重连…'
   const { state, ready, total } = sync.value
-  if (state === 'syncing') return '正在同步…'
   if (state === 'offline') return '数据暂不可用'
   if (state === 'partial') return `部分数据不可用 · ${ready}/${total} 已同步`
-  return lastSynced.value ? `已同步 · ${clockText(lastSynced.value)}` : '已连接'
+  return ''
 })
+const refreshTip = computed(() =>
+  lastSynced.value ? `上次同步 ${clockText(lastSynced.value)}` : '立即刷新',
+)
 
 function goSecurity() {
   void router.push({ name: 'settings', query: { section: 'account-security' } })
@@ -47,10 +51,14 @@ async function logout() {
     </div>
     <div class="tools">
       <div class="sync-status" role="status" aria-live="polite">
-        <span class="dot" :class="`is-${sync.state}`" aria-hidden="true" />
-        <span class="sync-text">{{ syncText }}</span>
+        <button v-if="live === 'down'" class="warn-pill" type="button" @click="retryLive">
+          <span class="dot is-offline" aria-hidden="true" />{{ warning }}
+        </button>
+        <span v-else-if="warning" class="warn-pill is-static">
+          <span class="dot" aria-hidden="true" />{{ warning }}
+        </span>
       </div>
-      <el-tooltip content="立即刷新" placement="bottom">
+      <el-tooltip :content="refreshTip" placement="bottom">
         <el-button
           class="refresh-button"
           :icon="Refresh"
@@ -113,17 +121,25 @@ h1 {
   gap: 10px;
 }
 .sync-status {
-  display: flex;
-  min-width: 0;
+  flex: 0 1 auto;
+}
+.warn-pill {
+  display: inline-flex;
+  max-width: 100%;
   align-items: center;
   gap: 8px;
-  color: var(--tk-muted);
-  font-size: 12px;
-}
-.sync-text {
-  overflow: hidden;
-  text-overflow: ellipsis;
+  padding: 4px 12px;
+  border: 0;
+  border-radius: 14px;
+  background: var(--tk-warn-bg);
+  color: var(--tk-warn);
   white-space: nowrap;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+}
+button.warn-pill {
+  cursor: pointer;
 }
 .dot {
   width: 8px;
@@ -131,9 +147,6 @@ h1 {
   flex: 0 0 8px;
   border-radius: 50%;
   background: var(--tk-gold);
-}
-.dot.is-ok {
-  background: var(--tk-ok-solid);
 }
 .dot.is-offline {
   background: var(--tk-coral);
@@ -209,18 +222,20 @@ h1 {
 @media (max-width: 820px) {
   .tools {
     width: 100%;
-    justify-content: space-between;
+    justify-content: flex-end;
   }
   .sync-status {
+    min-width: 0;
     margin-right: auto;
+  }
+  .warn-pill {
+    overflow: hidden;
+    text-overflow: ellipsis;
   }
 }
 @media (max-width: 520px) {
   h1 {
     font-size: 22px;
-  }
-  .sync-text {
-    max-width: 130px;
   }
   .user-name {
     max-width: 70px;

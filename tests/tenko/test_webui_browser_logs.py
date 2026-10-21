@@ -2,7 +2,7 @@
 
 from urllib.parse import parse_qs, urlparse
 
-from webui_browser_support import Panel
+from webui_browser_support import Panel, sse
 
 LOG_PATH = "/api/manage/logs"
 
@@ -89,6 +89,19 @@ def test_live_polls_every_3s_and_stops_after_leaving_page(open_panel):
     page.clock.run_for(12_000)
     page.wait_for_timeout(200)
     assert len(panel.queries) == seen
+    assert not page.errors
+
+
+def test_pushed_log_records_append_without_duplicates(open_panel):
+    panel = LogsPanel()
+    # 推送里含已显示过的 id 2：按游标去重，只追加 3、4。
+    records = [record(2, "ERROR"), record(3), record(4)]
+    push = {"records": records, "cursor": 4, "reset": False}
+    panel.events = "retry: 60000\n\n" + sse("logs", push, 4)
+    page = open_panel(panel, "logs")
+    page.get_by_text("message 4").wait_for()
+    assert output_text(page).count("message 2") == 1
+    assert "message 3" in output_text(page)
     assert not page.errors
 
 

@@ -22,6 +22,8 @@ from typing import TYPE_CHECKING, Any
 from starlette.requests import Request
 from starlette.responses import JSONResponse, Response
 
+from ..db.errors import DatabaseError
+
 if TYPE_CHECKING:
     from ..db.repositories import WebUIAuthRepository, WebUISessionRecord
 
@@ -293,6 +295,16 @@ class WebUIAuth:
                 request.state.webui_refresh_token = token
         request.state.webui_session = record
         return record
+
+    async def revalidate(self, request: Request) -> bool:
+        """长连接定期复核会话；数据库暂时不可用时先保持连接。"""
+
+        if hasattr(request.state, "webui_session"):
+            del request.state.webui_session
+        try:
+            return await self.resolve(request) is not None
+        except DatabaseError:
+            return True
 
     async def _current(self, request: Request) -> WebUISessionRecord:
         record = await self.resolve(request)

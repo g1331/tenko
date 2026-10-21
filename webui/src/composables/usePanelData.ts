@@ -8,8 +8,11 @@ import {
   type OverviewData,
   type SettingsData,
 } from '@/api'
+import { retryLive, startLive, stopLive, useLiveState } from './useLiveEvents'
 
 export const POLL_INTERVAL_MS = 30_000
+/** 实时连接正常时，兜底的全量刷新间隔是 SAFETY_TICKS 个轮询周期（120 秒）。 */
+const SAFETY_TICKS = 4
 
 /** 单个数据源：data 在刷新失败时保留上一次成功的值，error 记录最近一次失败。 */
 export interface Resource<T> {
@@ -29,6 +32,7 @@ const features = resource<FeaturesData>()
 const managedAccounts = resource<ManagedAccountsData>()
 const settings = resource<SettingsData>()
 
+const live = useLiveState()
 const refreshing = ref(false)
 const lastSynced = shallowRef<Date | null>(null)
 /** 每次重置递增，使重置前发出的请求结果作废（登出后不能写回数据）。 */
@@ -38,14 +42,25 @@ let inFlight: Promise<void> | null = null
 let queued: Promise<void> | null = null
 
 function source<T>(target: Resource<T>, load: () => Promise<T>) {
+  /** 推送计数：请求发出之后又收到推送，说明该响应比推送旧，不能覆盖它。 */
+  let pushes = 0
   return {
     target,
+    push(value: T): void {
+      pushes += 1
+      target.data.value = value
+      target.error.value = null
+      target.loading.value = false
+    },
     async run(current: number): Promise<void> {
+      const seen = pushes
       try {
         const value = await load()
         if (current !== epoch) return
-        target.data.value = value
-        target.error.value = null
+        if (pushes === seen) {
+          target.data.value = value
+          target.error.value = null
+        }
       } catch (reason) {
         if (current !== epoch) return
         target.error.value =
@@ -56,8 +71,9 @@ function source<T>(target: Resource<T>, load: () => Promise<T>) {
   }
 }
 
+const overviewSource = source(overview, api.overview)
 const sources = [
-  source(overview, api.overview),
+  overviewSource,
   source(accounts, api.accounts),
   source(features, api.features),
   source(managedAccounts, api.manage.accounts),
@@ -95,6 +111,19 @@ function refresh(): Promise<void> {
   return queued
 }
 
+/** 只重读指定数据源（实时通知“某类数据变了”时用）；没有匹配的名字就整体刷新。 */
+function refreshResources(names: string[]): Promise<void> {
+  const wanted = new Set<Resource<unknown>>()
+  if (names.includes('accounts'))
+    [accounts, managedAccounts, overview].forEach((item) => wanted.add(item))
+  if (names.includes('features')) wanted.add(features)
+  if (!wanted.size) return refresh()
+  const current = epoch
+  return Promise.all(
+    sources.filter((item) => wanted.has(item.target)).map((item) => item.run(current)),
+  ).then(() => undefined)
+}
+
 /** 清空全部数据并使在途请求作废（登出 / 会话失效时调用）。 */
 function reset(): void {
   epoch += 1
@@ -123,12 +152,19 @@ const sync = computed(() => {
 })
 
 /**
- * 在布局组件中调用：挂载时立即加载并每 30 秒刷新，标签页隐藏时暂停，卸载时停止。
+ * 在布局组件中调用：挂载时立即加载并建立实时连接，卸载时关闭。
+ * 实时连接正常时 REST 刷新只是兜底（每 120 秒）；连接不可用时回到每 30 秒轮询。
  * 页面直接用 usePanelData() 读取数据，不要自己再起定时器。
  */
 export function usePanelPolling(): void {
+  let ticks = 0
   const timer = setInterval(() => {
-    if (!document.hidden) void refresh()
+    if (document.hidden) return
+    ticks += 1
+    if (live.value !== 'live' || ticks >= SAFETY_TICKS) {
+      ticks = 0
+      void refresh()
+    }
   }, POLL_INTERVAL_MS)
   const onVisible = () => {
     const stale = !lastSynced.value || Date.now() - lastSynced.value.getTime() >= POLL_INTERVAL_MS
@@ -136,9 +172,15 @@ export function usePanelPolling(): void {
   }
   document.addEventListener('visibilitychange', onVisible)
   void refresh()
+  startLive({
+    overview: (data) => overviewSource.push(data),
+    changed: (names) => void refreshResources(names),
+    recovered: () => void refresh(),
+  })
   onScopeDispose(() => {
     clearInterval(timer)
     document.removeEventListener('visibilitychange', onVisible)
+    stopLive()
     reset()
   })
 }
@@ -154,6 +196,12 @@ export function usePanelData() {
     refreshing: readonly(refreshing),
     lastSynced: readonly(lastSynced),
     sync,
+    live,
+    /** 立即重连实时通道并整体刷新。 */
+    retryLive: () => {
+      retryLive()
+      return refresh()
+    },
     refresh,
     reset,
   }

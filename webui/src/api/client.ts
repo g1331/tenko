@@ -28,6 +28,11 @@ export function setUnauthorizedHandler(handler: UnauthorizedHandler): void {
   onUnauthorized = handler
 }
 
+/** 非请求路径上发现会话失效（如实时连接收到 unauthorized）时，走同一套处理。 */
+export function notifyUnauthorized(): void {
+  onUnauthorized()
+}
+
 export interface RequestOptions {
   method?: 'GET' | 'POST'
   /** POST 的 JSON 请求体；传入即视为 POST。 */

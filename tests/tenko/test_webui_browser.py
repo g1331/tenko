@@ -2,7 +2,7 @@
 
 import copy
 
-from webui_browser_support import POLL_MS, Panel, _feature
+from webui_browser_support import POLL_MS, Panel, _feature, sse
 
 
 def log_in(page, password="correct-horse"):
@@ -87,7 +87,7 @@ def test_login_renders_overview_and_polls_every_30_seconds(open_panel):
     page.locator("#login-username").wait_for()
     log_in(page)
     page.locator(".page-head h1", has_text="运行总览").wait_for()
-    page.get_by_text("已同步").wait_for()
+    page.get_by_text("消息活动").wait_for()
     # 登录后才请求业务数据；认证只依赖 Cookie，不发送 Authorization。
     login = panel.calls("POST", "/api/auth/login")[0]
     assert login[3] == {"username": "master", "password": "correct-horse"}
@@ -116,6 +116,17 @@ def test_login_renders_overview_and_polls_every_30_seconds(open_panel):
     page.get_by_role("button", name="立即刷新").click()
     page.wait_for_timeout(300)
     assert len(panel.paths("/api/overview")) == count + 2
+    assert not page.errors
+
+
+def test_overview_event_updates_numbers_without_a_rest_poll(open_panel):
+    panel = Panel(authenticated=True)
+    pushed = {**panel.data["/api/overview"], "active_groups": 99}
+    panel.events = "retry: 60000\n\n" + sse("overview", pushed)
+    page = open_panel(panel, "overview")
+    # 推送比挂载时那次 REST 的结果新，页面以推送为准。
+    page.locator(".hero-stats").get_by_text("99").wait_for()
+    assert len(panel.paths("/api/overview")) == 1
     assert not page.errors
 
 
@@ -223,6 +234,6 @@ def test_mobile_layout_has_no_horizontal_overflow(open_panel):
             label
         )
     nav.get_by_text("总览", exact=True).click()
-    page.get_by_text("已同步").wait_for()
+    page.get_by_text("消息活动").wait_for()
     assert page.evaluate("document.documentElement.scrollWidth <= innerWidth")
     assert not page.errors

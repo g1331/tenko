@@ -17,7 +17,12 @@ from loguru import logger
 from satori.server import Server
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
-from starlette.responses import FileResponse, JSONResponse, Response
+from starlette.responses import (
+    FileResponse,
+    JSONResponse,
+    Response,
+    StreamingResponse,
+)
 from starlette.staticfiles import StaticFiles
 
 from ..config import WebUIConfig, TenkoConfig
@@ -39,6 +44,7 @@ from .logs import LogReader
 from .market import PluginMarket
 from ..events import MessageMetrics, message_metrics
 from . import core_config
+from .live import MAX_STREAMS, TOPICS, LiveStreams
 from ..host.accounts import AccountRegistry, account_registry
 from ..host.features import FeatureService, feature_service as default_feature_service
 from ..host.plugins import PluginRuntime
@@ -199,6 +205,13 @@ class WebUIService(Service):
         native = tenko_config.entari_config if tenko_config else None
         self._config_path = Path(native.path) if native is not None else None
         self._core_config_changed = False
+        self.live = LiveStreams(
+            overview=self._overview_data,
+            logs=self.logs,
+            marks=self._live_marks,
+            session_valid=self.auth.revalidate,
+            stopping=self._http_stopping,
+        )
         self._config_stamp = self._stamp()
         self._register_routes()
 
@@ -253,6 +266,7 @@ class WebUIService(Service):
             ("/api/manage/settings", ["GET", "POST"], self.settings),
             ("/api/manage/config", ["GET", "POST"], self.core_config),
             ("/api/manage/logs", ["GET"], self.log_view),
+            ("/api/events", ["GET"], self.live_events),
         )
         self.market = PluginMarket(self)
         for path, methods, handler in (*routes, *self.market.routes()):
@@ -994,6 +1008,42 @@ class WebUIService(Service):
         # 高频只读日志不产生审计日志，避免轮询形成递归日志流。
         return await self._manage(request, read)
 
+    def _http_stopping(self) -> bool:
+        # uvicorn 先自己接住 Ctrl-C 并等所有连接结束，之后 launart 才收到退出信号，
+        # 所以长连接要直接看 uvicorn 的退出标志。
+        uvicorn = getattr(getattr(self.server, "asgi_service", None), "server", None)
+        return bool(getattr(uvicorn, "should_exit", False))
+
+    def _live_marks(self) -> dict[str, int]:
+        """内存里能廉价拿到的状态指纹；变化时推送 changed 让前端重拉。"""
+
+        features = (self.feature_service.default_enabled, self.feature_service.state)
+        return {
+            "accounts": hash(json.dumps(self._accounts_data(), sort_keys=True)),
+            "features": hash(json.dumps(features, sort_keys=True, default=str)),
+        }
+
+    async def live_events(self, request: Request) -> Response:
+        params = request.query_params
+        topics = frozenset(filter(None, params.get("topics", "").split(",")))
+        if not topics <= TOPICS:
+            return _error_response("invalid_request", "未知的订阅主题", 400)
+        if self.live.count >= MAX_STREAMS:
+            return _error_response(
+                "too_many_streams", "实时连接过多，请关闭多余的面板标签页", 429
+            )
+        # 断线重连时浏览器带上最后收到的日志编号，从那里续传。
+        raw = request.headers.get("last-event-id") or params.get("after")
+        try:
+            cursor = int(raw) if raw else self.logs.sequence
+        except ValueError:
+            return _error_response("invalid_request", "日志游标无效", 400)
+        return StreamingResponse(
+            self.live.stream(request, topics, max(cursor, 0)),
+            media_type="text/event-stream",
+            headers={"Cache-Control": "no-store", "X-Accel-Buffering": "no"},
+        )
+
     async def index(self, request: Request) -> FileResponse:
         del request
         return FileResponse(
@@ -1010,6 +1060,7 @@ class WebUIService(Service):
             )
         async with self.stage("blocking"):
             await manager.status.wait_for_sigexit()
+            self.live.closing.set()
         async with self.stage("cleanup"):
             if self._log_sink is not None:
                 logger.remove(self._log_sink)

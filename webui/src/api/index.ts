@@ -34,7 +34,7 @@ import type {
   SettingsData,
 } from './types'
 
-export { ApiError, setUnauthorizedHandler } from './client'
+export { ApiError, notifyUnauthorized, setUnauthorizedHandler } from './client'
 export * from './types'
 
 const segment = encodeURIComponent

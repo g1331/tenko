@@ -4,6 +4,7 @@ import { api, ApiError, type LogData, type LogLevel } from '@/api'
 import PageContainer from '@/components/PageContainer.vue'
 import PagePanel from '@/components/PagePanel.vue'
 import { parseTime } from '@/composables/format'
+import { subscribeLogs, useLiveState, type LogPush } from '@/composables/useLiveEvents'
 
 const LIVE_INTERVAL_MS = 3000
 const LIVE_KEEP = 1000
@@ -38,7 +39,10 @@ let serial = 0
 let requestId = 0 // 来源 / 搜索变化后，使在途请求作废
 let busy = false
 let timer: ReturnType<typeof setInterval> | undefined
+let unfollow: (() => void) | undefined
 
+const connection = useLiveState()
+const following = ref(false) // 已订阅实时推送
 const live = computed(() => source.value === LIVE)
 const file = computed(() => (live.value ? '' : source.value))
 const level = computed(() => (levelChoice.value === ALL ? '' : levelChoice.value))
@@ -54,9 +58,12 @@ function stamp(iso: string): string {
 }
 const HISTORY_LEVEL = /\b(SUCCESS|WARNING|ERROR|CRITICAL)\b/
 
-function applyLive(data: Extract<LogData, { records: unknown }>, reset: boolean) {
-  if (reset || data.reset) rows.value = []
-  const added = data.records.map((record) => ({
+function applyLive(data: LogPush & { truncated: boolean }, reset: boolean) {
+  const restart = reset || data.reset
+  if (restart) rows.value = []
+  // 推送和轮询可能重叠，已显示过的记录不再追加。
+  const fresh = restart ? data.records : data.records.filter((record) => record.id > cursor)
+  const added = fresh.map((record) => ({
     key: ++serial,
     level: record.level,
     text: `${stamp(record.time)}  ${record.level.padEnd(8)} ${record.message}`,
@@ -104,6 +111,7 @@ async function load(reset = false) {
     historyEnabled.value = data.history_enabled
     if ('lines' in data) applyHistory(data)
     else applyLive(data, reset)
+    follow(!('lines' in data))
     if (error.value) error.value = ''
     loaded.value = true
     await nextTick()
@@ -138,8 +146,38 @@ function changeSource() {
   void load(true)
 }
 
+/** 实时来源下订阅日志推送（事件不带筛选，在这里按搜索词和级别过滤）；历史文件则取消。 */
+function follow(on: boolean) {
+  if (on === following.value) return
+  following.value = on
+  unfollow?.()
+  unfollow = on ? subscribeLogs({ cursor: () => cursor, onLogs: pushed }) : undefined
+}
+
+async function pushed(data: LogPush) {
+  if (!live.value || !loaded.value) return
+  const text = query.value.toLowerCase()
+  const atBottom = isAtBottom()
+  applyLive(
+    {
+      ...data,
+      records: data.records.filter(
+        (record) =>
+          record.message.toLowerCase().includes(text) &&
+          (!level.value || record.level === level.value),
+      ),
+      truncated: truncated.value,
+    },
+    false,
+  )
+  await nextTick()
+  if (atBottom) scrollToBottom()
+}
+
 function tick() {
-  if (live.value && !document.hidden) void load()
+  // 推送连接正常时不再轮询。
+  if (live.value && !document.hidden && !(following.value && connection.value === 'live'))
+    void load()
 }
 function onVisible() {
   tick()
@@ -153,6 +191,7 @@ onMounted(() => {
 onBeforeUnmount(() => {
   clearInterval(timer)
   document.removeEventListener('visibilitychange', onVisible)
+  follow(false)
   requestId += 1
 })
 
@@ -182,7 +221,7 @@ async function copy() {
 const scanText = computed(() => `${Math.round(scanLimit.value / 1024 / 1024)} MiB`)
 const status = computed(() => {
   if (live.value) {
-    return `每 3 秒刷新 · 最近 ${rows.value.length} 条（最多保留 ${LIVE_KEEP} 条）`
+    return `${following.value && connection.value === 'live' ? '实时推送' : '每 3 秒刷新'} · 最近 ${rows.value.length} 条（最多保留 ${LIVE_KEEP} 条）`
   }
   return `${file.value} · ${matched.value} 条匹配，显示最后 ${rows.value.length} 条`
 })
