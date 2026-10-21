@@ -143,11 +143,8 @@ def _context_details(origin: Any) -> tuple[str, ...]:
 
 
 def _report_time(value: datetime | None) -> datetime:
-    if value is None:
-        return datetime.now(UTC)
-    if value.tzinfo is None:
-        return value.replace(tzinfo=UTC)
-    return value
+    # 与最近消息一样用本地时区，两边的时间才能直接对照。
+    return (value or datetime.now()).astimezone()
 
 
 def _recent_lines(

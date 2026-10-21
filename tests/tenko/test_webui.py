@@ -804,6 +804,31 @@ async def test_capability_import_is_once_even_after_forgetting_account(tenko_dat
     assert not preferences.preferences
 
 
+def test_live_logs_include_exception_traceback():
+    from tenko.webui.logs import LogReader
+
+    try:
+        raise RuntimeError("coroutine raised StopIteration")
+    except RuntimeError as error:
+        exception = SimpleNamespace(
+            type=type(error), value=error, traceback=error.__traceback__
+        )
+    logs = LogReader(lambda: ())
+    logs.sink(
+        SimpleNamespace(
+            record={
+                "time": datetime.now(UTC),
+                "level": SimpleNamespace(name="ERROR"),
+                "message": "Exception:",
+                "exception": exception,
+            }
+        )
+    )
+    text = logs.live(0, "", "")["records"][0]["message"]
+    assert text.startswith("Exception:\nTraceback (most recent call last):")
+    assert text.endswith("RuntimeError: coroutine raised StopIteration")
+
+
 def test_log_history_scans_tail_of_large_files(tmp_path):
     import gzip
     from tenko.webui.logs import LogReader

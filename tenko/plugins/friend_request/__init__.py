@@ -138,9 +138,7 @@ friend_request_command = Alconna(
 @command.on(friend_request_command)
 @private_only()
 @require(Permission.Master)
-async def friend_request_policy(
-    session: Session, mode: Query[str] = Query("mode", None)
-):
+async def friend_request_policy(session: Session, mode: Query[str] = Query("mode")):
     repository = default_repository()
     try:
         if not mode.available:

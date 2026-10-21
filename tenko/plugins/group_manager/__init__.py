@@ -556,7 +556,7 @@ reset_capability_command = Alconna(
 @require(Permission.Master)
 async def reset_capability(
     session: Session,
-    account_id: Query[int] = Query("account_id", None),
+    account_id: Query[int] = Query("account_id"),
 ):
     context = context_from_session(session)
     target_account = (
@@ -644,7 +644,7 @@ group_setting_command = Alconna(
 @command.on(group_setting_command)
 async def group_setting(
     session: Session,
-    group: Query[int] = Query("group.group_id", None),
+    group: Query[int] = Query("group.group_id"),
 ):
     context = context_from_session(session)
     if context.chat_type == "group":
@@ -682,7 +682,7 @@ frequency_limit_command = Alconna(
 @require(Permission.GroupAdmin)
 async def frequency_limit(
     session: Session,
-    state: Query[str] = Query("state", None),
+    state: Query[str] = Query("state"),
 ):
     context = context_from_session(session)
     group_id = context.channel_id
@@ -979,7 +979,7 @@ essence_command.shortcut("设精", command="加精", prefix=True)
 @require(Permission.GroupAdmin)
 async def set_essence(
     session: Session,
-    message_id: Query[str] = Query("message_id", None),
+    message_id: Query[str] = Query("message_id"),
 ):
     context = context_from_session(session)
     target_message_id = message_id.result if message_id.available else None

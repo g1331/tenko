@@ -210,7 +210,9 @@ def test_error_report_contains_context_traceback_and_recent_messages(
             occurred_at=datetime(2026, 2, 3, 4, 5, 6),
         )
 
-    assert "发生时间: 2026-02-03T04:05:06+00:00" in report
+    # naive 时间按本地时区解释，与 Satori 消息时间一致。
+    local = datetime(2026, 2, 3, 4, 5, 6).astimezone()
+    assert f"发生时间: {local.isoformat(timespec='seconds')}" in report
     assert "异常类型: builtins.ValueError" in report
     assert "完整 traceback:" in report
     assert "Traceback (most recent call last)" in report

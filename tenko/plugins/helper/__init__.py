@@ -409,7 +409,7 @@ def build_help(index: int | None = None, *, group_id: str | int | None = None) -
 @require(Permission.User)
 async def helper(
     session: Session,
-    index: Query[int] = Query("index", None),
+    index: Query[int] = Query("index"),
     text_mode: Query[bool] = Query("t.value", False),
     *,
     render_service: RenderService,

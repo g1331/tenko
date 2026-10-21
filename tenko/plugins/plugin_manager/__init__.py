@@ -187,8 +187,8 @@ update_command = Alconna(
 @require(Permission.Master)
 async def update(
     session: Session,
-    plugin_id: Query[str] = Query("plugin_id", None),
-    source: Query[str] = Query("source", None),
+    plugin_id: Query[str] = Query("plugin_id"),
+    source: Query[str] = Query("source"),
 ):
     target = plugin_id.result if plugin_id.available else None
     try:
@@ -230,7 +230,7 @@ uninstall_command = Alconna(
 async def uninstall(
     session: Session,
     plugin_id: Match[str],
-    clear: Query[str] = Query("clear", None),
+    clear: Query[str] = Query("clear"),
 ):
     manager = get_plugin_manager()
     clear_data = clear.available
@@ -454,7 +454,7 @@ async def _index() -> RegistryIndex | str:
 
 @command.on(market_command)
 @require(Permission.Master)
-async def market(keyword: Query[str] = Query("keyword", None)):
+async def market(keyword: Query[str] = Query("keyword")):
     index = await _index()
     if isinstance(index, str):
         return index

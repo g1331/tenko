@@ -5,7 +5,7 @@ import time
 from collections import deque
 from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass, field
-from datetime import datetime, UTC
+from datetime import datetime
 from typing import Any
 
 from arclet.entari import SendResponse
@@ -109,10 +109,9 @@ def _compact_text(value: object, limit: int = 160) -> str:
 
 def _message_timestamp(value: object | None) -> datetime:
     if isinstance(value, datetime):
-        if value.tzinfo is None:
-            return value.replace(tzinfo=UTC)
-        return value
-    return datetime.now(UTC)
+        # Satori 用 datetime.fromtimestamp 解析时间戳，得到的是本地时间的 naive 值。
+        return value.astimezone()
+    return datetime.now().astimezone()
 
 
 @dataclass(frozen=True, slots=True)

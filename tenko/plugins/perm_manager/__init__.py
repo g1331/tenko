@@ -338,7 +338,7 @@ async def change_user_perm(
     session: Session,
     perm: Match[str],
     member_id: Match[tuple[str, ...]],
-    group: Query[int] = Query("group.group_id", None),
+    group: Query[int] = Query("group.group_id"),
 ):
     context = context_from_session(session)
     # 装饰器保证了 GroupOwner 的底线；跨群改权限取决于参数，由 _target_group 额外
@@ -396,7 +396,7 @@ modify_group_command = Alconna(
 async def change_group_perm(
     session: Session,
     perm: Match[str],
-    group: Query[int] = Query("group.group_id", None),
+    group: Query[int] = Query("group.group_id"),
 ):
     target_group, _ = await _target_group(session, group)
     if target_group is None:
@@ -441,7 +441,7 @@ modify_group_type_command = Alconna(
 async def change_group_perm_type(
     session: Session,
     permission_type: Match[str],
-    group: Query[int] = Query("group.group_id", None),
+    group: Query[int] = Query("group.group_id"),
 ):
     target_group, _ = await _target_group(session, group)
     if target_group is None:
@@ -533,7 +533,7 @@ permission_list_command.shortcut(
 @command.on(permission_list_command)
 async def get_perm_list(
     session: Session,
-    group: Query[int] = Query("group.group_id", None),
+    group: Query[int] = Query("group.group_id"),
     *,
     render_service: RenderService,
 ):

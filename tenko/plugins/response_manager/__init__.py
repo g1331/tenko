@@ -265,7 +265,7 @@ bot_group_list_command = Alconna(
 @require(Permission.Master)
 async def bot_group_list(
     session: Session,
-    account_id: Query[str] = Query("account_id", None),
+    account_id: Query[str] = Query("account_id"),
     *,
     render_service: RenderService,
 ):
@@ -338,7 +338,7 @@ response_strategy_command = Alconna(
 @require(Permission.GroupAdmin)
 async def set_response_strategy(
     session: Session,
-    response_type: Query[str] = Query("response_type", None),
+    response_type: Query[str] = Query("response_type"),
 ):
     context = context_from_session(session)
     group_id = str(context.channel_id)

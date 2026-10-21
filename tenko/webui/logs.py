@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import gzip
 import re
+import traceback
 import threading
 import zipfile
 from collections import deque
@@ -33,7 +34,18 @@ class LogReader:
         record = message.record
         if record.get("name") == "uvicorn.access" and "/webui" in record["message"]:
             return
-        text = self.redact(record["message"])[:4000]
+        text = record["message"]
+        # logger.exception 的堆栈在 record["exception"] 里，message 只有一句提示。
+        exception = record.get("exception")
+        if exception is not None and exception.type is not None:
+            text += "\n" + "".join(
+                traceback.format_exception(
+                    exception.type, exception.value, exception.traceback
+                )
+            ).rstrip("\n")
+        text = self.redact(text)
+        if len(text) > 4000:  # 保留开头的提示和结尾真正的异常行
+            text = f"{text[:1000]}\n…\n{text[-3000:]}"
         with self.lock:
             self.sequence += 1
             self.records.append(
