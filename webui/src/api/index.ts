@@ -12,12 +12,17 @@ import type {
   FeatureToggleResult,
   LoginBody,
   LoginResult,
+  InstalledData,
   LogData,
   LogQuery,
   ManagedAccountsData,
+  MarketData,
   OverviewData,
   PairingActionBody,
   PairingInfo,
+  PluginConfigData,
+  PluginTask,
+  PluginTaskBody,
   PluginToggleBody,
   PluginToggleResult,
   RevokeOthersResult,
@@ -47,6 +52,9 @@ export const api = {
   overview: () => request<OverviewData>('/overview'),
   accounts: () => request<AccountsData>('/accounts'),
   features: () => request<FeaturesData>('/features'),
+  market: (refresh = false) =>
+    request<MarketData>('/market', { query: { refresh: refresh ? 1 : undefined } }),
+  installedPlugins: () => request<InstalledData>('/plugins/installed'),
   manage: {
     accounts: () => request<ManagedAccountsData>('/manage/accounts'),
     accountAction: (platform: string, id: string, action: AccountAction, body: AccountActionBody) =>
@@ -60,6 +68,15 @@ export const api = {
       request<PluginToggleResult>(`/manage/plugins/${segment(plugin)}`, { body }),
     toggleFeature: (plugin: string, body: FeatureToggleBody) =>
       request<FeatureToggleResult>(`/manage/features/${segment(plugin)}`, { body }),
+    pluginTask: (body: PluginTaskBody) => request<PluginTask>('/manage/plugin-tasks', { body }),
+    pluginTaskState: (id: string) => request<PluginTask>(`/manage/plugin-tasks/${segment(id)}`),
+    pluginConfig: (plugin: string) =>
+      request<PluginConfigData>(`/manage/plugin-config/${segment(plugin)}`),
+    savePluginConfig: (plugin: string, values: Record<string, unknown>) =>
+      request<PluginConfigData>(`/manage/plugin-config/${segment(plugin)}`, {
+        body: { values, confirm: true },
+      }),
+    restart: () => request<{ restarting: boolean }>('/manage/restart', { body: { confirm: true } }),
     settings: () => request<SettingsData>('/manage/settings'),
     saveSettings: (body: SettingsBody) => request<SettingsData>('/manage/settings', { body }),
     logs: (query: LogQuery = {}) => request<LogData>('/manage/logs', { query: { ...query } }),

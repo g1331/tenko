@@ -1,18 +1,30 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { api, type FeatureInfo, type PluginToggleResult } from '@/api'
 import PageContainer from '@/components/PageContainer.vue'
 import ResourceBoundary from '@/components/ResourceBoundary.vue'
 import { confirmAction } from '@/composables/confirm'
 import { pluginStats } from '@/composables/status'
 import { usePanelData } from '@/composables/usePanelData'
+import { providePluginOps } from '@/composables/usePluginOps'
+import InstalledTab from './plugins/InstalledTab.vue'
+import MarketTab from './plugins/MarketTab.vue'
+import PluginBanners from './plugins/PluginBanners.vue'
 import PluginCard from './plugins/PluginCard.vue'
 
 const { features, refresh } = usePanelData()
 
+const ops = providePluginOps()
+const tab = ref('all')
 const query = ref('')
-const marketOpen = ref(false)
 const busy = ref('')
+
+// 页面级的重启提醒和任务进度依赖已安装插件数据，进页面就读取；市场目录等切到标签页再读。
+onMounted(() => ops.loadInstalled())
+function onTab(name: string | number) {
+  if (name === 'market') void ops.ensureMarket()
+  if (name === 'installed') void ops.loadInstalled()
+}
 
 const filtered = (list: FeatureInfo[]) => {
   const text = query.value.trim().toLowerCase()
@@ -43,7 +55,7 @@ async function apply(feature: FeatureInfo, change: Change) {
     const result = (await change.body()) as Partial<PluginToggleResult> | undefined
     if (result?.restart_required) ElMessage.info('已启用，重启后生效')
     else ElMessage.success(change.done)
-    await refresh()
+    await Promise.all([refresh(), ops.loadInstalled()])
   } catch (error) {
     ElMessage.error(`${change.title}失败：${(error as Error).message}`)
   } finally {
@@ -89,55 +101,61 @@ const resetGlobal = (feature: FeatureInfo) =>
 
 <template>
   <PageContainer>
-    <template #actions>
-      <el-input
-        v-model="query"
-        class="search"
-        clearable
-        placeholder="搜索插件名称或标识"
-        aria-label="搜索插件"
-      />
-      <span class="summary">{{ summary }}</span>
-      <el-button class="market" @click="marketOpen = true">插件市场</el-button>
-    </template>
-
-    <ResourceBoundary :resource="features" label="插件数据">
-      <template #default="{ data }">
-        <el-empty v-if="!data.features.length" :image-size="64" description="暂无插件" />
-        <el-empty
-          v-else-if="!filtered(data.features).length"
-          :image-size="64"
-          description="没有匹配的插件"
-        />
-        <div v-else class="grid">
-          <PluginCard
-            v-for="feature in filtered(data.features)"
-            :key="feature.plugin"
-            :feature="feature"
-            :busy="busy === feature.plugin"
-            @toggle="toggle(feature)"
-            @maintenance="maintenance(feature)"
-            @global-toggle="globalToggle(feature)"
-            @reset-global="resetGlobal(feature)"
+    <PluginBanners />
+    <el-tabs v-model="tab" @tab-change="onTab">
+      <el-tab-pane label="全部插件" name="all">
+        <div class="toolbar">
+          <el-input
+            v-model="query"
+            class="search"
+            clearable
+            placeholder="搜索插件名称或标识"
+            aria-label="搜索插件"
           />
+          <span class="summary">{{ summary }}</span>
         </div>
-      </template>
-    </ResourceBoundary>
 
-    <el-dialog
-      v-model="marketOpen"
-      title="插件市场"
-      width="min(460px, calc(100vw - 24px))"
-      align-center
-    >
-      <el-empty :image-size="72" description="插件市场筹备中">
-        <p class="market-note">外部插件仓库与兼容性规范仍在设计。当前已安装的插件可在本页管理。</p>
-      </el-empty>
-    </el-dialog>
+        <ResourceBoundary :resource="features" label="插件数据">
+          <template #default="{ data }">
+            <el-empty v-if="!data.features.length" :image-size="64" description="暂无插件" />
+            <el-empty
+              v-else-if="!filtered(data.features).length"
+              :image-size="64"
+              description="没有匹配的插件"
+            />
+            <div v-else class="grid">
+              <PluginCard
+                v-for="feature in filtered(data.features)"
+                :key="feature.plugin"
+                :feature="feature"
+                :busy="busy === feature.plugin"
+                @toggle="toggle(feature)"
+                @maintenance="maintenance(feature)"
+                @global-toggle="globalToggle(feature)"
+                @reset-global="resetGlobal(feature)"
+              />
+            </div>
+          </template>
+        </ResourceBoundary>
+      </el-tab-pane>
+      <el-tab-pane label="插件市场" name="market" lazy>
+        <MarketTab />
+      </el-tab-pane>
+      <el-tab-pane label="第三方插件" name="installed" lazy>
+        <InstalledTab />
+      </el-tab-pane>
+    </el-tabs>
   </PageContainer>
 </template>
 
 <style scoped>
+.toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  margin-bottom: 16px;
+}
 .search {
   width: 260px;
   max-width: 100%;
@@ -146,22 +164,11 @@ const resetGlobal = (feature: FeatureInfo) =>
   color: var(--tk-muted);
   font-size: 12px;
 }
-.market {
-  margin-left: auto;
-}
 .grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(min(100%, 300px), 1fr));
   gap: 16px;
 }
-.market-note {
-  max-width: 320px;
-  margin: 0;
-  color: var(--tk-muted);
-  font-size: 12px;
-  line-height: 1.65;
-}
-
 @media (max-width: 520px) {
   .search {
     width: 100%;

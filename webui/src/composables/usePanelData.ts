@@ -19,7 +19,7 @@ export interface Resource<T> {
   loading: Ref<boolean>
 }
 
-function resource<T>(): Resource<T> {
+export function resource<T>(): Resource<T> {
   return { data: shallowRef<T | null>(null), error: shallowRef(null), loading: ref(true) }
 }
 

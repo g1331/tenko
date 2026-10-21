@@ -283,3 +283,17 @@ html.dark:root {
   --el-radio-button-checked-bg-color: var(--el-color-primary);
   --el-radio-button-checked-border-color: var(--el-color-primary);
 }
+
+/* 提示条文字：Element 默认直接用品牌色，金色在浅底上对比度不足，改用语义文字色。 */
+:root:root .el-alert--warning.is-light,
+:root:root .el-alert--warning.is-light .el-alert__description {
+  color: var(--tk-warn);
+}
+:root:root .el-alert--error.is-light,
+:root:root .el-alert--error.is-light .el-alert__description {
+  color: var(--tk-danger);
+}
+:root:root .el-alert--success.is-light,
+:root:root .el-alert--success.is-light .el-alert__description {
+  color: var(--tk-ok);
+}

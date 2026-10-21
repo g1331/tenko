@@ -215,3 +215,114 @@ export interface LogHistoryData extends LogCommon {
   scan_limit_bytes: number
 }
 export type LogData = LogLiveData | LogHistoryData
+
+export type PluginTier = 'official' | 'listed'
+export type PluginTrust = PluginTier | 'unlisted'
+export interface MarketVersion {
+  version: string
+  requires_api: string
+  /** 不能安装的原因；null 表示可安装。 */
+  problem: string | null
+}
+export interface MarketPlugin {
+  id: string
+  name: string
+  description: string
+  authors: string[]
+  homepage: string
+  license: string
+  tags: string[]
+  tier: PluginTier
+  icon_url: string | null
+  source: string
+  source_type: string
+  /** 宿主可安装的最新版本；没有则看 problem。 */
+  latest: string | null
+  problem: string | null
+  versions: MarketVersion[]
+  installed_version: string | null
+  blocked: string | null
+}
+/** 目录不可用时只有 available / error / plugins。 */
+export interface MarketData {
+  available: boolean
+  error?: string
+  url?: string
+  host_api?: string
+  plugins: MarketPlugin[]
+}
+export interface InstalledPlugin {
+  plugin_id: string
+  dist: string
+  version: string
+  source: string
+  trust: PluginTrust
+  requirement: string
+  enabled: boolean
+  loaded: boolean
+  restart_required: boolean
+  installed_at: string
+  updated_at: string
+  name: string | null
+  icon_url: string | null
+  /** 目录里可更新到的版本。 */
+  update: string | null
+  /** 当前版本被撤回的原因。 */
+  yanked: string | null
+  /** 被目录封禁的原因。 */
+  blocked: string | null
+}
+
+export type PluginTaskAction = 'install' | 'update' | 'uninstall' | 'rollback' | 'sync'
+export interface PluginTaskBody {
+  action: PluginTaskAction
+  plugin_id?: string
+  version?: string
+  clear_data?: boolean
+  confirm: true
+}
+export interface PluginChange {
+  plugin_id: string
+  dist: string
+  from: string | null
+  to: string | null
+}
+export interface PluginTask {
+  id: string
+  action: PluginTaskAction
+  plugin_id: string | null
+  state: 'running' | 'succeeded' | 'failed'
+  message: string
+  changes: PluginChange[]
+  /** 失败时环境是否已恢复；成功或未判断时为 null。 */
+  restored: boolean | null
+  started_at: number
+  finished_at: number | null
+}
+export interface InstalledData {
+  plugins: InstalledPlugin[]
+  /** 环境与插件锁不一致的包。 */
+  drift: string[]
+  rollback_available: boolean
+  restart_required: boolean
+  can_restart: boolean
+  task: PluginTask | null
+}
+
+/** 插件配置表单；schema 是 pydantic 生成的 JSON Schema（只用到 properties）。 */
+export interface ConfigField {
+  type?: string
+  title?: string
+  description?: string
+  default?: unknown
+  enum?: (string | number | boolean)[]
+}
+export interface PluginConfigData {
+  plugin_id: string
+  available: boolean
+  schema?: { properties?: Record<string, ConfigField> }
+  values?: Record<string, unknown>
+  editable?: string[]
+  read_only_reason?: string | null
+  restart_required?: boolean
+}
