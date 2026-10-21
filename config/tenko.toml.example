@@ -70,7 +70,8 @@ satori_token = "tenko-satori-local"
 enabled = false
 # 登录账号保存在数据库中：Master 在 QQ 私聊发送 /面板重置密码 获取用户名（默认 master）
 # 和初始密码；未连接 QQ 时可执行 python -m tenko webui-passwd。
-# 仅允许这些来源 IP 访问 WebUI；如无必要请保持本机白名单。
+# 仅允许这些来源 IP 或网段访问 WebUI；如无必要请保持本机白名单。
+# 通过反向代理用域名访问时见 README 的“通过域名访问”。
 allowed_ips = ["127.0.0.1"]
 # 可选：对外访问地址，仅用于在 bot 回复里拼出面板链接，不影响监听。
 # public_url = "http://203.0.113.10:8081"

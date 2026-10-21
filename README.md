@@ -551,6 +551,40 @@ QQ 未连接时，可在部署根目录执行 `python -m tenko webui-passwd [--c
 并在启动时给出警告，请删除。把面板暴露到公网前，请确认 `allowed_ips`、反向代理和
 HTTPS 配置；密码只通过 cookie 会话使用，不要放在 URL 中。
 
+### 通过域名访问
+
+用 nginx（或 1Panel、宝塔等面板创建的反向代理）在 HTTPS 域名后转发 `/webui`：
+
+```nginx
+location = / {
+    return 302 /webui/;
+}
+location ^~ /webui {
+    proxy_pass http://127.0.0.1:8081;            # Tenko 的 listen_port
+    proxy_set_header Host $host;                 # 缺少时写操作会被当成跨来源（403）
+    proxy_set_header X-Forwarded-Proto $scheme;  # 缺少时同样 403，cookie 也不会带 Secure
+    proxy_set_header X-Forwarded-For $remote_addr;
+    proxy_http_version 1.1;
+    proxy_buffering off;                         # 实时推送（SSE）
+    proxy_read_timeout 1h;
+}
+```
+
+```toml
+[webui]
+enabled = true
+allowed_ips = ["0.0.0.0/0", "::/0"]
+public_url = "https://panel.example.com"
+```
+
+代理传来 `X-Forwarded-For` 后，Tenko 看到的是访问者的真实 IP，登录限流和审计日志
+都按它计算，所以 `allowed_ips` 要用网段放开（也可以只写自己的网段）。只转发
+`/webui`：面板和 OneBot/Satori 共用端口，面板生成的默认代理通常是 `location /`，
+会把 OneBot 接口一起暴露出去。`allowed_ips` 放开后，任何能直接连到监听端口的人也能
+打开面板登录页，请用防火墙挡住该端口，或在 NapCat 与 Tenko 同机时把 `listen_host`
+设为 `127.0.0.1`。Tenko 只信任来自本机的 `X-Forwarded-*`；代理不在本机（包括 Docker 桥接网络）时，
+需要设置环境变量 `FORWARDED_ALLOW_IPS` 为代理地址。
+
 | 页面 | 可用操作 |
 | --- | --- |
 | 账户 | 查看连接与启用状态、配对接入、启用/停用、踢下线、移除记录、别名和能力覆盖 |

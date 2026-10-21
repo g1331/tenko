@@ -253,17 +253,18 @@ def test_webui_configuration_needs_no_token_when_enabled() -> None:
         {
             "webui": {
                 "enabled": True,
-                "allowed_ips": ["127.0.0.1", "::1"],
+                "allowed_ips": ["127.0.0.1", "::1", "10.1.2.3/8"],
                 "public_url": "http://203.0.113.10:8081/",
             },
         }
     )
 
     assert config.webui.enabled is True
-    assert config.webui.allowed_ips == ("127.0.0.1", "::1")
+    assert config.webui.allowed_ips == ("127.0.0.1", "::1", "10.0.0.0/8")
     assert config.webui.public_url == "http://203.0.113.10:8081"
-    with pytest.raises(ValueError, match="非法 IP"):
-        TenkoConfig.from_mapping({"webui": {"allowed_ips": ["localhost"]}})
+    for bad in ("localhost", "10.0.0.0/33"):
+        with pytest.raises(ValueError, match="非法 IP"):
+            TenkoConfig.from_mapping({"webui": {"allowed_ips": [bad]}})
     for value in ("203.0.113.10:8081", "ftp://example.com", 8081):
         with pytest.raises(ValueError, match="public_url"):
             TenkoConfig.from_mapping({"webui": {"public_url": value}})

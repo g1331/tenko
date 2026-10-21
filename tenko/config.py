@@ -245,15 +245,21 @@ def _ip_sequence(
 ) -> tuple[str, ...]:
     value = section.get(key, default)
     if not isinstance(value, list | tuple):
-        raise ValueError(f"配置项 {key!r} 必须是 IP 地址列表")
+        raise ValueError(f"配置项 {key!r} 必须是 IP 地址或网段列表")
     normalized: list[str] = []
     for item in value:
         if not isinstance(item, str) or not item:
-            raise ValueError(f"配置项 {key!r} 的每项必须是非空 IP 地址")
+            raise ValueError(f"配置项 {key!r} 的每项必须是非空 IP 地址或网段")
         try:
-            normalized.append(str(ipaddress.ip_address(item)))
+            normalized.append(
+                str(ipaddress.ip_network(item, strict=False))
+                if "/" in item
+                else str(ipaddress.ip_address(item))
+            )
         except ValueError as error:
-            raise ValueError(f"配置项 {key!r} 包含非法 IP 地址: {item!r}") from error
+            raise ValueError(
+                f"配置项 {key!r} 包含非法 IP 地址或网段: {item!r}"
+            ) from error
     return tuple(normalized)
 
 
@@ -444,7 +450,7 @@ class OneBotConfig:
 
 @dataclass(frozen=True, slots=True)
 class WebUIConfig:
-    """内置 WebUI 的开关、来源地址白名单和对外访问地址。
+    """内置 WebUI 的开关、来源地址白名单（IP 或网段）和对外访问地址。
 
     登录凭据保存在数据库里的面板账号中。``token`` 与 ``admin_token`` 是已弃用
     的旧配置项：仍可解析以便旧配置加载，但不再参与任何鉴权。

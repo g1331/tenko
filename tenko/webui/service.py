@@ -83,10 +83,12 @@ class WebUIAuthMiddleware(BaseHTTPMiddleware):
         if client is None:
             return False
         try:
-            client_ip = str(ipaddress.ip_address(client.host))
+            client_ip = ipaddress.ip_address(client.host)
         except ValueError:
             return False
-        return client_ip in self.config.allowed_ips
+        return any(
+            client_ip in ipaddress.ip_network(item) for item in self.config.allowed_ips
+        )
 
     @staticmethod
     def _is_public(request: Request) -> bool:

@@ -164,6 +164,17 @@ async def test_webui_assets_respect_enabled_and_allowed_ips(static_site):
     assert remote.status_code == 401
     assert "console.log" not in remote.text
     assert disabled.status_code == 404
+
+    # 网段：经反向代理传来真实 IP 时，用 0.0.0.0/0 放行所有来源。
+    open_server, _open = _service(WebUIConfig(enabled=True, allowed_ips=("0.0.0.0/0",)))
+    allowed = await _get(
+        open_server.app, "/webui/assets/app-abc123.js", client_host="192.0.2.10"
+    )
+    v6 = await _get(
+        open_server.app, "/webui/assets/app-abc123.js", client_host="2001:db8::1"
+    )
+    assert allowed.status_code == 200
+    assert v6.status_code == 401  # IPv4 网段不覆盖 IPv6
     assert "console.log" not in disabled.text
 
 
