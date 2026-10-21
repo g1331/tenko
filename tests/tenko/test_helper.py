@@ -62,6 +62,7 @@ async def test_helper_trigger_uses_native_command_registry(
     assert "运行插件：" in str(result)
     assert "维护插件：" in str(result)
     assert loaded_plugin.help_command.parse("/帮助").matched
+    assert loaded_plugin.help_command.parse("/帮助 4 -t").query("t.value")
     assert not loaded_plugin.help_command.parse("/-help 1").matched
     assert not loaded_plugin.help_command.parse("/-帮助 1").matched
     assert not loaded_plugin.help_command.parse("帮助").matched
@@ -316,6 +317,17 @@ def test_help_number_uses_plugin_commands_for_card_positions(
         *commands_by_plugin["group_manager"],
         *commands_by_plugin["updater"],
     ]
+
+    detail = loaded_plugin.build_help_detail_data(10)
+    assert detail["item"]["plugin"] == "updater"
+    assert [command["title"] for command in detail["commands"]] == [
+        f"/{name}" for name in commands_by_plugin["updater"]
+    ]
+    assert detail["commands"][0]["fields"][0] == {
+        "label": "说明",
+        "value": "检查更新 description",
+    }
+    assert loaded_plugin.build_help_detail_data(11) is None
 
 
 @pytest.mark.parametrize("loaded_plugin", ["helper"], indirect=True)

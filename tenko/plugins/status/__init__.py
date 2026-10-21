@@ -395,7 +395,7 @@ status_command = Alconna(
 @require(Permission.User)
 async def status(
     session: Session,
-    text_mode: Query[bool] = Query("text.value", False),
+    text_mode: Query[bool] = Query("t.value", False),
     *,
     render_service: RenderService,
 ):

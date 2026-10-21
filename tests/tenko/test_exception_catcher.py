@@ -331,8 +331,11 @@ async def test_exception_report_prefers_rendered_markdown_image(
         EntariConfig.instance.basic.superusers = original
 
     renderer.assert_awaited_once()
-    assert renderer.await_args.args[0] == render_service.render_markdown
-    assert renderer.await_args.args[1].startswith("[Tenko 异常]")
+    assert renderer.await_args.args[:2] == (
+        render_service.render_template,
+        "report.html",
+    )
+    assert renderer.await_args.args[2]["report"].startswith("[Tenko 异常]")
     assert protocol.messages[0][0] == "90001"
     assert isinstance(protocol.messages[0][1][0], Image)
 

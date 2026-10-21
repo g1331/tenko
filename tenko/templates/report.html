@@ -1,0 +1,40 @@
+{% extends "_base.html" %}
+{#- report 是 exception_catcher.generate_error_report 生成的文本，这里按它的固定段落拆开排版。 #}
+{%- set head, _, traceback = report.partition("\n完整 traceback:\n") %}
+{%- set head, _, recent = head.partition("\n最近消息（环形缓冲）:\n") %}
+
+{% block style %}
+  .hero { height: 300px; }
+  .kv div { display: grid; grid-template-columns: 72px 1fr; gap: 14px; padding: 8px 0; border-bottom: 1px solid rgba(255,255,255,.08);
+    font-size: 13.5px; line-height: 1.6; }
+  .kv .k { opacity: .6; letter-spacing: .06em; }
+  .kv .v { word-break: break-all; }
+  .recent { font-size: 12.5px; line-height: 1.8; opacity: .8; word-break: break-all; }
+  pre { margin: 0; padding: 16px 18px; border-radius: 14px; background: rgba(0,0,0,.35); border: 1px solid rgba(255,255,255,.1);
+    font-family: "DejaVu Sans Mono", "Menlo", monospace, "SC"; font-size: 11.5px; line-height: 1.6; white-space: pre-wrap; word-break: break-all; }
+{% endblock %}
+
+{% block hero_copy %}
+  <div class="eyebrow">TENKO · EXCEPTION</div>
+  <div class="h1">异常报告</div>
+  <div class="sub">Tenko 捕获到未处理的异常</div>
+{% endblock %}
+
+{% block content %}
+  <div class="sec"><div class="sh"><span class="t">概要</span></div>
+    <div class="kv">
+    {%- for line in head.splitlines()[1:] %}
+      {%- set key, sep, value = line.partition(": ") %}
+      <div>{% if sep %}<span class="k">{{ key }}</span><span class="v">{{ value }}</span>{% else %}<span></span><span class="v">{{ line }}</span>{% endif %}</div>
+    {%- endfor %}
+    </div>
+  </div>
+  {%- if recent %}
+  <div class="sec"><div class="sh"><span class="t">最近消息</span><span class="who">环形缓冲</span></div>
+    <div class="recent">{% for line in recent.splitlines() %}<div>{{ line }}</div>{% endfor %}</div>
+  </div>
+  {%- endif %}
+  {%- if traceback %}
+  <div class="sec"><div class="sh"><span class="t">Traceback</span></div><pre>{{ traceback }}</pre></div>
+  {%- endif %}
+{% endblock %}

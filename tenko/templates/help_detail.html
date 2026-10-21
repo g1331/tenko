@@ -1,0 +1,42 @@
+{% extends "_base.html" %}
+
+{% block style %}
+  .title { display: flex; align-items: center; gap: 20px; margin: 14px 0 12px; }
+  .title .ico { width: 72px; height: 72px; border-radius: 19px; }
+  .title .ico img { width: 36px; height: 36px; }
+  .title .h1 { margin: 0; font-size: {{ 64 if item.name | length <= 4 else 46 }}px; }
+  .stats b.cn { font-family: "SC"; font-size: 30px; font-weight: 700; line-height: 1.45; }
+
+  .cmd { padding: 16px 0 6px; border-top: 1px solid rgba(255,255,255,.08); }
+  .cmd:first-child { border-top: 0; padding-top: 0; }
+  .cmd .name { font-size: 19px; font-weight: 800; letter-spacing: .03em; margin-bottom: 8px; }
+  .fld { display: grid; grid-template-columns: 56px 1fr; gap: 14px; padding: 5px 0; font-size: 13.5px; line-height: 1.7; }
+  .fld .k { opacity: .55; letter-spacing: .08em; }
+  .fld .v { white-space: pre-line; opacity: .9; }
+{% endblock %}
+
+{% block hero_copy %}
+  <div class="eyebrow">TENKO · NO.{{ "%02d" | format(item.number) }}</div>
+  <div class="title"><div class="ico"><img src="{{ item.icon }}" alt=""></div><div class="h1">{{ item.name }}</div></div>
+  {%- if item.description %}<div class="sub">{{ item.description }}</div>{% endif %}
+  <div class="stats">
+    <div><b>{{ commands | length }}</b>条命令</div>
+    <div class="dim"><b class="cn">{{ item.state_label }}</b>本群状态</div>
+  </div>
+{% endblock %}
+
+{% block content %}
+  <div class="sec"><div class="sh"><span class="t">命令</span><span class="who">参数中 [ ] 为可选</span></div>
+  {%- for command in commands %}
+    <div class="cmd"><div class="name">{{ command.title }}</div>
+    {%- for field in command.fields %}
+      <div class="fld"><span class="k">{{ field.label }}</span><span class="v">{{ field.value }}</span></div>
+    {%- endfor %}
+    </div>
+  {%- else %}
+    <div class="empty">该插件未注册命令</div>
+  {%- endfor %}
+  </div>
+{% endblock %}
+
+{% block foot_note %}发送 /帮助 {{ item.number }} -t 获取可复制的文本{% endblock %}

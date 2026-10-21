@@ -4,7 +4,7 @@ from collections.abc import Iterable
 from pathlib import Path
 from typing import Any
 
-from arclet.alconna import Alconna, Args, CommandMeta, Option
+from arclet.alconna import Alconna, Args, CommandMeta, Option, store_true
 from arclet.alconna import command_manager
 from arclet.entari import Session, command, plugin
 from arclet.entari.command import Query
@@ -61,10 +61,17 @@ _BUILTIN_ICONS = {
 help_command = Alconna(
     "帮助",
     Args["index?", int],
+    Option(
+        "-t",
+        alias=["--text"],
+        action=store_true,
+        default=False,
+        help_text="强制使用文本输出",
+    ),
     meta=CommandMeta(
         "列出 Entari 已注册命令或查看单条命令详情",
-        usage="帮助 [编号]",
-        example="$帮助\n$帮助 1",
+        usage="帮助 [编号] [-t]",
+        example="$帮助\n$帮助 1\n$帮助 1 -t",
         compact=True,
     ),
 )
@@ -137,12 +144,14 @@ def _command_option_lines(command: object) -> list[str]:
     ]
 
 
-def _format_command_help(
+def _command_help_fields(
     command: object,
     command_name: str,
     prefixes: object,
     requirement: str | None = None,
-) -> str:
+) -> tuple[str, list[tuple[str, str]]]:
+    """返回命令的显示名（带前缀）和说明、用法等字段，图片和文本两种输出共用。"""
+
     display_name = str(getattr(command, "command", None) or command_name)
     prefix = _command_prefix(command, prefixes)
     fields: list[tuple[str, str]] = []
@@ -157,8 +166,11 @@ def _format_command_help(
         fields.append(("选项", "\n".join(options)))
     if requirement:
         fields.append(("权限", requirement))
+    return f"{prefix}{display_name}", fields
 
-    lines = [f"{prefix}{display_name}"]
+
+def _format_fields(title: str, fields: list[tuple[str, str]]) -> str:
+    lines = [title]
     for index, (label, value) in enumerate(fields):
         is_last = index == len(fields) - 1
         branch = "└" if is_last else "├"
@@ -169,22 +181,41 @@ def _format_command_help(
     return "\n".join(lines)
 
 
-def _plugin_help(native_plugin: object) -> str:
-    """将插件注册的命令元数据格式化为纯文本帮助。"""
+def _format_command_help(
+    command: object,
+    command_name: str,
+    prefixes: object,
+    requirement: str | None = None,
+) -> str:
+    return _format_fields(
+        *_command_help_fields(command, command_name, prefixes, requirement)
+    )
 
-    commands = get_plugin_commands(native_plugin)  # type: ignore[arg-type]
-    if not commands:
-        return "该插件未注册命令"
+
+def _plugin_command_help(
+    native_plugin: object,
+) -> list[tuple[str, list[tuple[str, str]]]]:
+    """插件每条命令的 (显示名, 字段)；按注册顺序排列。"""
+
     requirements = command_requirements(native_plugin)
-    return "\n\n".join(
-        _format_command_help(
+    return [
+        _command_help_fields(
             command_manager.get_command(command_name),
             command_name,
             prefixes,
             requirement_text(requirements.get(command_name, {})),
         )
-        for prefixes, command_name in commands
-    )
+        for prefixes, command_name in get_plugin_commands(native_plugin)  # type: ignore[arg-type]
+    ]
+
+
+def _plugin_help(native_plugin: object) -> str:
+    """将插件注册的命令元数据格式化为纯文本帮助。"""
+
+    commands = _plugin_command_help(native_plugin)
+    if not commands:
+        return "该插件未注册命令"
+    return "\n\n".join(_format_fields(*command) for command in commands)
 
 
 def _metadata_value(native_plugin: object | None, field: str) -> object | None:
@@ -342,6 +373,27 @@ def format_help_text(data: dict[str, Any]) -> str:
     return "\n".join(lines)
 
 
+def build_help_detail_data(
+    index: int, group_id: str | int | None = None
+) -> dict[str, Any] | None:
+    """单个插件的详情：菜单里的那一项加上每条命令的说明字段；编号越界时为 ``None``。"""
+
+    plugins = _help_plugins()
+    if not 1 <= index <= len(plugins):
+        return None
+    item = next(
+        item
+        for section in build_help_data(group_id)["sections"]
+        for item in section["items"]
+        if item["number"] == index
+    )
+    commands = [
+        {"title": title, "fields": [{"label": k, "value": v} for k, v in fields]}
+        for title, fields in _plugin_command_help(plugins[index - 1][1])
+    ]
+    return {"item": item, "commands": commands}
+
+
 def build_help(index: int | None = None, *, group_id: str | int | None = None) -> str:
     """构建完整的插件帮助，或某个插件的单项命令帮助。"""
 
@@ -358,16 +410,23 @@ def build_help(index: int | None = None, *, group_id: str | int | None = None) -
 async def helper(
     session: Session,
     index: Query[int] = Query("index", None),
+    text_mode: Query[bool] = Query("t.value", False),
     *,
     render_service: RenderService,
 ):
     context = context_from_session(session)
     value = index.result if index.available else None
-    if value is not None:
-        return build_help(value)
-
     group_id = context.channel_id if context.chat_type == "group" else None
+    if value is not None:
+        text = build_help(value)
+        detail = None if text_mode.result else build_help_detail_data(value, group_id)
+        if detail is None:
+            return text
+        return await render_or_text(render_service, "help_detail.html", detail, text)
+
     help_data = build_help_data(group_id)
+    if text_mode.result:
+        return format_help_text(help_data)
     return await render_or_text(
         render_service, "help.html", help_data, format_help_text(help_data)
     )

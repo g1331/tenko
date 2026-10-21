@@ -92,6 +92,8 @@ async def test_placeholder_templates_render_to_jpeg() -> None:
                     "rss_display": None,
                 },
                 "resources": None,
+                "online_bots": 1,
+                "active_groups": 1,
             },
         )
         markdown_image = await service.render_markdown("# Report\n\nrendered")

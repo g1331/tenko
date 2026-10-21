@@ -296,7 +296,9 @@ async def send_error_report(
             image = (
                 None
                 if render_service is None
-                else await try_render(render_service.render_markdown, report)
+                else await try_render(
+                    render_service.render_template, "report.html", {"report": report}
+                )
             )
             for user_id in user_ids:
                 try:

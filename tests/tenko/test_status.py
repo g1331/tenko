@@ -167,7 +167,7 @@ async def test_status_command_reports_legacy_group_fields_without_context_detail
     assert "RSS" not in output
     assert "网络 IO" not in output
     assert not loaded_plugin.status_command.parse("/-bot -t").matched
-    assert loaded_plugin.status_command.parse("/状态 -t").matched
+    assert loaded_plugin.status_command.parse("/状态 -t").query("t.value")
 
 
 @pytest.mark.asyncio
