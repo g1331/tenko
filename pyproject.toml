@@ -27,6 +27,7 @@ dependencies = [
     "httpx>=0.27.0",
     "packaging>=24",
     "tomli-w>=1.0",
+    "tomlkit>=0.13",
     "markdown-it-py>=3.0.0",
     "tenko-api",
 ]

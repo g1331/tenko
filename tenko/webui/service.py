@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import asyncio
-import copy
 import inspect
 import json
 import os
@@ -662,12 +661,19 @@ class WebUIService(Service):
 
     def update_config(
         self,
-        mutate: Callable[[dict[str, Any]], None],
+        mutate: Callable[[Any], None],
         check: Callable[[dict[str, Any]], None] | None = None,
     ) -> None:
-        """改写 TOML 配置：先写临时文件并校验，再原子替换；外部改过文件时拒绝。"""
+        """只改动 ``mutate`` 涉及的键，注释、顺序和其他节逐字保留。
+
+        ``mutate`` 先作用在 tomlkit 文档上（写文件），成功后再作用在内存里的配置上。
+        写入前用 tomllib 和 :class:`TenkoConfig` 校验，临时文件加原子替换；文件在
+        面板之外被改过时拒绝写入。
+        """
 
         import tomllib
+
+        import tomlkit
 
         if self._config_path is None or self._config_stamp is None:
             raise RuntimeError("没有可写回的配置文件")
@@ -675,20 +681,21 @@ class WebUIService(Service):
             raise RuntimeError("只支持写回当前项目的 TOML 配置")
         if self._stamp() != self._config_stamp:
             raise RuntimeError("配置文件已被外部修改，请重启加载后再修改")
-        native = copy.deepcopy(self.tenko_config.entari_config)
-        mutate(native.data)
+        document = tomlkit.parse(self._config_path.read_text(encoding="utf-8"))
+        mutate(document)
+        rendered = tomlkit.dumps(document)
+        parsed = tomllib.loads(rendered)
+        if check is not None:
+            check(parsed)
+        TenkoConfig.from_mapping(parsed)
         descriptor, name = tempfile.mkstemp(
             prefix=".tenko-config-", suffix=".toml", dir=self._config_path.parent
         )
-        os.close(descriptor)
         temporary = Path(name)
         try:
-            native.save(temporary)
-            parsed = tomllib.loads(temporary.read_text())
-            if check is not None:
-                check(parsed)
-            TenkoConfig.from_mapping(parsed)
-            with temporary.open("rb") as stream:
+            with os.fdopen(descriptor, "w", encoding="utf-8") as stream:
+                stream.write(rendered)
+                stream.flush()
                 os.fsync(stream.fileno())
             if self._stamp() != self._config_stamp:
                 raise RuntimeError("配置文件发生并发修改，请重试")
@@ -697,6 +704,7 @@ class WebUIService(Service):
             temporary.unlink(missing_ok=True)
         self._config_stamp = self._stamp()
         mutate(self.tenko_config.entari_config.data)
+        # 跳过 Entari 对这次写入的自动重载。
         self.tenko_config.entari_config.save_flag = True
 
     def raw_config(self) -> dict[str, Any]:

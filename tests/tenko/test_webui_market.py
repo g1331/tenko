@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import asyncio
 import json
-import tomllib
 from types import SimpleNamespace
 
 import httpx
@@ -39,6 +38,16 @@ class FakeManager:
         return PluginChange("install", "example", "tenko-plugin-example", None, "0.1.0")
 
 
+CONFIG = """# 手工维护的说明
+[webui]
+enabled = true  # 行尾注释
+
+[plugin_config.example]
+# 问候语
+greeting = "嗨"
+"""
+
+
 class ExampleConfig(BasicConfModel):
     greeting: str = "你好"
     limit: int = 3
@@ -47,9 +56,7 @@ class ExampleConfig(BasicConfModel):
 @pytest_asyncio.fixture
 async def market(tmp_path, tenko_database):
     path = tmp_path / "tenko.toml"
-    path.write_text(
-        '[webui]\nenabled = true\n\n[plugin_config.example]\ngreeting = "嗨"\n'
-    )
+    path.write_text(CONFIG)
     config = TenkoConfig.load(path)
     native = SimpleNamespace(metadata=SimpleNamespace(config=ExampleConfig))
     runtime = SimpleNamespace(
@@ -145,8 +152,8 @@ async def test_plugin_config_form_validates_and_writes_toml(market) -> None:
     saved = await client.post(url, json={"values": {"limit": 5}, "confirm": True})
 
     assert saved.json()["data"]["restart_required"] is True
-    written = tomllib.loads(market.path.read_text())["plugin_config"]["example"]
-    assert written == {"greeting": "嗨", "limit": 5}
+    # 只追加改动的键，注释和其他内容逐字保留。
+    assert market.path.read_text() == CONFIG + "limit = 5\n"
 
 
 @pytest.mark.asyncio

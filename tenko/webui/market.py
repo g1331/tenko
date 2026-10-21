@@ -419,11 +419,15 @@ class PluginMarket:
                         raise ValueError(f"{key} 的值类型不正确")
                 request.state.webui_action = "plugin-config"
                 merged = {**raw, **values}
-                self.service.update_config(
-                    lambda data: data.setdefault("plugin_config", {}).__setitem__(
-                        plugin_id, merged
+
+                def mutate(data) -> None:
+                    section = data.setdefault("plugin_config", {}).setdefault(
+                        plugin_id, {}
                     )
-                )
+                    for key, value in values.items():
+                        section[key] = value
+
+                self.service.update_config(mutate)
                 current = {key: merged.get(key, current[key]) for key in properties}
             return {
                 "plugin_id": plugin_id,
