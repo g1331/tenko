@@ -234,12 +234,29 @@ class PluginMarket:
                 "drift": drift,
                 "rollback_available": history.is_dir()
                 and any(p.is_dir() for p in history.iterdir()),
-                "restart_required": any(r["restart_required"] for r in rows),
+                # 卸载留到重启才删包，pending_removal 非空也要提示重启。
+                "restart_required": any(r["restart_required"] for r in rows)
+                or bool(self._pending_removal()),
                 "can_restart": bool(getattr(self.updater, "enabled", False)),
                 "task": self._task_data(self._latest_running()),
             }
 
         return await self.service._read("installed_plugins", read)
+
+    def _pending_removal(self) -> list[str]:
+        runtime = getattr(self.manager, "runtime", None)
+        return (
+            list(runtime.read_state().get("pending_removal") or []) if runtime else []
+        )
+
+    def blocked_reason(self, plugin_id: str) -> str | None:
+        """按本地缓存的目录判断插件是否被封禁（不联网）。"""
+
+        index = self.registry.cached()
+        if index is None:
+            return None
+        row = next((r for r in self.manager.status() if r.plugin_id == plugin_id), None)
+        return index.blocked_reason(plugin_id, row.dist if row else None)
 
     # ------------------------------------------------------------------ 任务
 

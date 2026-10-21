@@ -59,8 +59,11 @@ async def market(tmp_path, tenko_database):
                 source="external",
                 native_plugin=native,
                 display_name="示例",
-            )
-        ]
+            ),
+            SimpleNamespace(name="evil", source="external", native_plugin=None),
+        ],
+        is_protected=lambda _info: False,
+        is_enabled=lambda _info: False,
     )
     from satori.server import Server
 
@@ -162,3 +165,15 @@ async def test_restart_needs_upgrade_system(market) -> None:
     assert (await market.client.post(url, json={"confirm": True})).status_code == 200
     await asyncio.sleep(1.1)
     assert calls == ["arm", "exit"]
+
+
+@pytest.mark.asyncio
+async def test_blocked_plugin_cannot_be_enabled_from_panel(market) -> None:
+    market.service.management = SimpleNamespace(ready=True, repository=object())
+    await market.client.get("/webui/api/market")  # 刷新目录缓存
+
+    response = await market.client.post(
+        "/webui/api/manage/plugins/evil", json={"enabled": True, "confirm": True}
+    )
+
+    assert response.status_code == 403 and "封禁" in response.json()["error"]["message"]
