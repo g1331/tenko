@@ -578,7 +578,8 @@ public_url = "https://panel.example.com"
 ```
 
 代理传来 `X-Forwarded-For` 后，Tenko 看到的是访问者的真实 IP，登录限流和审计日志
-都按它计算，所以 `allowed_ips` 要用网段放开（也可以只写自己的网段）。只转发
+都按它计算，所以 `allowed_ips` 要用网段放开（也可以只写自己的网段）。前面还有 Cloudflare
+等 CDN 时，`$remote_addr` 是 CDN 节点的地址，改传 `$http_cf_connecting_ip` 这类真实 IP 头。只转发
 `/webui`：面板和 OneBot/Satori 共用端口，面板生成的默认代理通常是 `location /`，
 会把 OneBot 接口一起暴露出去。`allowed_ips` 放开后，任何能直接连到监听端口的人也能
 打开面板登录页，请用防火墙挡住该端口，或在 NapCat 与 Tenko 同机时把 `listen_host`
