@@ -442,6 +442,8 @@ class WebUIService(Service):
             metadata_name = plugin_name
             scope = "group"
             source = "builtin"
+            description = ""
+            icon = None
             info = next(
                 (
                     candidate
@@ -454,6 +456,11 @@ class WebUIService(Service):
                 metadata_name = str(getattr(info, "display_name", plugin_name))
                 scope = self._plugin_scope(info)
                 source = str(getattr(info, "source", "builtin"))
+                metadata = getattr(
+                    getattr(info, "native_plugin", None), "metadata", None
+                )
+                description = str(getattr(metadata, "description", None) or "")
+                icon = self.market.icon_of(plugin_name, source)
 
             # 插件可以声明“新群默认关闭”（declare(default_enabled=False)）。
             plugin_default = default_enabled and getattr(
@@ -467,6 +474,8 @@ class WebUIService(Service):
                 {
                     "plugin": plugin_name,
                     "name": metadata_name,
+                    "description": description,
+                    "icon": icon,
                     "scope": scope,
                     "source": source,
                     "protected": bool(

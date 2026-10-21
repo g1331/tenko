@@ -73,3 +73,12 @@ export function pluginStats(features: FeatureInfo[]): PluginStats {
     protectedCount: features.filter((item) => item.protected).length,
   }
 }
+
+/** 第三方插件默认未加载，启用开关必须在未加载时也可用（重启后才生效）。 */
+export function toggleLocked(feature: FeatureInfo): boolean {
+  return feature.protected || (!feature.loaded && feature.source !== 'external')
+}
+
+export function maintenanceLocked(feature: FeatureInfo): boolean {
+  return feature.protected || !feature.loaded
+}

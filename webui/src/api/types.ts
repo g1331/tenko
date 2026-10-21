@@ -112,6 +112,9 @@ export interface FeatureInfo {
   plugin: string
   /** 展示名。 */
   name: string
+  description: string
+  /** 未在插件目录登记的残留开关记录没有图标。 */
+  icon: PluginIconRef | null
   scope: FeatureScope
   /** builtin 内置；external 第三方（tenko.plugins 入口，默认关闭）。 */
   source: 'builtin' | 'external' | 'unmanaged'
@@ -124,6 +127,44 @@ export interface FeatureInfo {
   global_enabled: boolean | null
   /** 群 ID → 该群当前生效的开关状态。 */
   groups: Record<string, boolean>
+}
+/** glyph 为单色 SVG（按主题着色），否则是目录里的 PNG 图标。 */
+export interface PluginIconRef {
+  url: string
+  glyph: boolean
+}
+export interface PluginLink {
+  kind: 'home' | 'repo' | 'pypi' | 'link'
+  label: string
+  url: string
+}
+export interface PluginCommandDoc {
+  /** 带前缀的命令名，如 /帮助。 */
+  title: string
+  /** 说明、用法、示例、选项、权限；与群里 /帮助 编号 的内容一致。 */
+  fields: { label: string; value: string }[]
+}
+/** 插件详情页的说明资料；状态和开关仍以 FeatureInfo 为准。 */
+export interface PluginDetail {
+  plugin: string
+  name: string
+  source: FeatureInfo['source']
+  description: string
+  /** 内置插件为 Tenko 版本，第三方为已安装版本。 */
+  version: string | null
+  authors: string[]
+  license: string | null
+  tier: string | null
+  tags: string[]
+  icon: PluginIconRef
+  links: PluginLink[]
+  /** 插件未加载时为空。 */
+  commands: PluginCommandDoc[]
+  installed: Omit<InstalledPlugin, 'name' | 'icon_url' | 'update' | 'yanked' | 'blocked'> | null
+  has_config: boolean
+  update: string | null
+  yanked: string | null
+  blocked: string | null
 }
 export interface FeaturesData {
   features: FeatureInfo[]

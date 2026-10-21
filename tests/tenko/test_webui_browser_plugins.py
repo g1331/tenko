@@ -272,3 +272,54 @@ def test_external_plugin_is_tagged_and_enable_reports_restart(open_panel):
         "confirm": True,
     }
     assert not page.errors
+
+
+def test_plugin_card_opens_detail_with_commands_links_and_update(open_panel):
+    panel = PluginsPanel()
+    panel.data["/api/plugins/ext_demo/detail"] = {
+        "plugin": "ext_demo",
+        "name": "演示插件",
+        "source": "external",
+        "description": "演示用",
+        "version": "0.1.0",
+        "authors": ["someone"],
+        "license": "MIT",
+        "tier": "listed",
+        "tags": [],
+        "icon": {"url": "/webui/api/plugins/ext_demo/icon", "glyph": True},
+        "links": [{"kind": "repo", "label": "源码仓库", "url": "https://e.x/repo"}],
+        "commands": [
+            {
+                "title": "/签到",
+                "fields": [
+                    {"label": "说明", "value": "每日签到"},
+                    {"label": "权限", "value": "群管理员及以上"},
+                ],
+            }
+        ],
+        "installed": None,
+        "has_config": False,
+        "update": "0.2.0",
+        "yanked": None,
+        "blocked": None,
+    }
+    page = open_plugins(open_panel, panel)
+
+    card(page, "ext_demo").get_by_role("link", name="详情").click()
+    page.locator(".hero[data-plugin='ext_demo']").wait_for()
+    assert "#/plugins/ext_demo" in page.url
+    text = page.locator("main").inner_text()
+    assert "/签到" in text and "群管理员及以上" in text and "可更新到 v0.2.0" in text
+    link = page.get_by_role("link", name="源码仓库")
+    assert link.get_attribute("target") == "_blank"
+    assert "noopener" in link.get_attribute("rel")
+
+    page.get_by_role("button", name="更新").click()
+    confirm(page, "更新插件", "更新")
+    for _ in range(40):
+        if panel.calls("POST", "/api/manage/plugin-tasks"):
+            break
+        page.wait_for_timeout(50)
+    call = panel.calls("POST", "/api/manage/plugin-tasks")[0]
+    assert call[3] == {"action": "update", "plugin_id": "ext_demo", "confirm": True}
+    assert not page.errors

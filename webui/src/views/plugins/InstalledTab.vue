@@ -154,7 +154,11 @@ async function remove() {
           <header>
             <PluginIcon :name="displayName(item)" :src="item.icon_url" />
             <div class="title">
-              <strong class="name">{{ displayName(item) }}</strong>
+              <RouterLink
+                class="name"
+                :to="{ name: 'plugin-detail', params: { plugin: item.plugin_id } }"
+                >{{ displayName(item) }}</RouterLink
+              >
               <code class="key">{{ item.plugin_id }} · {{ item.version }}</code>
             </div>
             <StatusTag :kind="state(item).kind">{{ state(item).label }}</StatusTag>
@@ -300,7 +304,12 @@ header {
   display: block;
   color: var(--tk-heading);
   font-size: 15px;
+  font-weight: 700;
   overflow-wrap: anywhere;
+  text-decoration: none;
+}
+.name:hover {
+  color: var(--tk-primary);
 }
 .key {
   display: block;

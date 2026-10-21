@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from collections.abc import Iterable
-from pathlib import Path
 from typing import Any
 
 from arclet.alconna import Alconna, Args, CommandMeta, Option, store_true
@@ -11,10 +10,15 @@ from arclet.entari.command import Query
 from arclet.entari.plugin import Plugin, PluginRole, get_plugin_commands
 
 from tenko.host.features import feature_service
-from tenko.host.guards import command_requirements, require, requirement_text
+from tenko.host.guards import require
 from tenko.host.perm import Permission
+from tenko.host.plugin_docs import (
+    command_prefix,
+    format_fields,
+    plugin_command_help,
+    plugin_icon_path,
+)
 from tenko.host.plugins import PluginInfo, PluginRuntime
-from tenko.host.registry import get_registry
 from tenko.plugins._common import context_from_session, render_or_text
 from tenko.render import RenderService, data_uri
 
@@ -38,25 +42,6 @@ _HELP_SECTIONS = (
     # 仅在有已加载的第三方插件时显示。
     ("third_party", "第三方", "第三方插件包"),
 )
-_COMMAND_HELP_FIELDS = (("说明", "description"), ("用法", "usage"), ("示例", "example"))
-_ICON_DIR = Path(__file__).resolve().parents[2] / "templates" / "assets" / "icons"
-# 内置插件的菜单图标（Phosphor fill）；未列出的插件用 package。
-_BUILTIN_ICONS = {
-    "announcement": "megaphone",
-    "exception_catcher": "bug",
-    "feature_manager": "toggle-right",
-    "friend_request": "user-plus",
-    "group_manager": "shield-check",
-    "helper": "question",
-    "perm_manager": "key",
-    "plugin_manager": "puzzle-piece",
-    "response_manager": "robot",
-    "startup_notify": "bell-ringing",
-    "status": "pulse",
-    "updater": "arrow-circle-up",
-    "webui_account": "browser",
-}
-
 
 help_command = Alconna(
     "帮助",
@@ -92,130 +77,17 @@ def _help_plugins() -> tuple[tuple[PluginInfo, object], ...]:
     return tuple(plugins)
 
 
-def _first_prefix(value: object) -> str | None:
-    if isinstance(value, str):
-        return value or None
-    if isinstance(value, Iterable):
-        return next(
-            (str(item) for item in value if item is not None and str(item)), None
-        )
-    return None
-
-
-def _command_prefix(command: object, prefixes: object) -> str:
-    return (
-        _first_prefix(getattr(command, "prefixes", None))
-        or _first_prefix(prefixes)
-        or "/"
-    )
-
-
-def _command_meta_text(command: object, field: str) -> str | None:
-    value = getattr(getattr(command, "meta", None), field, None)
-    if value is None:
-        return None
-    text = str(value).strip()
-    return text or None
-
-
-def _prefix_command_line(line: str, command_name: str, prefix: str) -> str:
-    if line.startswith(command_name) and not line.startswith(prefix):
-        return f"{prefix}{line}"
-    return line
-
-
-def _format_command_value(
-    value: str, field: str, command_name: str, prefix: str
-) -> str:
-    lines = [line.strip() for line in value.splitlines() if line.strip()]
-    if field in {"usage", "example"}:
-        lines = [_prefix_command_line(line, command_name, prefix) for line in lines]
-    return "\n".join(lines)
-
-
-def _command_option_lines(command: object) -> list[str]:
-    """列出命令里写了 ``help_text`` 的选项；Alconna 内置的 --help 等不展示。"""
-
-    return [
-        f"{'/'.join([option.name, *sorted(option.aliases - {option.name})])}："
-        f"{option.help_text}"
-        for option in getattr(command, "options", ())
-        if type(option) is Option and option.help_text != option.dest
-    ]
-
-
-def _command_help_fields(
-    command: object,
-    command_name: str,
-    prefixes: object,
-    requirement: str | None = None,
-) -> tuple[str, list[tuple[str, str]]]:
-    """返回命令的显示名（带前缀）和说明、用法等字段，图片和文本两种输出共用。"""
-
-    display_name = str(getattr(command, "command", None) or command_name)
-    prefix = _command_prefix(command, prefixes)
-    fields: list[tuple[str, str]] = []
-    for label, field in _COMMAND_HELP_FIELDS:
-        value = _command_meta_text(command, field)
-        if value is None:
-            continue
-        formatted = _format_command_value(value, field, display_name, prefix)
-        if formatted:
-            fields.append((label, formatted))
-    if options := _command_option_lines(command):
-        fields.append(("选项", "\n".join(options)))
-    if requirement:
-        fields.append(("权限", requirement))
-    return f"{prefix}{display_name}", fields
-
-
-def _format_fields(title: str, fields: list[tuple[str, str]]) -> str:
-    lines = [title]
-    for index, (label, value) in enumerate(fields):
-        is_last = index == len(fields) - 1
-        branch = "└" if is_last else "├"
-        value_lines = value.splitlines()
-        lines.append(f"{branch} {label}：{value_lines[0]}")
-        continuation = "  " if is_last else "│ "
-        lines.extend(f"{continuation}{line}" for line in value_lines[1:])
-    return "\n".join(lines)
-
-
-def _format_command_help(
-    command: object,
-    command_name: str,
-    prefixes: object,
-    requirement: str | None = None,
-) -> str:
-    return _format_fields(
-        *_command_help_fields(command, command_name, prefixes, requirement)
-    )
-
-
-def _plugin_command_help(
-    native_plugin: object,
-) -> list[tuple[str, list[tuple[str, str]]]]:
-    """插件每条命令的 (显示名, 字段)；按注册顺序排列。"""
-
-    requirements = command_requirements(native_plugin)
-    return [
-        _command_help_fields(
-            command_manager.get_command(command_name),
-            command_name,
-            prefixes,
-            requirement_text(requirements.get(command_name, {})),
-        )
-        for prefixes, command_name in get_plugin_commands(native_plugin)  # type: ignore[arg-type]
-    ]
-
-
 def _plugin_help(native_plugin: object) -> str:
     """将插件注册的命令元数据格式化为纯文本帮助。"""
 
-    commands = _plugin_command_help(native_plugin)
+    commands = plugin_command_help(native_plugin)
     if not commands:
         return "该插件未注册命令"
-    return "\n\n".join(_format_fields(*command) for command in commands)
+    return "\n\n".join(format_fields(*command) for command in commands)
+
+
+def _plugin_icon(info: PluginInfo) -> str:
+    return data_uri(plugin_icon_path(info.name, info.source))
 
 
 def _metadata_value(native_plugin: object | None, field: str) -> object | None:
@@ -231,25 +103,11 @@ def _classifiers(native_plugin: object | None) -> tuple[str, ...]:
     return ()
 
 
-def _plugin_icon(info: PluginInfo) -> str:
-    """内置插件用自带图标，第三方插件用 registry 缓存里的图标，都没有时用默认图标。"""
-
-    if info.source == "builtin" and info.name in _BUILTIN_ICONS:
-        return data_uri(_ICON_DIR / f"{_BUILTIN_ICONS[info.name]}.svg")
-    if info.source == "external":
-        registry = get_registry()
-        index = registry.cached()
-        entry = index.find(info.name) if index is not None else None
-        if entry is not None and (path := registry.icon_path(entry)) is not None:
-            return data_uri(path)
-    return data_uri(_ICON_DIR / "package.svg")
-
-
 def _plugin_command_names(native_plugin: object | None) -> list[str]:
     if not isinstance(native_plugin, Plugin):
         return []
     return [
-        f"{_command_prefix(command_manager.get_command(name), prefixes)}{name}"
+        f"{command_prefix(command_manager.get_command(name), prefixes)}{name}"
         for prefixes, name in get_plugin_commands(native_plugin)
     ]
 
@@ -389,7 +247,7 @@ def build_help_detail_data(
     )
     commands = [
         {"title": title, "fields": [{"label": k, "value": v} for k, v in fields]}
-        for title, fields in _plugin_command_help(plugins[index - 1][1])
+        for title, fields in plugin_command_help(plugins[index - 1][1])
     ]
     return {"item": item, "commands": commands}
 

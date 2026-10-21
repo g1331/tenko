@@ -211,3 +211,27 @@ async def test_blocked_plugin_cannot_be_enabled_from_panel(market) -> None:
     )
 
     assert response.status_code == 403 and "封禁" in response.json()["error"]["message"]
+
+
+@pytest.mark.asyncio
+async def test_plugin_detail_drops_unsafe_links_and_serves_icons(
+    market, monkeypatch
+) -> None:
+    client = market.client
+    native = market.service.plugin_runtime.discover()[0].native_plugin
+    native.metadata.urls = {
+        "Issues": "https://e.x/issues",
+        "evil": "javascript:alert(1)",
+    }
+    monkeypatch.setattr("tenko.webui.market.plugin_command_help", lambda _p: [])
+    await client.get("/webui/api/market")  # 刷新目录缓存
+
+    detail = (await client.get("/webui/api/plugins/example/detail")).json()["data"]
+    assert [link["url"] for link in detail["links"]] == ["https://e.x/issues"]
+    assert detail["has_config"] is True and detail["name"] == "示例"
+    assert (await client.get("/webui/api/plugins/nope/detail")).status_code == 404
+
+    # 目录图标还没下载：回退到内置的单色图标。
+    assert detail["icon"]["glyph"] is True
+    icon = await client.get(detail["icon"]["url"])
+    assert icon.headers["content-type"].startswith("image/svg+xml")

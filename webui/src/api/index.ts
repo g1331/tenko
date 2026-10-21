@@ -24,6 +24,7 @@ import type {
   PairingActionBody,
   PairingInfo,
   PluginConfigData,
+  PluginDetail,
   PluginTask,
   PluginTaskBody,
   PluginToggleBody,
@@ -58,6 +59,7 @@ export const api = {
   market: (refresh = false) =>
     request<MarketData>('/market', { query: { refresh: refresh ? 1 : undefined } }),
   installedPlugins: () => request<InstalledData>('/plugins/installed'),
+  pluginDetail: (plugin: string) => request<PluginDetail>(`/plugins/${segment(plugin)}/detail`),
   manage: {
     accounts: () => request<ManagedAccountsData>('/manage/accounts'),
     accountAction: (platform: string, id: string, action: AccountAction, body: AccountActionBody) =>

@@ -14,6 +14,8 @@ const { overview } = usePanelData()
 
 const route = useRoute()
 const router = useRouter()
+// 子页面（如 /plugins/xxx）高亮所属的导航项。
+const activeNav = computed(() => `/${route.path.split('/')[1] ?? ''}`)
 
 const icons: Record<string, Component> = {
   overview: Odometer,
@@ -67,7 +69,7 @@ const version = computed(() => {
         </div>
       </div>
 
-      <el-menu class="sidebar-menu" :default-active="route.path" router aria-label="功能分类">
+      <el-menu class="sidebar-menu" :default-active="activeNav" router aria-label="功能分类">
         <el-menu-item-group v-for="group in groups" :key="group.title">
           <template #title>{{ group.title }}</template>
           <el-menu-item v-for="item in group.items" :key="item.path" :index="item.path">
@@ -93,7 +95,7 @@ const version = computed(() => {
         class="mobile-nav"
         mode="horizontal"
         :ellipsis="false"
-        :default-active="route.path"
+        :default-active="activeNav"
         router
         aria-label="移动端功能分类"
       >

@@ -1,11 +1,11 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
-import { api, type FeatureInfo, type PluginToggleResult } from '@/api'
+import type { FeatureInfo } from '@/api'
 import PageContainer from '@/components/PageContainer.vue'
 import ResourceBoundary from '@/components/ResourceBoundary.vue'
-import { confirmAction } from '@/composables/confirm'
 import { pluginStats } from '@/composables/status'
 import { usePanelData } from '@/composables/usePanelData'
+import { usePluginActions } from '@/composables/usePluginActions'
 import { providePluginOps } from '@/composables/usePluginOps'
 import InstalledTab from './plugins/InstalledTab.vue'
 import MarketTab from './plugins/MarketTab.vue'
@@ -17,7 +17,9 @@ const { features, refresh } = usePanelData()
 const ops = providePluginOps()
 const tab = ref('all')
 const query = ref('')
-const busy = ref('')
+const { busy, toggle, maintenance, globalToggle, resetGlobal } = usePluginActions(() =>
+  Promise.all([refresh(), ops.loadInstalled()]),
+)
 
 // 页面级的重启提醒和任务进度依赖已安装插件数据，进页面就读取；市场目录等切到标签页再读。
 onMounted(() => ops.loadInstalled())
@@ -39,64 +41,6 @@ const summary = computed(() => {
   const stats = pluginStats(list)
   return `共 ${stats.total} 个插件 · ${stats.running} 个运行中`
 })
-
-type Change = { title: string; message: string; done: string; body: () => Promise<unknown> }
-
-/** 确认 → 提交 → 成功提示并刷新共享数据；失败只提示，不改变界面状态。 */
-async function apply(feature: FeatureInfo, change: Change) {
-  const name = feature.name || feature.plugin
-  const ok = await confirmAction(
-    `${change.message}插件：${name}（${feature.plugin}）。`,
-    change.title,
-  )
-  if (!ok) return
-  busy.value = feature.plugin
-  try {
-    const result = (await change.body()) as Partial<PluginToggleResult> | undefined
-    if (result?.restart_required) ElMessage.info('已启用，重启后生效')
-    else ElMessage.success(change.done)
-    await Promise.all([refresh(), ops.loadInstalled()])
-  } catch (error) {
-    ElMessage.error(`${change.title}失败：${(error as Error).message}`)
-  } finally {
-    busy.value = ''
-  }
-}
-
-const toggle = (feature: FeatureInfo) => {
-  const enabled = !feature.enabled
-  return apply(feature, {
-    title: enabled ? '启用插件' : '停用插件',
-    message: enabled ? '插件将恢复响应。' : '插件将停止在所有群响应。',
-    done: enabled ? '插件已启用' : '插件已停用',
-    body: () => api.manage.togglePlugin(feature.plugin, { enabled, confirm: true }),
-  })
-}
-const maintenance = (feature: FeatureInfo) => {
-  const next = !feature.maintenance
-  return apply(feature, {
-    title: next ? '进入维护' : '解除维护',
-    message: next ? '维护期间所有群的该功能暂停响应。' : '解除后恢复各群原有设置。',
-    done: next ? '已进入维护' : '已解除维护',
-    body: () => api.manage.toggleFeature(feature.plugin, { maintenance: next }),
-  })
-}
-const globalToggle = (feature: FeatureInfo) => {
-  const enabled = feature.global_enabled === false
-  return apply(feature, {
-    title: enabled ? '开启全局功能' : '关闭全局功能',
-    message: enabled ? '全局功能将对所有群开启。' : '全局功能将对所有群关闭。',
-    done: enabled ? '全局功能已开启' : '全局功能已关闭',
-    body: () => api.manage.toggleFeature(feature.plugin, { group_id: null, enabled }),
-  })
-}
-const resetGlobal = (feature: FeatureInfo) =>
-  apply(feature, {
-    title: '恢复群级开关',
-    message: '清除全局覆盖，各群恢复原有的逐群开关。',
-    done: '已恢复群级开关',
-    body: () => api.manage.toggleFeature(feature.plugin, { group_id: null, enabled: null }),
-  })
 </script>
 
 <template>

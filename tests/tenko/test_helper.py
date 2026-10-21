@@ -20,6 +20,9 @@ from satori import (
 )
 from satori.model import Event, Member
 
+from tenko.host import plugin_docs
+from tenko.host.plugin_docs import format_command_help
+
 
 def make_session(user_id: str, role: str):
     event = Event(
@@ -162,10 +165,11 @@ def test_help_marks_host_plugins_as_protected(monkeypatch, loaded_plugin):
 def use_fake_native_commands(monkeypatch, loaded_plugin) -> None:
     """测试里的原生插件是假对象：命令登记取自 ``_extra``，且没有声明权限要求。"""
 
-    monkeypatch.setattr(
-        loaded_plugin, "get_plugin_commands", lambda plugin: plugin._extra["commands"]
-    )
-    monkeypatch.setattr(loaded_plugin, "command_requirements", lambda plugin: {})
+    for module in (loaded_plugin, plugin_docs):
+        monkeypatch.setattr(
+            module, "get_plugin_commands", lambda plugin: plugin._extra["commands"]
+        )
+    monkeypatch.setattr(plugin_docs, "command_requirements", lambda plugin: {})
 
 
 @pytest.mark.parametrize("loaded_plugin", ["helper"], indirect=True)
@@ -179,7 +183,7 @@ def test_command_help_lists_option_descriptions(loaded_plugin):
         meta=CommandMeta("示例命令"),
     )
 
-    text = loaded_plugin._format_command_help(command, "示例", ["/"])
+    text = format_command_help(command, "示例", ["/"])
 
     assert "选项：--time/-t：时长（分钟）" in text
     assert "--quiet" not in text
@@ -455,7 +459,7 @@ def test_help_icon_uses_registry_icon_then_default(
         cached=lambda: SimpleNamespace(find=entries.get),
         icon_path=lambda entry: icon,
     )
-    monkeypatch.setattr(loaded_plugin, "get_registry", lambda: registry)
+    monkeypatch.setattr(plugin_docs, "get_registry", lambda: registry)
 
     def icon_of(name: str, source: str) -> str:
         info = loaded_plugin.PluginInfo(name, None, False, f"mod_{name}", source)

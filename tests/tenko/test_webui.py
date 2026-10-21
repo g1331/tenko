@@ -293,6 +293,8 @@ async def test_webui_read_only_apis_expose_safe_account_and_feature_data(
         {
             "plugin": "demo",
             "name": "演示插件",
+            "description": "",
+            "icon": {"url": "/webui/api/plugins/demo/icon", "glyph": True},
             "scope": "group",
             "source": "builtin",
             "protected": False,
@@ -305,6 +307,8 @@ async def test_webui_read_only_apis_expose_safe_account_and_feature_data(
         {
             "plugin": "global",
             "name": "global",
+            "description": "",
+            "icon": None,
             "scope": "group",
             "source": "builtin",
             "protected": False,
@@ -317,6 +321,8 @@ async def test_webui_read_only_apis_expose_safe_account_and_feature_data(
         {
             "plugin": "maintenance",
             "name": "maintenance",
+            "description": "",
+            "icon": None,
             "scope": "group",
             "source": "builtin",
             "protected": False,

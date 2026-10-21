@@ -19,6 +19,7 @@ from loguru import logger
 from starlette.requests import Request
 from starlette.responses import FileResponse, JSONResponse, Response
 
+from ..host.plugin_docs import plugin_command_help, plugin_icon_path
 from ..host.plugin_manager import (
     PluginChange,
     PluginManager,
@@ -36,6 +37,7 @@ from ..host.registry import (
     source_for,
     why_incompatible,
 )
+from ..host.startup import _project_version
 from .auth import WEBUI_PATH, error_response
 
 if TYPE_CHECKING:
@@ -46,6 +48,47 @@ _TASK_KEEP = 20
 _ACTIONS = {"install", "update", "uninstall", "rollback", "sync"}
 # 表单能编辑的 JSON Schema 类型；其余字段只读，请在配置文件里修改。
 _EDITABLE = {"string", "integer", "number", "boolean"}
+_REPO = "https://github.com/g1331/tenko"
+_TENKO_LICENSE = "GPL-3.0"
+
+
+def _http(url: object) -> str | None:
+    """只把 http(s) 链接交给前端，插件元数据里的 javascript: 等一律丢掉。"""
+
+    text = str(url or "").strip()
+    return text if text.lower().startswith(("https://", "http://")) else None
+
+
+def _link_kind(label: str, url: str) -> str:
+    key = label.lower()
+    if key in {"home", "homepage", "documentation", "docs"}:
+        return "home"
+    if key in {"repo", "repository", "source", "code"} or any(
+        host in url
+        for host in ("github.com", "gitlab.com", "gitee.com", "codeberg.org")
+    ):
+        return "repo"
+    return "link"
+
+
+def _tenko_release() -> tuple[str | None, str]:
+    """内置插件随 Tenko 发布：返回版本和对应的 git tag（4.0.0rc21 → v4.0.0-rc21）。"""
+
+    version = _project_version()
+    matched = re.fullmatch(r"(\d+\.\d+\.\d+)-?((?:a|b|rc)\d+)?", version)
+    if matched is None or version == "0.0.0":  # 0.0.0：读不到版本
+        return None, "main"
+    release, pre = matched.groups()
+    return version, f"v{release}-{pre}" if pre else f"v{release}"
+
+
+def _authors(value: object) -> list[str]:
+    items = value if isinstance(value, list | tuple) else [value] if value else []
+    names = [
+        str(item.get("name") or "") if isinstance(item, dict) else str(item)
+        for item in items
+    ]
+    return [name for name in names if name]
 
 
 @dataclass
@@ -134,6 +177,8 @@ class PluginMarket:
             ("/api/market", ["GET"], self.market_view),
             ("/api/market/icons/{name}", ["GET"], self.icon),
             ("/api/plugins/installed", ["GET"], self.installed_view),
+            ("/api/plugins/{plugin}/detail", ["GET"], self.plugin_detail),
+            ("/api/plugins/{plugin}/icon", ["GET"], self.plugin_icon),
             ("/api/manage/plugin-tasks", ["POST"], self.create_task),
             ("/api/manage/plugin-tasks/{id}", ["GET"], self.task_view),
             ("/api/manage/plugin-config/{plugin}", ["GET", "POST"], self.plugin_config),
@@ -201,6 +246,93 @@ class PluginMarket:
         if not _ICON_NAME.match(name) or not path.is_file():
             return error_response("not_found", "Not Found", 404)
         return FileResponse(path, media_type="image/png")
+
+    def _info(self, plugin_id: str):
+        runtime = self.service.plugin_runtime
+        if runtime is None:
+            return None
+        return next((i for i in runtime.discover() if i.name == plugin_id), None)
+
+    def icon_of(self, name: str, source: str) -> dict[str, Any]:
+        """插件图标：内置的是单色 SVG（glyph，前端按主题着色），目录图标是 PNG。"""
+
+        path = plugin_icon_path(name, source, self.registry)
+        return {
+            "url": f"{WEBUI_PATH}/api/plugins/{name}/icon",
+            "glyph": path.suffix == ".svg",
+        }
+
+    async def plugin_icon(self, request: Request) -> Response:
+        info = self._info(request.path_params["plugin"])
+        if info is None:
+            return error_response("not_found", "Not Found", 404)
+        path = plugin_icon_path(info.name, str(info.source), self.registry)
+        media = "image/svg+xml" if path.suffix == ".svg" else "image/png"
+        return FileResponse(path, media_type=media)
+
+    async def plugin_detail(self, request: Request) -> JSONResponse:
+        info = self._info(request.path_params["plugin"])
+        if info is None:
+            return error_response("not_found", "插件不存在", 404)
+
+        def read():
+            native = info.native_plugin
+            meta = getattr(native, "metadata", None)
+            index = self.registry.cached() if info.source == "external" else None
+            entry = index.find(info.name) if index is not None else None
+            rows = self.manager.status() if info.source == "external" else []
+            row = next((r for r in rows if r.plugin_id == info.name), None)
+            links: list[dict[str, str]] = []
+
+            def link(kind: str, label: str, url: object) -> None:
+                if (safe := _http(url)) and all(x["url"] != safe for x in links):
+                    links.append({"kind": kind, "label": label, "url": safe})
+
+            notes = {"blocked": None, "yanked": None, "update": None}
+            if info.source == "builtin":
+                version, ref = _tenko_release()
+                link("repo", "源码", f"{_REPO}/tree/{ref}/tenko/plugins/{info.name}")
+            else:
+                version = row.version if row else getattr(meta, "version", None)
+                if entry is not None:
+                    link("home", "主页", entry.homepage)
+                    link("repo", "源码仓库", entry.git_url)
+                for label, url in (getattr(meta, "urls", None) or {}).items():
+                    link(_link_kind(str(label), str(url)), str(label), url)
+                if row is not None and row.dist:
+                    link("pypi", "PyPI", f"https://pypi.org/project/{row.dist}/")
+                if row is not None and index is not None:
+                    notes = installed_notes(
+                        index, row.plugin_id, row.dist, row.version, row.trust
+                    )
+            commands = [
+                {"title": title, "fields": [{"label": k, "value": v} for k, v in f]}
+                for title, f in (plugin_command_help(native) if native else [])
+            ]
+            return {
+                "plugin": info.name,
+                "name": info.display_name,
+                "source": info.source,
+                "description": getattr(meta, "description", None)
+                or (entry.description if entry else ""),
+                "version": version,
+                "authors": _authors(getattr(meta, "author", None))
+                or (list(entry.authors) if entry else []),
+                "license": getattr(meta, "license", None)
+                or (entry.license if entry else None)
+                or (_TENKO_LICENSE if info.source == "builtin" else None),
+                "tier": entry.tier if entry else None,
+                "tags": list(entry.tags) if entry else [],
+                "icon": self.icon_of(info.name, info.source),
+                "links": links,
+                "commands": commands,
+                "installed": asdict(row) if row else None,
+                "has_config": info.source == "external"
+                and getattr(meta, "config", None) is not None,
+                **notes,
+            }
+
+        return await self.service._read("plugin_detail", read)
 
     async def installed_view(self, request: Request) -> JSONResponse:
         async def read():

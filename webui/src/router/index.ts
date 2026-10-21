@@ -59,6 +59,12 @@ export const router = createRouter({
           },
         },
         {
+          path: 'plugins/:plugin',
+          name: 'plugin-detail',
+          component: () => import('@/views/PluginDetailView.vue'),
+          meta: { title: '插件详情' },
+        },
+        {
           path: 'switches',
           name: 'switches',
           component: () => import('@/views/SwitchesView.vue'),

@@ -3,7 +3,8 @@ import { computed } from 'vue'
 import type { FeatureInfo } from '@/api'
 import ExternalTag from '@/components/ExternalTag.vue'
 import StatusTag from '@/components/StatusTag.vue'
-import { featureStatus } from '@/composables/status'
+import { featureStatus, maintenanceLocked, toggleLocked } from '@/composables/status'
+import PluginIcon from './PluginIcon.vue'
 
 // 单个插件卡片：状态、范围与可执行的插件级操作；具体请求由页面处理。
 const props = defineProps<{ feature: FeatureInfo; busy: boolean }>()
@@ -24,23 +25,27 @@ const scopeText = computed(() => {
     ? `群级功能 · ${enabledGroups.value}/${groups.value.length} 个群启用`
     : '群级功能 · 暂无群组'
 })
-const locked = computed(() => props.feature.protected || !props.feature.loaded)
-// 第三方插件默认未加载，启用开关必须在未加载时也可用（重启后才生效）。
-const toggleLocked = computed(
-  () => props.feature.protected || (!props.feature.loaded && props.feature.source !== 'external'),
-)
+const detail = computed(() => ({ name: 'plugin-detail', params: { plugin: props.feature.plugin } }))
 </script>
 
 <template>
   <article class="plugin-card" :data-plugin="feature.plugin">
     <header>
-      <div class="title">
-        <strong class="name">{{ feature.name || feature.plugin }}</strong>
-        <code class="key">{{ feature.plugin }}</code>
-      </div>
+      <RouterLink class="title" :to="detail">
+        <PluginIcon
+          :name="feature.name || feature.plugin"
+          :src="feature.icon?.url ?? null"
+          :glyph="feature.icon?.glyph"
+        />
+        <span class="title-text">
+          <strong class="name">{{ feature.name || feature.plugin }}</strong>
+          <code class="key">{{ feature.plugin }}</code>
+        </span>
+      </RouterLink>
       <StatusTag :kind="status.kind">{{ status.label }}</StatusTag>
     </header>
-    <p class="desc">{{ scopeText }}</p>
+    <p v-if="feature.description" class="desc">{{ feature.description }}</p>
+    <p class="scope">{{ scopeText }}</p>
     <div class="flags">
       <el-tag
         size="small"
@@ -71,7 +76,7 @@ const toggleLocked = computed(
       </el-tag>
     </div>
     <div class="actions">
-      <el-button size="small" :disabled="toggleLocked || busy" @click="emit('toggle')">
+      <el-button size="small" :disabled="toggleLocked(feature) || busy" @click="emit('toggle')">
         {{ feature.enabled ? '停用插件' : '启用插件' }}
       </el-button>
       <el-button
@@ -90,9 +95,14 @@ const toggleLocked = computed(
       >
         恢复群级开关
       </el-button>
-      <el-button size="small" :disabled="locked || busy" @click="emit('maintenance')">
+      <el-button
+        size="small"
+        :disabled="maintenanceLocked(feature) || busy"
+        @click="emit('maintenance')"
+      >
         {{ feature.maintenance ? '解除维护' : '进入维护' }}
       </el-button>
+      <RouterLink class="more" :to="detail">详情</RouterLink>
     </div>
   </article>
 </template>
@@ -116,6 +126,14 @@ header {
   gap: 10px;
 }
 .title {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 12px;
+  color: inherit;
+  text-decoration: none;
+}
+.title-text {
   min-width: 0;
 }
 .name {
@@ -124,15 +142,33 @@ header {
   font-size: 15px;
   overflow-wrap: anywhere;
 }
+.title:hover .name {
+  color: var(--tk-primary);
+}
+.title:focus-visible {
+  border-radius: 8px;
+  outline: 2px solid var(--tk-primary);
+  outline-offset: 3px;
+}
 .key {
   display: block;
   font-size: 12px;
   overflow-wrap: anywhere;
 }
 .desc {
+  display: -webkit-box;
   margin: 0;
+  overflow: hidden;
   color: var(--tk-text);
   font-size: 13px;
+  line-height: 1.55;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+.scope {
+  margin: 0;
+  color: var(--tk-muted);
+  font-size: 12px;
 }
 .flags {
   display: flex;
@@ -149,5 +185,18 @@ header {
 }
 .actions .el-button {
   margin: 0;
+}
+.more {
+  margin-left: auto;
+  align-self: center;
+  color: var(--tk-primary);
+  font-size: 13px;
+  text-decoration: none;
+}
+.more::after {
+  content: ' →';
+}
+.more:hover {
+  text-decoration: underline;
 }
 </style>
