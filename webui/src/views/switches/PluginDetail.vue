@@ -71,10 +71,9 @@ function onGlobal(mode: string | number | boolean | undefined) {
 </script>
 
 <template>
-  <PagePanel class="sw-panel" accent="coral">
+  <PagePanel class="sw-panel">
     <div class="sw-head">
       <div>
-        <div class="sw-kicker">PLUGIN</div>
         <h2>{{ name }}</h2>
         <div class="sw-id">
           <code>{{ feature.plugin }}</code>
@@ -225,16 +224,16 @@ function onGlobal(mode: string | number | boolean | undefined) {
 
 <style scoped>
 .sw-controls :deep(.sw-item:first-child) {
-  border-top: 1px dashed var(--tk-line-strong);
+  border-top: 1px solid var(--tk-line);
 }
 .sw-section {
   margin: 0;
   padding: 14px 20px 8px;
-  border-top: 1px dashed var(--tk-line-strong);
+  border-top: 1px solid var(--tk-line);
   color: var(--tk-heading);
   font-size: 14px;
   font-weight: 700;
-  letter-spacing: 2px;
+  letter-spacing: 0.04em;
 }
 .sw-tools {
   padding: 0 20px 10px;

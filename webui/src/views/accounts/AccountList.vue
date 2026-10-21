@@ -152,7 +152,7 @@ const rows = computed(() =>
 }
 .account-table :deep(th.el-table__cell) {
   font-size: 12px;
-  letter-spacing: 1.5px;
+  letter-spacing: 0.04em;
 }
 .name {
   display: block;
@@ -175,7 +175,7 @@ const rows = computed(() =>
 .card {
   padding: 12px 14px;
   border: 1px solid var(--tk-line);
-  border-radius: 4px;
+  border-radius: 10px;
   background: var(--tk-surface-2);
 }
 .card header {
@@ -196,7 +196,7 @@ const rows = computed(() =>
   justify-content: space-between;
   gap: 12px;
   padding: 5px 0;
-  border-top: 1px dashed var(--tk-line-strong);
+  border-top: 1px solid var(--tk-line);
 }
 .card dt {
   flex: none;

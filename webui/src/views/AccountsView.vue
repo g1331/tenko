@@ -104,7 +104,7 @@ function editPreferences(account: ManagedAccount) {
             <div class="num">{{ numberText(strategyTotals.random) }}</div>
             <div class="lbl">随机响应群</div>
           </PagePanel>
-          <PagePanel class="kpi" accent="gold">
+          <PagePanel class="kpi">
             <div class="num">{{ numberText(strategyTotals.deterministic) }}</div>
             <div class="lbl">定向响应群</div>
           </PagePanel>
@@ -116,7 +116,7 @@ function editPreferences(account: ManagedAccount) {
     <PairingPanel />
 
     <template v-if="managedAccounts.data.value">
-      <PagePanel title="托管账户" accent="coral" class="list-panel">
+      <PagePanel title="托管账户" class="list-panel">
         <AccountList
           :accounts="managedAccounts.data.value.accounts"
           :summaries="summaries"
@@ -154,9 +154,10 @@ function editPreferences(account: ManagedAccount) {
 }
 .num {
   color: var(--tk-heading);
-  font-size: 27px;
+  font-family: var(--tk-font-num);
+  font-size: 32px;
   font-variant-numeric: tabular-nums;
-  font-weight: 800;
+  font-weight: 700;
   line-height: 1.15;
 }
 .num small {
@@ -168,7 +169,7 @@ function editPreferences(account: ManagedAccount) {
   margin-top: 6px;
   color: var(--tk-muted);
   font-size: 12px;
-  letter-spacing: 1.5px;
+  letter-spacing: 0.06em;
 }
 .list-panel {
   margin-bottom: 16px;
@@ -193,7 +194,7 @@ function editPreferences(account: ManagedAccount) {
     --el-card-padding: 12px;
   }
   .num {
-    font-size: 22px;
+    font-size: 26px;
   }
 }
 </style>

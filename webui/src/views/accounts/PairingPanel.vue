@@ -82,7 +82,7 @@ async function copyFields() {
 </script>
 
 <template>
-  <PagePanel accent="gold" class="pairing">
+  <PagePanel class="pairing">
     <el-collapse v-model="open" class="pairing-collapse">
       <el-collapse-item name="pairing" title="添加账户 · 配对接入">
         <el-skeleton v-if="loading" :rows="2" animated />
@@ -171,7 +171,7 @@ async function copyFields() {
   color: var(--tk-heading);
   font-size: 14px;
   font-weight: 700;
-  letter-spacing: 1px;
+  letter-spacing: 0.04em;
 }
 .pairing-collapse :deep(.el-collapse-item__wrap) {
   border-bottom: 0;

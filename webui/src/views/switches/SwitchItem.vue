@@ -23,7 +23,7 @@ defineProps<{ name: string; code?: string; note?: string; dim?: boolean }>()
   justify-content: space-between;
   gap: 6px 14px;
   padding: 11px 20px;
-  border-top: 1px dashed var(--tk-line-strong);
+  border-top: 1px solid var(--tk-line);
 }
 .sw-item.is-dim .sw-item-name {
   color: var(--tk-muted);

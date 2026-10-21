@@ -101,7 +101,7 @@ h4 {
   margin: 4px 0 2px;
   color: var(--tk-heading);
   font-size: 13px;
-  letter-spacing: 1px;
+  letter-spacing: 0.04em;
 }
 .hint {
   margin: 0 0 10px;

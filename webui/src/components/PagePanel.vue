@@ -1,15 +1,10 @@
 <script setup lang="ts">
-// 页面内的卡片：顶部 3px 色条（navy / coral / gold）+ 可选标题、右上角操作和 kicker。
-defineProps<{ title?: string; accent?: 'navy' | 'coral' | 'gold' }>()
+// 页面内的卡片：白色表面 + 发丝边框，可选标题和右上角操作。
+defineProps<{ title?: string }>()
 </script>
 
 <template>
-  <el-card
-    class="page-panel"
-    :class="`is-${accent ?? 'navy'}`"
-    shadow="never"
-    :body-class="'page-panel-body'"
-  >
+  <el-card class="page-panel" shadow="never" :body-class="'page-panel-body'">
     <template v-if="title || $slots.extra || $slots.header" #header>
       <slot name="header">
         <div class="panel-head">
@@ -24,35 +19,27 @@ defineProps<{ title?: string; accent?: 'navy' | 'coral' | 'gold' }>()
 
 <style scoped>
 .page-panel {
-  --el-card-border-color: transparent;
+  --el-card-border-color: var(--tk-line);
   --el-card-padding: 18px 20px;
-  border: 0;
-  border-top: 3px solid var(--tk-rule);
-  border-radius: 4px;
+  border-radius: var(--tk-radius);
   box-shadow: var(--tk-shadow);
 }
-.page-panel.is-coral {
-  border-top-color: var(--tk-coral);
-}
-.page-panel.is-gold {
-  border-top-color: var(--tk-gold);
-}
 .page-panel :deep(.el-card__header) {
-  padding: 18px 20px 0;
+  padding: 16px 20px 0;
   border-bottom: 0;
 }
 .panel-head {
   display: flex;
-  align-items: baseline;
+  align-items: center;
   justify-content: space-between;
   gap: 12px;
 }
 .panel-head h3 {
   margin: 0;
   color: var(--tk-heading);
-  font-size: 14px;
+  font-size: 15px;
   font-weight: 700;
-  letter-spacing: 2px;
+  letter-spacing: 0.04em;
 }
 .panel-extra {
   color: var(--tk-muted);

@@ -3,11 +3,10 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref, useTemplateRef } f
 import { useRoute, useRouter } from 'vue-router'
 import type { InputInstance } from 'element-plus'
 import { ApiError } from '@/api'
-import BrandMark from '@/components/BrandMark.vue'
 import GithubLink from '@/components/GithubLink.vue'
-import TenshiPolaroid from '@/components/TenshiPolaroid.vue'
 import ThemeSwitch from '@/components/ThemeSwitch.vue'
 import { useAuth } from '@/composables/useAuth'
+import tenshi from '@/assets/tenshi.webp'
 
 const auth = useAuth()
 const route = useRoute()
@@ -105,15 +104,14 @@ onBeforeUnmount(stopLock)
     </div>
 
     <div class="login-card">
-      <div class="login-aside">
-        <BrandMark />
-        <TenshiPolaroid size="lg" class="aside-polaroid" />
-        <div class="login-tagline">群组管理 · 控制台</div>
+      <div class="login-aside" :style="{ backgroundImage: `url(${tenshi})` }">
+        <div class="login-brand">
+          <b>TENKO</b>
+          <span>比那名居天子 · 群管家</span>
+        </div>
       </div>
 
       <div class="login-body">
-        <div class="eyebrow">ADMIN SIGN IN</div>
-
         <!-- 无法读取登录状态 -->
         <template v-if="auth.state.stateError">
           <h1 id="login-title">登录管理面板</h1>
@@ -200,10 +198,7 @@ onBeforeUnmount(stopLock)
   min-height: 100vh;
   place-items: center;
   padding: 56px 20px 28px;
-  background:
-    repeating-linear-gradient(0deg, transparent 0 31px, rgba(45, 74, 107, 0.05) 31px 32px),
-    repeating-linear-gradient(90deg, transparent 0 31px, rgba(45, 74, 107, 0.05) 31px 32px),
-    var(--tk-bg);
+  background: var(--tk-bg);
 }
 .login-tools {
   position: absolute;
@@ -218,27 +213,46 @@ onBeforeUnmount(stopLock)
   width: min(860px, 100%);
   grid-template-columns: 300px minmax(0, 1fr);
   overflow: hidden;
-  border-radius: 6px;
+  border: 1px solid var(--tk-line);
+  border-radius: 18px;
   background: var(--tk-surface);
   box-shadow:
     var(--tk-shadow),
-    0 24px 60px rgba(26, 26, 30, 0.14);
+    0 24px 60px rgba(20, 30, 60, 0.1);
 }
 .login-aside {
+  position: relative;
   display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 26px;
-  padding: 34px 20px;
-  background: var(--tk-sidebar-bg);
-  color: #f5f1e8;
+  min-height: 380px;
+  align-items: flex-end;
+  padding: 26px 28px;
+  background-color: var(--tk-sidebar-bg);
+  background-position: center 22%;
+  background-size: cover;
 }
-.login-tagline {
-  color: rgba(245, 241, 232, 0.62);
-  font-size: 11px;
-  letter-spacing: 2px;
-  text-align: center;
+.login-aside::after {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(180deg, transparent 45%, var(--tk-sidebar-bg) 100%);
+  content: '';
+}
+.login-brand {
+  position: relative;
+  text-shadow: 0 1px 8px rgba(8, 12, 30, 0.6);
+  z-index: 1;
+  display: grid;
+}
+.login-brand b {
+  color: #fff;
+  font-family: var(--tk-font-num);
+  font-size: 28px;
+  letter-spacing: 0.32em;
+  line-height: 1.1;
+}
+.login-brand span {
+  color: var(--tk-side-text);
+  font-size: 12px;
+  letter-spacing: 0.14em;
 }
 .login-body {
   display: flex;
@@ -246,18 +260,11 @@ onBeforeUnmount(stopLock)
   justify-content: center;
   padding: 38px 42px;
 }
-.eyebrow {
-  color: var(--tk-coral);
-  font-size: 11px;
-  font-style: italic;
-  font-weight: 700;
-  letter-spacing: 3px;
-}
 h1 {
-  margin: 4px 0 0;
+  margin: 0;
   color: var(--tk-heading);
-  font-size: 24px;
-  letter-spacing: 3px;
+  font-size: 26px;
+  letter-spacing: 0.04em;
 }
 .lead {
   margin: 6px 0 0;
@@ -287,7 +294,7 @@ h1 {
 .form-error {
   margin: 4px 0 0;
   padding: 9px 12px;
-  border-left: 3px solid var(--tk-coral);
+  border-radius: 8px;
   background: var(--tk-danger-bg);
   color: var(--tk-danger);
 }
@@ -311,7 +318,7 @@ h1 {
   position: relative;
   padding: 12px 14px 12px 46px;
   border: 1px solid var(--tk-line);
-  border-radius: 4px;
+  border-radius: 10px;
   background: var(--tk-surface-2);
   counter-increment: step;
 }
@@ -324,10 +331,10 @@ h1 {
   height: 22px;
   place-items: center;
   border-radius: 50%;
-  background: var(--tk-navy-solid);
-  color: var(--tk-on-navy);
+  background: var(--tk-primary);
+  color: var(--tk-on-primary);
   content: counter(step);
-  font-family: Georgia, serif;
+  font-family: var(--tk-font-num);
   font-size: 12px;
   font-weight: 700;
 }
@@ -338,7 +345,7 @@ h1 {
 .setup-steps code,
 .form-help code {
   padding: 1px 6px;
-  border-radius: 3px;
+  border-radius: 5px;
   background: var(--tk-off-bg);
   color: var(--tk-heading);
 }
@@ -353,13 +360,11 @@ h1 {
     grid-template-columns: 1fr;
   }
   .login-aside {
-    flex-direction: row;
-    justify-content: flex-start;
-    padding: 16px 20px;
+    min-height: 120px;
+    padding: 14px 20px;
   }
-  .aside-polaroid,
-  .login-tagline {
-    display: none;
+  .login-brand b {
+    font-size: 22px;
   }
   .login-body {
     padding: 26px 22px 28px;

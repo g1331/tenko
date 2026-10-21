@@ -87,7 +87,7 @@ const setStrategy = (row: Row, value: string | number | boolean) =>
 </script>
 
 <template>
-  <PagePanel title="群响应策略" accent="navy">
+  <PagePanel title="群响应策略">
     <template #extra>共 {{ numberText(rows.length) }} 个群</template>
     <el-empty v-if="!rows.length" :image-size="48" description="尚未为任何群设置响应策略" />
     <template v-else>
@@ -180,7 +180,7 @@ const setStrategy = (row: Row, value: string | number | boolean) =>
 }
 .strategy-table :deep(th.el-table__cell) {
   font-size: 12px;
-  letter-spacing: 1.5px;
+  letter-spacing: 0.04em;
 }
 .name {
   display: block;

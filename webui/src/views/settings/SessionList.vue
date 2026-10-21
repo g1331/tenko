@@ -142,7 +142,7 @@ function revokeOthers() {
 .item {
   padding: 12px 14px;
   border: 1px solid var(--tk-line);
-  border-radius: 4px;
+  border-radius: 10px;
 }
 .item + .item {
   margin-top: 10px;

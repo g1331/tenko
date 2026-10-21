@@ -698,3 +698,14 @@ async def test_raw_internal_member_leave_is_handled_when_adapter_enrichment_fail
     await handler.handle_member_removed(account, event)
 
     assert registry.bound_accounts_for_group("40001") == ()
+
+
+def test_activity_counts_messages_per_minute_and_fills_gaps() -> None:
+    now = [600.0]
+    metrics = MessageMetrics(clock=lambda: now[0])
+    sent = {"account_id": "1", "platform": "qq", "chat_type": "group"}
+    metrics.record_sent(**sent, channel_id="1", text="a", count=2)
+    now[0] += 120  # 跳过一整分钟没有消息
+    metrics.record_sent(**sent, channel_id="1", text="b")
+
+    assert metrics.activity(4) == [(0, 0), (0, 2), (0, 0), (0, 1)]

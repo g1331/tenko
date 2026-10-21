@@ -98,14 +98,14 @@ def test_login_renders_overview_and_polls_every_30_seconds(open_panel):
     # 总览：版本/在线标签、KPI、账号与插件概况、待关注。
     main = page.locator("main")
     assert "v4.0.0-test" in main.inner_text()
-    assert "1d 2h" in main.inner_text()
-    assert "13,824" in main.inner_text()
+    assert "1 天 2 小时" in main.inner_text()
+    assert "12,873" in main.inner_text()
+    assert "3 项待处理" in main.inner_text()
+    assert page.locator(".chart rect").count() > 60
     assert page.locator(".account-list li").count() == 2
     assert "账号 10002 离线" in main.inner_text()
     assert "入群欢迎 处于维护状态" in main.inner_text()
-    assert (
-        page.locator(".sidebar .el-menu-item.is-active").inner_text().startswith("01")
-    )
+    assert page.locator(".sidebar .el-menu-item.is-active").inner_text() == "总览"
     assert page.locator("header .user-button").inner_text().strip().endswith("master")
 
     count = len(panel.paths("/api/overview"))
@@ -128,11 +128,11 @@ def test_overview_ignores_installed_but_disabled_external_plugins(open_panel):
     )
     panel.data["/api/features"] = data
     page = open_panel(panel, "overview")
-    page.locator(".stat-trio").wait_for()
+    page.locator(".hero-stats").wait_for()
     main = page.locator("main")
     # 未启用的第三方插件不算“未加载”，也不进入待关注列表和总数。
     assert "演示插件" not in main.inner_text()
-    assert f"/ {total}" in page.locator(".stat-trio").inner_text()
+    assert f"/ {total}" in page.locator(".hero-stats").inner_text()
     assert not page.errors
 
 

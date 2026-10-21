@@ -159,6 +159,10 @@ class MessageMetrics:
     _received_timestamps: deque[float] = field(init=False, repr=False)
     _sent_timestamps: deque[float] = field(init=False, repr=False)
     _recent: deque[MessageLog] = field(init=False, repr=False)
+    # 每分钟一格的收发计数 [分钟序号, 接收, 发送]，供面板画近一小时活动。
+    _minutes: deque[list[int]] = field(
+        init=False, repr=False, default_factory=lambda: deque(maxlen=60)
+    )
 
     def __post_init__(self) -> None:
         if type(self.buffer_size) is not int or self.buffer_size <= 0:
@@ -214,12 +218,30 @@ class MessageMetrics:
         self._trim_rates(now, window)
         return len(self._received_timestamps), len(self._sent_timestamps)
 
+    def _bump_minute(self, now: float, received: int, sent: int) -> None:
+        minute = int(now // 60)
+        if not self._minutes or self._minutes[-1][0] != minute:
+            self._minutes.append([minute, 0, 0])
+        self._minutes[-1][1] += received
+        self._minutes[-1][2] += sent
+
+    def activity(self, minutes: int = 60) -> list[tuple[int, int]]:
+        """最近 ``minutes`` 分钟每分钟的（接收, 发送），最早的在前。"""
+
+        current = int(self.clock() // 60)
+        counts = {minute: (received, sent) for minute, received, sent in self._minutes}
+        return [
+            counts.get(current - offset, (0, 0))
+            for offset in range(minutes - 1, -1, -1)
+        ]
+
     def record_received(
         self, context: MessageContext, *, timestamp: object | None = None
     ) -> None:
         now = self.clock()
         self._received_count += 1
         self._received_timestamps.append(now)
+        self._bump_minute(now, 1, 0)
         text = _compact_text(context.text)
         if not text and context.image_urls:
             text = f"[图片×{len(context.image_urls)}]"
@@ -258,6 +280,7 @@ class MessageMetrics:
         self._sent_count += count
         for _ in range(count):
             self._sent_timestamps.append(now)
+        self._bump_minute(now, 0, count)
         self._recent.append(
             MessageLog(
                 timestamp=_message_timestamp(timestamp),

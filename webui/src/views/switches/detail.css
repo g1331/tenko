@@ -10,15 +10,8 @@
   gap: 8px 16px;
   padding: 16px 20px 12px;
 }
-.sw-kicker {
-  color: var(--tk-kicker);
-  font-size: 10px;
-  font-style: italic;
-  font-weight: 700;
-  letter-spacing: 3px;
-}
 .sw-head h2 {
-  margin: 2px 0 0;
+  margin: 0;
   color: var(--tk-heading);
   font-size: 17px;
   overflow-wrap: anywhere;
@@ -39,7 +32,8 @@
 }
 .sw-summary b {
   color: var(--tk-heading);
-  font-size: 20px;
+  font-family: var(--tk-font-num);
+  font-size: 22px;
   font-variant-numeric: tabular-nums;
 }
 .sw-items {

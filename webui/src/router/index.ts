@@ -1,19 +1,15 @@
 import { createRouter, createWebHashHistory } from 'vue-router'
 import { useAuth } from '@/composables/useAuth'
 
-export type RouteAccent = 'navy' | 'coral'
-
 declare module 'vue-router' {
   interface RouteMeta {
     /** 登录前即可访问（不触发会话检查跳转）。 */
     public?: boolean
-    /** 页头的章节编号、标题和英文副标题。 */
-    number?: string
+    /** 页头的标题和副标题。 */
     title?: string
-    en?: string
-    accent?: RouteAccent
-    /** 侧栏导航文案；缺省的路由不出现在导航里。 */
-    nav?: { label: string; en: string; group: 'control' | 'workspace' }
+    subtitle?: string
+    /** 侧栏导航文案（short 用于移动端横向导航）；缺省的路由不出现在导航里。 */
+    nav?: { label: string; short: string; group: '管理' | '运维' }
   }
 }
 
@@ -38,11 +34,8 @@ export const router = createRouter({
           name: 'overview',
           component: () => import('@/views/OverviewView.vue'),
           meta: {
-            number: '01',
             title: '运行总览',
-            en: 'RUNTIME OVERVIEW',
-            accent: 'navy',
-            nav: { label: '总览', en: 'OVERVIEW', group: 'control' },
+            nav: { label: '总览', short: '总览', group: '管理' },
           },
         },
         {
@@ -50,11 +43,9 @@ export const router = createRouter({
           name: 'accounts',
           component: () => import('@/views/AccountsView.vue'),
           meta: {
-            number: '02',
             title: '账户与响应',
-            en: 'ACCOUNTS & RESPONSE',
-            accent: 'coral',
-            nav: { label: '账户', en: 'ACCOUNTS', group: 'control' },
+            subtitle: '账号接入、绑定群和各群的响应策略',
+            nav: { label: '账户与响应', short: '账户', group: '管理' },
           },
         },
         {
@@ -62,11 +53,9 @@ export const router = createRouter({
           name: 'plugins',
           component: () => import('@/views/PluginsView.vue'),
           meta: {
-            number: '03',
-            title: '插件详情',
-            en: 'PLUGIN DETAILS',
-            accent: 'navy',
-            nav: { label: '插件', en: 'PLUGINS', group: 'control' },
+            title: '插件',
+            subtitle: '已安装插件的状态、配置和插件市场',
+            nav: { label: '插件', short: '插件', group: '管理' },
           },
         },
         {
@@ -74,11 +63,9 @@ export const router = createRouter({
           name: 'switches',
           component: () => import('@/views/SwitchesView.vue'),
           meta: {
-            number: '04',
             title: '功能开关',
-            en: 'FEATURE FLAGS',
-            accent: 'coral',
-            nav: { label: '开关', en: 'FEATURE FLAGS', group: 'control' },
+            subtitle: '按群或按插件管理功能的开启与关闭',
+            nav: { label: '功能开关', short: '开关', group: '管理' },
           },
         },
         {
@@ -86,11 +73,9 @@ export const router = createRouter({
           name: 'logs',
           component: () => import('@/views/LogsView.vue'),
           meta: {
-            number: '05',
             title: '运行日志',
-            en: 'LOGS',
-            accent: 'navy',
-            nav: { label: '日志', en: 'LOGS', group: 'workspace' },
+            subtitle: 'Tenko 的实时运行日志',
+            nav: { label: '日志', short: '日志', group: '运维' },
           },
         },
         {
@@ -98,11 +83,9 @@ export const router = createRouter({
           name: 'settings',
           component: () => import('@/views/SettingsView.vue'),
           meta: {
-            number: '06',
             title: '设置',
-            en: 'SETTINGS',
-            accent: 'navy',
-            nav: { label: '设置', en: 'SETTINGS', group: 'workspace' },
+            subtitle: '面板账户、运行参数和会话管理',
+            nav: { label: '设置', short: '设置', group: '运维' },
           },
         },
       ],

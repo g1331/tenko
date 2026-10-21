@@ -282,8 +282,8 @@ async function remove() {
   flex-direction: column;
   gap: 10px;
   padding: 16px 18px;
-  border-top: 3px solid var(--tk-rule);
-  border-radius: 4px;
+  border: 1px solid var(--tk-line);
+  border-radius: var(--tk-radius);
   background: var(--tk-surface);
   box-shadow: var(--tk-shadow);
 }
@@ -330,7 +330,7 @@ header {
   gap: 6px;
   margin-top: auto;
   padding-top: 12px;
-  border-top: 1px dashed var(--tk-line-strong);
+  border-top: 1px solid var(--tk-line);
 }
 .actions .el-button {
   margin: 0;

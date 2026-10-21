@@ -11,16 +11,30 @@ export function numberText(value: unknown): string {
   return isNumber(value) ? numberFormat.format(value) : EMPTY
 }
 
-export function durationText(seconds: unknown): string {
+/** 运行时长的中文描述，例如 1 天 2 小时；最多两级单位。 */
+export function uptimeText(seconds: unknown): string {
   if (!isNumber(seconds)) return EMPTY
   const total = Math.max(Math.floor(seconds), 0)
   const days = Math.floor(total / 86400)
   const hours = Math.floor((total % 86400) / 3600)
   const minutes = Math.floor((total % 3600) / 60)
-  if (days) return `${days}d ${hours}h`
-  if (hours) return `${hours}h ${minutes}m`
-  if (minutes) return `${minutes}m ${total % 60}s`
-  return `${total % 60}s`
+  if (days) return hours ? `${days} 天 ${hours} 小时` : `${days} 天`
+  if (hours) return minutes ? `${hours} 小时 ${minutes} 分钟` : `${hours} 小时`
+  if (minutes) return `${minutes} 分钟`
+  return `${total % 60} 秒`
+}
+
+/** 字节数换算成合适的单位，例如 312 MB、4.9 GB。 */
+export function bytesText(value: unknown): string {
+  if (!isNumber(value)) return EMPTY
+  const units = ['B', 'KB', 'MB', 'GB', 'TB']
+  let size = Math.max(value, 0)
+  let unit = 0
+  while (size >= 1024 && unit < units.length - 1) {
+    size /= 1024
+    unit += 1
+  }
+  return `${size >= 100 || unit === 0 ? Math.round(size) : Number(size.toFixed(1))} ${units[unit]}`
 }
 
 /** 接口时间为 ISO 8601 UTC；缺少时区标记时按 UTC 处理。 */

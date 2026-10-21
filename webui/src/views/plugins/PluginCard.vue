@@ -29,19 +29,10 @@ const locked = computed(() => props.feature.protected || !props.feature.loaded)
 const toggleLocked = computed(
   () => props.feature.protected || (!props.feature.loaded && props.feature.source !== 'external'),
 )
-const accent = computed(() =>
-  !props.feature.loaded || !props.feature.enabled
-    ? 'off'
-    : props.feature.maintenance
-      ? 'maint'
-      : props.feature.protected
-        ? 'prot'
-        : 'run',
-)
 </script>
 
 <template>
-  <article class="plugin-card" :class="`is-${accent}`" :data-plugin="feature.plugin">
+  <article class="plugin-card" :data-plugin="feature.plugin">
     <header>
       <div class="title">
         <strong class="name">{{ feature.name || feature.plugin }}</strong>
@@ -113,19 +104,10 @@ const accent = computed(() =>
   flex-direction: column;
   gap: 10px;
   padding: 16px 18px;
-  border-top: 3px solid var(--tk-ok-solid);
-  border-radius: 4px;
+  border: 1px solid var(--tk-line);
+  border-radius: var(--tk-radius);
   background: var(--tk-surface);
   box-shadow: var(--tk-shadow);
-}
-.plugin-card.is-maint {
-  border-top-color: var(--tk-gold);
-}
-.plugin-card.is-off {
-  border-top-color: var(--tk-switch-off);
-}
-.plugin-card.is-prot {
-  border-top-color: var(--tk-rule);
 }
 header {
   display: flex;
@@ -163,7 +145,7 @@ header {
   gap: 6px;
   margin-top: auto;
   padding-top: 12px;
-  border-top: 1px dashed var(--tk-line-strong);
+  border-top: 1px solid var(--tk-line);
 }
 .actions .el-button {
   margin: 0;

@@ -51,7 +51,7 @@ function onRowKey(event: KeyboardEvent) {
 </script>
 
 <template>
-  <PagePanel class="sw-side" accent="coral">
+  <PagePanel class="sw-side">
     <el-input
       v-model="query"
       class="sw-search"
@@ -97,7 +97,6 @@ function onRowKey(event: KeyboardEvent) {
   border-bottom: 1px solid var(--tk-line);
   color: var(--tk-muted);
   font-size: 12px;
-  letter-spacing: 1px;
 }
 .sw-list {
   height: auto;
@@ -135,8 +134,8 @@ function onRowKey(event: KeyboardEvent) {
   background: var(--tk-surface-2);
 }
 .sw-row[aria-current='true'] {
-  border-left-color: var(--tk-coral);
-  background: var(--tk-danger-bg);
+  border-left-color: var(--tk-primary);
+  background: var(--tk-primary-soft);
 }
 .sw-row:focus-visible {
   outline-offset: -3px;

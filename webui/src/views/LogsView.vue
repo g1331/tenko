@@ -196,7 +196,7 @@ const emptyText = computed(() => {
 
 <template>
   <PageContainer>
-    <PagePanel accent="gold">
+    <PagePanel>
       <form class="toolbar" @submit.prevent="search">
         <el-select
           v-model="source"
@@ -306,9 +306,9 @@ const emptyText = computed(() => {
   overflow: auto;
   margin-top: 8px;
   padding: 12px 14px;
-  border-radius: 3px;
-  background: #1a2b3c;
-  color: #d3dde6;
+  border-radius: 10px;
+  background: #0e1326;
+  color: #cfd6ec;
   font-family: var(--tk-font-mono);
   font-size: 12.5px;
   line-height: 1.65;
@@ -318,14 +318,14 @@ const emptyText = computed(() => {
   white-space: pre-wrap;
 }
 .row.lv-SUCCESS {
-  color: #7fd6a2;
+  color: #6fd39a;
 }
 .row.lv-WARNING {
-  color: #e6c77f;
+  color: #f0c56a;
 }
 .row.lv-ERROR,
 .row.lv-CRITICAL {
-  color: #f3a18f;
+  color: #ff8c84;
 }
 .empty {
   display: flex;
@@ -335,7 +335,7 @@ const emptyText = computed(() => {
   align-items: center;
   justify-content: center;
   gap: 10px;
-  color: #a9b7c4;
+  color: #8b95b6;
   font-family: var(--tk-font);
   font-size: 13px;
   text-align: center;

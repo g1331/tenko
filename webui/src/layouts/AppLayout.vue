@@ -1,85 +1,93 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, type Component } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import BrandMark from '@/components/BrandMark.vue'
+import { Connection, Odometer, Setting, Switch, Tickets, User } from '@element-plus/icons-vue'
 import GithubLink from '@/components/GithubLink.vue'
-import TenshiPolaroid from '@/components/TenshiPolaroid.vue'
 import ThemeSwitch from '@/components/ThemeSwitch.vue'
+import tenshi from '@/assets/tenshi.webp'
 import AppHeader from './AppHeader.vue'
 import { usePanelData, usePanelPolling } from '@/composables/usePanelData'
 
 // 已登录区域的外壳：加载并定时刷新共享数据，卸载（登出 / 会话失效）时清空。
 usePanelPolling()
-const { overview, sync } = usePanelData()
+const { overview } = usePanelData()
 
 const route = useRoute()
 const router = useRouter()
 
+const icons: Record<string, Component> = {
+  overview: Odometer,
+  accounts: User,
+  plugins: Connection,
+  switches: Switch,
+  logs: Tickets,
+  settings: Setting,
+}
+
 interface NavItem {
   path: string
-  number: string
   label: string
-  en: string
-  group: 'control' | 'workspace'
+  short: string
+  icon: Component
+  group: string
 }
+// 路由表顺序即导航顺序。
 const navItems = computed<NavItem[]>(() =>
   router
     .getRoutes()
     .filter((item) => item.meta.nav)
     .map((item) => ({
       path: item.path,
-      number: item.meta.number ?? '',
       label: item.meta.nav!.label,
-      en: item.meta.nav!.en,
+      short: item.meta.nav!.short,
+      icon: icons[item.name as string] ?? Odometer,
       group: item.meta.nav!.group,
-    }))
-    .sort((a, b) => a.number.localeCompare(b.number)),
+    })),
 )
-const groups = computed(() => [
-  { title: 'CONTROL DECK', items: navItems.value.filter((item) => item.group === 'control') },
-  { title: 'WORKSPACE', items: navItems.value.filter((item) => item.group === 'workspace') },
-])
+const groups = computed(() =>
+  [...new Set(navItems.value.map((item) => item.group))].map((title) => ({
+    title,
+    items: navItems.value.filter((item) => item.group === title),
+  })),
+)
 
-const syncLabel = computed(
-  () =>
-    ({ syncing: 'API SYNCING', ok: 'API SYNCED', partial: 'API PARTIAL', offline: 'API OFFLINE' })[
-      sync.value.state
-    ],
-)
-const footer = computed(() => {
-  const version = overview.data.value?.version
-  return version ? `TENKO · v${version} · PRERELEASE` : ''
+const version = computed(() => {
+  const value = overview.data.value?.version
+  return value ? `v${value}` : ''
 })
 </script>
 
 <template>
   <div class="app-frame">
     <aside class="sidebar" aria-label="Tenko 功能导航">
-      <BrandMark class="sidebar-brand" />
-      <div class="sidebar-portrait"><TenshiPolaroid /></div>
+      <div class="sidebar-art" :style="{ backgroundImage: `url(${tenshi})` }">
+        <div class="sidebar-brand">
+          <b>TENKO</b>
+          <span>比那名居天子 · 群管家</span>
+        </div>
+      </div>
 
       <el-menu class="sidebar-menu" :default-active="route.path" router aria-label="功能分类">
         <el-menu-item-group v-for="group in groups" :key="group.title">
           <template #title>{{ group.title }}</template>
           <el-menu-item v-for="item in group.items" :key="item.path" :index="item.path">
-            <span class="nav-number">{{ item.number }}</span>
-            <span class="nav-copy">
-              {{ item.label }}<span class="nav-en">{{ item.en }}</span>
-            </span>
+            <el-icon><component :is="item.icon" /></el-icon>
+            <span>{{ item.label }}</span>
           </el-menu-item>
         </el-menu-item-group>
       </el-menu>
 
       <div class="sidebar-foot">
-        <div class="sidebar-tools"><ThemeSwitch /><GithubLink /></div>
-        TENKO WEBUI · <strong>{{ syncLabel }}</strong>
+        <ThemeSwitch />
+        <GithubLink />
+        <span class="version">{{ version }}</span>
       </div>
     </aside>
 
     <section class="workspace">
       <header class="mobile-topbar">
-        <BrandMark :caption="false" />
-        <div class="sidebar-tools"><ThemeSwitch /><GithubLink /></div>
+        <div class="mobile-brand"><b>TENKO</b><span>群管家</span></div>
+        <div class="mobile-tools"><ThemeSwitch /><GithubLink /></div>
       </header>
       <el-menu
         class="mobile-nav"
@@ -90,8 +98,7 @@ const footer = computed(() => {
         aria-label="移动端功能分类"
       >
         <el-menu-item v-for="item in navItems" :key="item.path" :index="item.path">
-          <span class="nav-number">{{ item.number }}</span>
-          <span class="nav-label">{{ item.label }}</span>
+          {{ item.short }}
         </el-menu-item>
       </el-menu>
 
@@ -101,7 +108,6 @@ const footer = computed(() => {
           <component :is="Component" :key="route.name" />
         </router-view>
       </main>
-      <footer>{{ footer }}</footer>
     </section>
   </div>
 </template>
@@ -111,7 +117,7 @@ const footer = computed(() => {
   display: grid;
   width: 100%;
   min-height: 100vh;
-  grid-template-columns: 232px minmax(0, 1fr);
+  grid-template-columns: 236px minmax(0, 1fr);
   background: var(--tk-bg);
 }
 
@@ -124,110 +130,112 @@ const footer = computed(() => {
   align-self: start;
   flex-direction: column;
   overflow: hidden;
-  padding: 20px 14px 16px;
   background: var(--tk-sidebar-bg);
-  color: #f5f1e8;
+  color: var(--tk-side-text);
 }
 .sidebar > * {
   flex-shrink: 0;
 }
-.sidebar-brand {
-  padding: 2px 10px 18px;
+.sidebar-art {
+  position: relative;
+  height: 176px;
+  background-position: center 28%;
+  background-size: cover;
 }
-.sidebar-portrait {
-  display: flex;
-  justify-content: center;
-  margin: 0 8px 20px;
-  padding: 12px 8px;
-  border: 1px solid rgba(245, 241, 232, 0.13);
-  background: rgba(245, 241, 232, 0.05);
+.sidebar-art::after {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(180deg, transparent 30%, var(--tk-sidebar-bg) 100%);
+  content: '';
+}
+.sidebar-brand {
+  position: absolute;
+  bottom: 12px;
+  left: 22px;
+  z-index: 1;
+  display: grid;
+}
+.sidebar-brand b {
+  color: #fff;
+  font-family: var(--tk-font-num);
+  font-size: 24px;
+  font-weight: 700;
+  letter-spacing: 0.32em;
+  line-height: 1.1;
+  text-shadow: 0 1px 6px rgba(8, 12, 30, 0.45);
+}
+.sidebar-brand span {
+  color: var(--tk-side-text);
+  font-size: 11px;
+  letter-spacing: 0.14em;
+  opacity: 0.85;
 }
 .sidebar-menu {
   --el-menu-bg-color: transparent;
-  --el-menu-text-color: #c5d5e4;
-  --el-menu-hover-bg-color: rgba(245, 241, 232, 0.08);
-  --el-menu-hover-text-color: #f5f1e8;
-  --el-menu-active-color: #2d4a6b;
-  --el-menu-item-height: 50px;
+  --el-menu-text-color: var(--tk-side-text);
+  --el-menu-hover-bg-color: rgba(255, 255, 255, 0.05);
+  --el-menu-hover-text-color: #fff;
+  --el-menu-active-color: #fff;
+  --el-menu-item-height: 42px;
   flex: 1 1 auto;
   min-height: 0;
   overflow-x: hidden;
   overflow-y: auto;
+  padding: 10px 12px;
   border: 0;
 }
 .sidebar-menu :deep(.el-menu-item-group__title) {
-  padding: 0 10px 6px;
-  color: rgba(245, 241, 232, 0.5);
-  font-size: 10px;
-  font-style: italic;
-  letter-spacing: 2px;
+  padding: 0 12px 6px;
+  color: var(--tk-side-muted);
+  font-size: 11px;
+  letter-spacing: 0.16em;
 }
 .sidebar-menu :deep(.el-menu-item-group:not(:first-child) .el-menu-item-group__title) {
-  padding-top: 16px;
+  padding-top: 14px;
 }
 .sidebar-menu :deep(.el-menu-item) {
-  margin-bottom: 3px;
-  padding: 0 10px;
-  border: 1px solid transparent;
-  border-radius: 3px;
-  gap: 10px;
-}
-.sidebar-menu :deep(.el-menu-item.is-active) {
-  border-color: rgba(245, 241, 232, 0.34);
-  background: #f5f1e8;
-  color: #2d4a6b;
-  box-shadow: 4px 4px 0 rgba(26, 26, 30, 0.16);
-}
-.nav-number {
-  width: 22px;
-  color: var(--tk-gold);
-  font-family: Georgia, 'Times New Roman', serif;
-  font-size: 12px;
-  font-weight: 700;
-}
-.is-active .nav-number {
-  color: #c4574a;
-}
-.nav-copy {
-  flex: 1;
-  font-size: 13px;
-  font-weight: 700;
-  letter-spacing: 2px;
-  line-height: 1.3;
-}
-.nav-en {
-  display: block;
-  margin-top: 1px;
-  font-size: 9px;
-  font-style: italic;
-  font-weight: 400;
-  letter-spacing: 1.5px;
-  opacity: 0.66;
-}
-.sidebar-foot {
-  margin-top: auto;
-  padding: 14px 10px 0;
-  border-top: 1px solid rgba(245, 241, 232, 0.12);
-  color: rgba(245, 241, 232, 0.55);
-  font-size: 10px;
-  letter-spacing: 1.5px;
-  line-height: 1.8;
-}
-.sidebar-foot strong {
-  color: var(--tk-gold);
-  font-weight: 600;
-}
-.sidebar-tools {
-  display: flex;
-  align-items: center;
+  position: relative;
+  margin-bottom: 2px;
+  padding: 0 12px;
+  border-radius: 9px;
+  font-size: 14px;
   gap: 12px;
 }
-.sidebar-foot .sidebar-tools {
-  margin-bottom: 10px;
+.sidebar-menu :deep(.el-menu-item .el-icon) {
+  width: 18px;
+  margin: 0;
+  font-size: 18px;
+}
+.sidebar-menu :deep(.el-menu-item.is-active) {
+  background: rgba(255, 255, 255, 0.08);
+  font-weight: 700;
+}
+.sidebar-menu :deep(.el-menu-item.is-active::before) {
+  position: absolute;
+  top: 9px;
+  bottom: 9px;
+  left: -12px;
+  width: 3px;
+  border-radius: 0 3px 3px 0;
+  background: var(--tk-side-active);
+  content: '';
+}
+.sidebar-foot {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 14px 20px 18px;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+}
+.sidebar-foot .version {
+  margin-left: auto;
+  color: var(--tk-side-muted);
+  font-family: var(--tk-font-num);
+  font-size: 11px;
 }
 @media (max-height: 650px) {
-  .sidebar-portrait {
-    display: none;
+  .sidebar-art {
+    height: 120px;
   }
 }
 
@@ -241,18 +249,7 @@ const footer = computed(() => {
 }
 main {
   min-width: 0;
-  padding: 22px 28px 30px;
-}
-footer {
-  margin-top: auto;
-  padding: 16px 0 14px;
-  color: var(--tk-muted);
-  font-size: 10px;
-  letter-spacing: 3px;
-  text-align: center;
-}
-footer:empty {
-  padding: 0;
+  padding: 26px 32px 40px;
 }
 .mobile-topbar,
 .mobile-nav {
@@ -261,10 +258,10 @@ footer:empty {
 
 @media (max-width: 1120px) {
   .app-frame {
-    grid-template-columns: 204px minmax(0, 1fr);
+    grid-template-columns: 208px minmax(0, 1fr);
   }
   main {
-    padding-inline: 20px;
+    padding-inline: 22px;
   }
 }
 
@@ -282,12 +279,31 @@ footer:empty {
     padding: 10px 14px 6px;
     background: var(--tk-sidebar-bg);
   }
+  .mobile-brand {
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
+    color: var(--tk-side-text);
+    font-size: 11px;
+    letter-spacing: 0.14em;
+  }
+  .mobile-brand b {
+    color: #fff;
+    font-family: var(--tk-font-num);
+    font-size: 20px;
+    letter-spacing: 0.3em;
+  }
+  .mobile-tools {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
   .mobile-nav {
     --el-menu-bg-color: var(--tk-sidebar-bg);
-    --el-menu-text-color: #c5d5e4;
-    --el-menu-hover-bg-color: rgba(245, 241, 232, 0.08);
-    --el-menu-hover-text-color: #f5f1e8;
-    --el-menu-active-color: #2d4a6b;
+    --el-menu-text-color: var(--tk-side-text);
+    --el-menu-hover-bg-color: rgba(255, 255, 255, 0.05);
+    --el-menu-hover-text-color: #fff;
+    --el-menu-active-color: #fff;
     --el-menu-horizontal-height: 40px;
     display: flex;
     overflow-x: auto;
@@ -302,34 +318,19 @@ footer:empty {
   .mobile-nav :deep(.el-menu-item) {
     flex: 1 0 auto;
     justify-content: center;
-    gap: 3px;
     height: 38px;
-    padding: 0 8px;
+    padding: 0 12px;
     border: 0;
-    border-radius: 3px;
-    color: #c5d5e4;
+    border-radius: 9px;
+    font-size: 13px;
   }
   .mobile-nav :deep(.el-menu-item.is-active) {
-    background: #f5f1e8;
-    color: #2d4a6b;
+    background: rgba(255, 255, 255, 0.12);
     border: 0;
-  }
-  .mobile-nav .nav-number {
-    width: auto;
-    font-size: 11px;
-  }
-  .nav-label {
-    font-size: 13px;
     font-weight: 700;
-    letter-spacing: 0.5px;
   }
   main {
-    padding: 16px 14px 22px;
-  }
-}
-@media (max-width: 520px) {
-  footer {
-    letter-spacing: 1.5px;
+    padding: 18px 14px 26px;
   }
 }
 </style>

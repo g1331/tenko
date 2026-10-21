@@ -24,7 +24,7 @@ const options: Array<{ value: ThemePreference; label: string; icon: typeof Sunny
   >
     <el-tooltip v-for="item in options" :key="item.value" :content="item.label" placement="top">
       <el-radio-button :value="item.value" :aria-label="item.label">
-        <el-icon :size="16"><component :is="item.icon" /></el-icon>
+        <el-icon :size="14"><component :is="item.icon" /></el-icon>
       </el-radio-button>
     </el-tooltip>
   </el-radio-group>
@@ -35,43 +35,47 @@ const options: Array<{ value: ThemePreference; label: string; icon: typeof Sunny
   flex-wrap: nowrap;
   padding: 3px;
   gap: 2px;
-  border: 1px solid var(--tswitch-border);
   border-radius: 8px;
+  background: var(--tswitch-bg);
 }
 .is-navy {
-  --tswitch-border: #536c80;
-  --tswitch-fg: #becdd9;
-  --tswitch-hover: #304f67;
-  --tswitch-on-bg: #f5f1e8;
-  --tswitch-on-fg: #1e3a52;
+  --tswitch-bg: rgba(255, 255, 255, 0.06);
+  --tswitch-fg: var(--tk-side-muted);
+  --tswitch-hover: rgba(255, 255, 255, 0.08);
+  --tswitch-on-bg: rgba(255, 255, 255, 0.14);
+  --tswitch-on-fg: #fff;
 }
 .is-page {
-  --tswitch-border: var(--tk-line-strong);
+  --tswitch-bg: var(--tk-off-bg);
   --tswitch-fg: var(--tk-muted);
-  --tswitch-hover: var(--tk-off-bg);
-  --tswitch-on-bg: var(--tk-navy-solid);
-  --tswitch-on-fg: var(--tk-on-navy);
+  --tswitch-hover: var(--tk-line);
+  --tswitch-on-bg: var(--tk-surface);
+  --tswitch-on-fg: var(--tk-primary);
 }
-.theme-switch :deep(.el-radio-button__inner) {
+.theme-switch :deep(.el-radio-button .el-radio-button__inner) {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 34px;
-  height: 34px;
+  width: 26px;
+  height: 24px;
   padding: 0;
   border: 0;
-  border-radius: 5px;
+  outline: 0;
+  border-radius: 6px;
   background: transparent;
   box-shadow: none;
   color: var(--tswitch-fg);
 }
 .theme-switch :deep(.el-radio-button__inner:hover) {
   background: var(--tswitch-hover);
-  color: var(--tswitch-on-bg);
+  color: var(--tswitch-on-fg);
 }
 .theme-switch :deep(.el-radio-button__original-radio:checked + .el-radio-button__inner) {
   background: var(--tswitch-on-bg);
   color: var(--tswitch-on-fg);
   box-shadow: none;
+}
+.theme-switch :deep(.el-radio-button:has(:focus-visible) .el-radio-button__inner) {
+  outline: 2px solid var(--el-color-primary);
 }
 </style>

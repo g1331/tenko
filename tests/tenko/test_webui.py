@@ -413,11 +413,16 @@ async def test_webui_overview_uses_status_data_metrics_and_counts(
         "data": {
             "version": "9.8.7",
             "uptime_seconds": expected_status["process"]["uptime_seconds"],
+            "rss": expected_status["process"]["rss"],
+            "resources": expected_status["resources"],
+            "activity": [[0, 0]] * 60,
             "online_accounts": 1,
             "active_groups": expected_status["active_groups"],
             "messages": {
                 "received_count": expected_status["metrics"]["received_count"],
                 "sent_count": expected_status["metrics"]["sent_count"],
+                "received_rate": expected_status["metrics"]["received_rate"],
+                "sent_rate": expected_status["metrics"]["sent_rate"],
             },
         },
     }

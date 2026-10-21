@@ -23,7 +23,7 @@ onMounted(async () => {
 <template>
   <PageContainer>
     <section class="section" aria-labelledby="sec-runtime">
-      <h2 id="sec-runtime">运行设置<small>RUNTIME</small></h2>
+      <h2 id="sec-runtime">运行设置</h2>
       <div class="stack">
         <RuntimeSettings />
         <FriendRequestSettings />
@@ -31,12 +31,12 @@ onMounted(async () => {
     </section>
 
     <section class="section" aria-labelledby="sec-core">
-      <h2 id="sec-core">宿主配置<small>HOST CONFIG</small></h2>
+      <h2 id="sec-core">宿主配置</h2>
       <CoreConfigSettings />
     </section>
 
     <section id="account-security" ref="security" class="section" aria-labelledby="sec-security">
-      <h2 id="sec-security">账号与安全<small>ACCOUNT &amp; SECURITY</small></h2>
+      <h2 id="sec-security">账号与安全</h2>
       <div class="grid">
         <AccountForm @updated="sessions?.reload()" />
         <SessionList ref="sessions" />
@@ -51,20 +51,10 @@ onMounted(async () => {
   scroll-margin-top: 12px;
 }
 .section h2 {
-  display: flex;
-  align-items: baseline;
-  gap: 12px;
   margin: 0 0 12px;
   color: var(--tk-heading);
-  font-size: 15px;
-  letter-spacing: 3px;
-}
-.section h2 small {
-  color: var(--tk-muted);
-  font-size: 10px;
-  font-style: italic;
-  font-weight: 400;
-  letter-spacing: 3px;
+  font-size: 16px;
+  letter-spacing: 0.04em;
 }
 .stack {
   display: grid;

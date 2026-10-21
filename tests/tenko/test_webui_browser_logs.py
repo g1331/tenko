@@ -84,7 +84,7 @@ def test_live_polls_every_3s_and_stops_after_leaving_page(open_panel):
     assert output_text(page).count("message 2") == 1  # 增量追加，不重复
 
     go_to(page, "总览")
-    page.get_by_text("本次运行时长").wait_for()
+    page.get_by_text("消息活动").wait_for()
     seen = len(panel.queries)
     page.clock.run_for(12_000)
     page.wait_for_timeout(200)

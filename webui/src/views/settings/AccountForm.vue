@@ -97,7 +97,7 @@ async function submit() {
 </script>
 
 <template>
-  <PagePanel title="账户信息" accent="coral">
+  <PagePanel title="账户信息">
     <div class="identity">
       <el-avatar :size="38" class="avatar">{{
         (state.username || '?').slice(0, 1).toUpperCase()
@@ -166,7 +166,7 @@ async function submit() {
   margin-bottom: 14px;
   padding: 12px 14px;
   border: 1px solid var(--tk-line);
-  border-radius: 4px;
+  border-radius: 10px;
   background: var(--tk-surface-2);
 }
 .identity > div {
@@ -185,8 +185,8 @@ async function submit() {
 }
 .avatar {
   flex: none;
-  background: var(--tk-navy-solid);
-  color: var(--tk-on-navy);
+  background: var(--tk-primary);
+  color: var(--tk-on-primary);
   font-weight: 700;
 }
 .hint {

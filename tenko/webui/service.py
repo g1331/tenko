@@ -311,11 +311,16 @@ class WebUIService(Service):
         return {
             "version": self._version(status_data),
             "uptime_seconds": process["uptime_seconds"],
+            "rss": process["rss"],
+            "resources": status_data["resources"],
+            "activity": [list(pair) for pair in self.metrics.activity()],
             "online_accounts": online_accounts,
             "active_groups": status_data["active_groups"],
             "messages": {
                 "received_count": metrics["received_count"],
                 "sent_count": metrics["sent_count"],
+                "received_rate": metrics["received_rate"],
+                "sent_rate": metrics["sent_rate"],
             },
         }
 

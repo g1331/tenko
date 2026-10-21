@@ -28,6 +28,6 @@ const type = computed(
 <style scoped>
 .status-tag {
   font-weight: 600;
-  letter-spacing: 1px;
+  letter-spacing: 0.02em;
 }
 </style>

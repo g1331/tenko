@@ -11,7 +11,6 @@ export {}
 /* prettier-ignore */
 declare module 'vue' {
   export interface GlobalComponents {
-    BrandMark: typeof import('./components/BrandMark.vue')['default']
     ElAlert: typeof import('element-plus/es')['ElAlert']
     ElAvatar: typeof import('element-plus/es')['ElAvatar']
     ElButton: typeof import('element-plus/es')['ElButton']
@@ -59,7 +58,6 @@ declare module 'vue' {
     RouterLink: typeof import('vue-router')['RouterLink']
     RouterView: typeof import('vue-router')['RouterView']
     StatusTag: typeof import('./components/StatusTag.vue')['default']
-    TenshiPolaroid: typeof import('./components/TenshiPolaroid.vue')['default']
     ThemeSwitch: typeof import('./components/ThemeSwitch.vue')['default']
   }
   export interface GlobalDirectives {

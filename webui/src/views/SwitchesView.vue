@@ -185,7 +185,6 @@ async function pickAndReveal(id: string) {
 .sw-total {
   color: var(--tk-muted);
   font-size: 12px;
-  letter-spacing: 1px;
 }
 .sw-layout {
   display: grid;

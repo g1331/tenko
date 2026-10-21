@@ -40,10 +40,9 @@ function describe(feature: SwitchModel['features'][number]) {
 </script>
 
 <template>
-  <PagePanel class="sw-panel" accent="coral">
+  <PagePanel class="sw-panel">
     <div class="sw-head">
       <div>
-        <div class="sw-kicker">GROUP</div>
         <h2>{{ groupLabel(group) }}</h2>
         <div class="sw-id">
           <code v-if="group.name">{{ group.id }}</code>
@@ -95,12 +94,7 @@ function describe(feature: SwitchModel['features'][number]) {
     <p v-else class="sw-note">暂无群级功能。</p>
   </PagePanel>
 
-  <PagePanel
-    v-if="model.globalFeatures.length"
-    class="sw-panel"
-    accent="gold"
-    title="全局功能（对所有群生效）"
-  >
+  <PagePanel v-if="model.globalFeatures.length" class="sw-panel" title="全局功能（对所有群生效）">
     <ul class="sw-items flush">
       <SwitchItem
         v-for="feature in model.globalFeatures"

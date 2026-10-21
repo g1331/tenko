@@ -57,9 +57,32 @@ export interface RevokeOthersResult {
 export interface OverviewData {
   version: string
   uptime_seconds: number
+  /** Tenko 进程常驻内存（字节）；读取不到时为 null。 */
+  rss: number | null
+  /** 主机资源（字节 / 百分比）；未安装 psutil 等读取不到时为 null。 */
+  resources: HostResources | null
+  /** 近 60 分钟每分钟的 [接收, 发送]，最早的在前，最后一格是当前分钟。 */
+  activity: [number, number][]
   online_accounts: number
   active_groups: number
-  messages: { received_count: number; sent_count: number }
+  messages: {
+    received_count: number
+    sent_count: number
+    /** 最近 60 秒的收发条数。 */
+    received_rate: number
+    sent_rate: number
+  }
+}
+export interface HostResources {
+  cpu_percent: number
+  memory_used: number
+  memory_total: number
+  memory_percent: number
+  disk_used: number
+  disk_total: number
+  disk_percent: number
+  net_sent: number
+  net_received: number
 }
 
 /** 已知策略为 random / deterministic，其余值按“其他”展示。 */

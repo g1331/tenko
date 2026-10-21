@@ -4,49 +4,28 @@ import PageContainer from '@/components/PageContainer.vue'
 import PagePanel from '@/components/PagePanel.vue'
 import ResourceBoundary from '@/components/ResourceBoundary.vue'
 import StatusTag from '@/components/StatusTag.vue'
-import { durationText, isNumber, numberText, platformText } from '@/composables/format'
 import {
   accountStatus,
   isInactiveExternal,
   pluginStats,
   type StatusKind,
 } from '@/composables/status'
+import { bytesText, numberText, platformText, uptimeText } from '@/composables/format'
 import { usePanelData } from '@/composables/usePanelData'
 
 const { overview, accounts, features } = usePanelData()
 
 const accountList = computed(() => accounts.data.value?.accounts ?? null)
 const featureList = computed(() => features.data.value?.features ?? null)
-const stats = computed(() =>
-  featureList.value
-    ? pluginStats(featureList.value.filter((item) => !isInactiveExternal(item)))
-    : null,
+const activeFeatures = computed(() =>
+  featureList.value?.filter((item) => !isInactiveExternal(item)),
 )
-const offlineCount = computed(() => accountList.value?.filter((item) => !item.online).length ?? 0)
+const stats = computed(() => (activeFeatures.value ? pluginStats(activeFeatures.value) : null))
 
-const accountDelta = computed(() => {
-  if (!accountList.value) return ''
-  if (!accountList.value.length) return '暂无账户'
-  return offlineCount.value ? `${offlineCount.value} 个离线` : '全部在线'
+const perMinute = computed(() => {
+  const messages = overview.data.value?.messages
+  return messages ? messages.received_rate + messages.sent_rate : null
 })
-
-const platforms = computed(() => [
-  ...new Set((accountList.value ?? []).map((item) => platformText(item.platform))),
-])
-
-const received = computed(() => overview.data.value?.messages.received_count)
-const sent = computed(() => overview.data.value?.messages.sent_count)
-const totalMessages = computed(() =>
-  isNumber(received.value) && isNumber(sent.value) ? received.value + sent.value : null,
-)
-const sentShare = computed(() => {
-  const total = (received.value ?? 0) + (sent.value ?? 0)
-  return total ? ((sent.value ?? 0) / total) * 100 : 0
-})
-const percentOf = (value: number | undefined) => {
-  const total = (received.value ?? 0) + (sent.value ?? 0)
-  return total ? ((value ?? 0) / total) * 100 : 0
-}
 
 // 插件分段条：运行 / 维护 / 停用 / 未加载，互斥且合计为插件总数。
 const segments = computed(() => {
@@ -60,27 +39,47 @@ const segments = computed(() => {
   ]
 })
 
+// 需要关注的插件：未加载 > 维护中 > 已停用。
+const abnormalPlugins = computed(() => {
+  const rows: { key: string; name: string; label: string; kind: StatusKind }[] = []
+  const list = activeFeatures.value ?? []
+  const add = (
+    label: string,
+    kind: StatusKind,
+    match: (item: (typeof list)[number]) => boolean,
+  ) => {
+    for (const item of list.filter(match))
+      rows.push({ key: item.plugin, name: item.name || item.plugin, label, kind })
+  }
+  add('未加载', 'danger', (item) => !item.loaded)
+  add('维护中', 'pending', (item) => item.loaded && item.enabled && item.maintenance)
+  add('已停用', 'off', (item) => item.loaded && !item.enabled)
+  return rows
+})
+
 interface AttentionItem {
   kind: StatusKind
-  tag: string
   text: string
   to?: string
+  action?: string
 }
 const attention = computed<AttentionItem[]>(() => {
   const items: AttentionItem[] = []
   for (const account of accountList.value ?? []) {
     if (!account.online)
-      items.push({ kind: 'danger', tag: '异常', text: `账号 ${account.id} 离线`, to: '/accounts' })
+      items.push({
+        kind: 'danger',
+        text: `账号 ${account.id} 离线`,
+        to: '/accounts',
+        action: '查看',
+      })
   }
-  for (const feature of featureList.value ?? []) {
-    if (isInactiveExternal(feature)) continue
+  for (const feature of activeFeatures.value ?? []) {
     const name = feature.name || feature.plugin
     if (!feature.loaded)
-      items.push({ kind: 'pending', tag: '提示', text: `${name} 未加载`, to: '/plugins' })
+      items.push({ kind: 'pending', text: `${name} 未加载`, to: '/plugins', action: '处理' })
     else if (feature.maintenance)
-      items.push({ kind: 'pending', tag: '提示', text: `${name} 处于维护状态`, to: '/plugins' })
-    else if (!feature.enabled)
-      items.push({ kind: 'off', tag: '停用', text: `${name} 已停用`, to: '/plugins' })
+      items.push({ kind: 'pending', text: `${name} 处于维护状态`, to: '/plugins', action: '处理' })
   }
   const failed: Array<[string, { error: { value: unknown } }]> = [
     ['总览', overview],
@@ -88,72 +87,163 @@ const attention = computed<AttentionItem[]>(() => {
     ['插件', features],
   ]
   for (const [label, source] of failed) {
-    if (source.error.value)
-      items.push({ kind: 'danger', tag: '异常', text: `${label}数据读取失败` })
+    if (source.error.value) items.push({ kind: 'danger', text: `${label}数据读取失败` })
   }
   return items
 })
+
+// ---------------- 近一小时消息活动 ----------------
+const CHART_H = 150
+const BUCKET = 1000 / 60
+const activity = computed(() => overview.data.value?.activity ?? [])
+const quiet = computed(() => activity.value.every(([received, sent]) => !received && !sent))
+const bars = computed(() => {
+  const top = Math.max(1, ...activity.value.map(([received, sent]) => received + sent))
+  const scale = (CHART_H - 8) / top
+  const height = (count: number) => (count ? Math.max(count * scale, 2) : 0)
+  return activity.value.map(([received, sent], index) => {
+    const sentH = height(sent)
+    const receivedH = height(received)
+    const ago = activity.value.length - 1 - index
+    return {
+      x: index * BUCKET + 2,
+      sentH,
+      sentY: CHART_H - sentH,
+      receivedH,
+      receivedY: CHART_H - sentH - receivedH,
+      last: ago === 0,
+      title: `${ago ? `${ago} 分钟前` : '当前分钟'}：接收 ${received}，发送 ${sent}`,
+    }
+  })
+})
+
+function percent(value: number) {
+  return `${Math.min(Math.max(value, 0), 100)}%`
+}
 </script>
 
 <template>
   <PageContainer>
     <ResourceBoundary :resource="overview" label="运行数据">
       <template #default="{ data }">
-        <section class="hero" aria-label="Tenko 概览">
-          <div class="hero-title" aria-hidden="true">TENKO</div>
-          <div class="hero-copy">
-            <div class="hero-eyebrow">TENKO · GROUP CONTROL PANEL</div>
-            <div class="ribbon">群组管理 · 控制台</div>
+        <section class="hero" aria-label="运行状态">
+          <div class="hero-main">
+            <div class="state">
+              <span class="pulse" />运行中{{ data.version ? ` · v${data.version}` : '' }}
+            </div>
+            <h2>{{ attention.length ? `${attention.length} 项待处理` : '运行正常' }}</h2>
+            <div class="sub">
+              已运行 <b>{{ uptimeText(data.uptime_seconds) }}</b>
+            </div>
+            <div class="hero-stats">
+              <div>
+                <b
+                  >{{ numberText(data.online_accounts)
+                  }}<small v-if="accountList"> / {{ numberText(accountList.length) }}</small></b
+                >在线账号
+              </div>
+              <div>
+                <b>{{ numberText(data.active_groups) }}</b
+                >活动群组
+              </div>
+              <div>
+                <b
+                  >{{ stats ? numberText(stats.running) : '—'
+                  }}<small v-if="stats"> / {{ numberText(stats.total) }}</small></b
+                >运行插件
+              </div>
+              <div>
+                <b>{{ numberText(perMinute) }}</b
+                >条/分钟
+              </div>
+            </div>
           </div>
-          <div class="hero-tags">
-            <el-tag v-if="data.version" effect="dark" class="tag-navy" disable-transitions>
-              v{{ data.version }}
-            </el-tag>
-            <el-tag type="danger" effect="dark" disable-transitions>
-              {{ numberText(data.online_accounts) }} ONLINE
-            </el-tag>
-            <el-tag v-for="item in platforms" :key="item" effect="plain" disable-transitions>
-              {{ item }}
-            </el-tag>
-          </div>
+          <ul v-if="attention.length" class="alerts">
+            <li v-for="(item, index) in attention.slice(0, 4)" :key="index">
+              <span class="dot" :class="`is-${item.kind}`" aria-hidden="true" />
+              <span class="alert-text">{{ item.text }}</span>
+              <router-link v-if="item.to" :to="item.to">{{ item.action }} →</router-link>
+            </li>
+          </ul>
         </section>
 
-        <div class="grid-4">
-          <PagePanel class="kpi">
-            <div class="num">{{ durationText(data.uptime_seconds) }}</div>
-            <div class="lbl">本次运行时长</div>
-            <div class="delta">{{ data.version ? `版本 v${data.version}` : '' }}&nbsp;</div>
-          </PagePanel>
-          <PagePanel class="kpi">
-            <div class="num">
-              {{ numberText(data.online_accounts) }}
-              <small v-if="accountList">/ {{ numberText(accountList.length) }}</small>
+        <PagePanel class="activity">
+          <div class="chart-head">
+            <div>
+              <h3>消息活动</h3>
+              <div class="sub">近 60 分钟，每分钟一格</div>
             </div>
-            <div class="lbl">在线账号</div>
-            <div class="delta" :class="{ up: accountList?.length && !offlineCount }">
-              {{ accountDelta }}&nbsp;
+            <div class="kpi">
+              <b>{{ numberText(data.messages.received_count) }}</b
+              >累计接收
             </div>
-          </PagePanel>
-          <PagePanel class="kpi">
-            <div class="num">{{ numberText(data.active_groups) }}</div>
-            <div class="lbl">活动群组</div>
-            <div class="delta">{{ stats ? `${stats.loaded} 个插件已加载` : '' }}&nbsp;</div>
-          </PagePanel>
-          <PagePanel class="kpi" accent="gold">
-            <div class="num">{{ numberText(totalMessages) }}</div>
-            <div class="lbl">收发消息合计</div>
-            <div class="delta">收 {{ numberText(received) }} · 发 {{ numberText(sent) }}</div>
-          </PagePanel>
-        </div>
+            <div class="kpi">
+              <b>{{ numberText(data.messages.sent_count) }}</b
+              >累计发送
+            </div>
+            <div class="legend">
+              <span><i class="recv" />接收</span>
+              <span><i class="sent" />发送</span>
+            </div>
+          </div>
+          <div class="chart-wrap">
+            <svg
+              class="chart"
+              :viewBox="`0 0 1000 ${CHART_H}`"
+              preserveAspectRatio="none"
+              role="img"
+              aria-label="近 60 分钟每分钟的收发消息数"
+            >
+              <template v-if="quiet">
+                <rect
+                  v-for="bar in bars"
+                  :key="bar.x"
+                  :x="bar.x"
+                  :y="CHART_H - 2"
+                  :width="BUCKET - 4"
+                  height="2"
+                  rx="1"
+                  class="idle"
+                />
+              </template>
+              <template v-else>
+                <g v-for="bar in bars" :key="bar.x">
+                  <title>{{ bar.title }}</title>
+                  <rect
+                    v-if="bar.receivedH"
+                    :x="bar.x"
+                    :y="bar.receivedY"
+                    :width="BUCKET - 4"
+                    :height="bar.receivedH"
+                    rx="2"
+                    class="recv"
+                    :opacity="bar.last ? 1 : 0.78"
+                  />
+                  <rect
+                    v-if="bar.sentH"
+                    :x="bar.x"
+                    :y="bar.sentY"
+                    :width="BUCKET - 4"
+                    :height="bar.sentH"
+                    rx="1.5"
+                    class="sent"
+                  />
+                </g>
+              </template>
+            </svg>
+            <div v-if="quiet" class="quiet">近一小时没有消息</div>
+          </div>
+          <div class="axis" aria-hidden="true">
+            <span>-60 分钟</span><span>-45</span><span>-30</span><span>-15</span><span>现在</span>
+          </div>
+        </PagePanel>
       </template>
     </ResourceBoundary>
 
-    <div class="grid-2">
-      <PagePanel title="账号状态">
+    <div class="row">
+      <PagePanel title="账号">
         <template v-if="accountList" #extra>
-          <router-link class="tk-link" to="/accounts"
-            >管理全部 {{ numberText(accountList.length) }} 个账户</router-link
-          >
+          <router-link class="tk-link" to="/accounts">管理 →</router-link>
         </template>
         <ResourceBoundary :resource="accounts" label="账户数据">
           <template #default="{ data }">
@@ -167,11 +257,11 @@ const attention = computed<AttentionItem[]>(() => {
                 v-for="account in data.accounts.slice(0, 6)"
                 :key="`${account.platform}/${account.id}`"
               >
-                <span class="status-dot" :class="{ on: account.online }" aria-hidden="true" />
+                <span class="dot" :class="account.online ? 'is-on' : 'is-off'" aria-hidden="true" />
                 <div>
-                  <span class="tk-mono strong">{{ account.id }}</span>
+                  <span class="account-id">{{ account.id }}</span>
                   <div class="meta">
-                    {{ platformText(account.platform) }} · 绑定
+                    {{ platformText(account.platform) }} ·
                     {{ numberText(account.group_count) }} 个群
                   </div>
                 </div>
@@ -185,224 +275,322 @@ const attention = computed<AttentionItem[]>(() => {
         </ResourceBoundary>
       </PagePanel>
 
-      <PagePanel title="插件概况" accent="coral">
-        <template #extra
-          ><router-link class="tk-link" to="/plugins">查看详情</router-link></template
-        >
+      <PagePanel title="插件">
+        <template #extra><router-link class="tk-link" to="/plugins">查看 →</router-link></template>
         <ResourceBoundary :resource="features" label="插件数据">
           <template #default>
             <template v-if="stats">
-              <div class="stat-trio">
-                <div class="stat">
-                  <b
-                    >{{ stats.loaded }}<small> / {{ stats.total }}</small></b
-                  >
-                  <span>已加载</span>
-                </div>
-                <div class="stat">
-                  <b>{{ stats.maintenance }}</b
-                  ><span>维护中</span>
-                </div>
-                <div class="stat">
-                  <b>{{ stats.disabled }}</b
-                  ><span>已停用</span>
-                </div>
+              <div class="plugin-big">
+                <b>{{ stats.running }}</b
+                ><span>/ {{ stats.total }} 运行中</span>
               </div>
               <div
-                class="stat-bar"
+                class="seg-bar"
                 role="img"
                 :aria-label="segments.map((item) => `${item.label} ${item.count}`).join('，')"
               >
                 <i
-                  v-for="item in segments"
+                  v-for="item in segments.filter((segment) => segment.count)"
                   :key="item.key"
-                  :style="{
-                    width: `${stats.total ? (item.count / stats.total) * 100 : 0}%`,
-                    background: item.color,
-                  }"
+                  :style="{ flex: item.count, background: item.color }"
                 />
               </div>
-              <div class="bar-legend">
-                <span v-for="item in segments" :key="item.key">
-                  <i :style="{ background: item.color }" />{{ item.label }} {{ item.count }}
-                </span>
-              </div>
-              <p class="note">{{ stats.protectedCount }} 个核心插件受保护，不可停用。</p>
+              <ul v-if="abnormalPlugins.length" class="plugin-list">
+                <li v-for="item in abnormalPlugins.slice(0, 5)" :key="item.key">
+                  <span class="dot" :class="`is-${item.kind}`" aria-hidden="true" />
+                  <span class="plugin-name">{{ item.name }}</span>
+                  <span class="plugin-state">{{ item.label }}</span>
+                </li>
+              </ul>
+              <p v-else class="all-ok">全部正常</p>
+              <p v-if="abnormalPlugins.length > 5" class="note">
+                另有 {{ abnormalPlugins.length - 5 }} 项未列出。
+              </p>
             </template>
           </template>
         </ResourceBoundary>
       </PagePanel>
-    </div>
 
-    <div class="grid-2">
-      <PagePanel title="待关注">
-        <div v-if="!overview.data.value && !accountList && !featureList" class="note">
-          数据读取完成后显示。
-        </div>
-        <template v-else>
-          <ul v-if="attention.length" class="attention-list">
-            <li v-for="(item, index) in attention.slice(0, 6)" :key="index">
-              <StatusTag :kind="item.kind">{{ item.tag }}</StatusTag>
-              <span>{{ item.text }}</span>
-              <router-link v-if="item.to" class="tk-link" :to="item.to">处理</router-link>
-            </li>
-          </ul>
-          <div v-else class="attention-ok">
-            <span aria-hidden="true">✓</span> 账号全部在线，插件运行正常。
-          </div>
-          <p v-if="attention.length > 6" class="note">另有 {{ attention.length - 6 }} 项未列出。</p>
-        </template>
-      </PagePanel>
-
-      <PagePanel title="消息收发" accent="gold">
-        <template #extra>自本次启动</template>
-        <ResourceBoundary :resource="overview" label="消息数据">
-          <template #default>
-            <div class="flow-row">
-              <div class="flow-head">
-                <span>接收</span><b>{{ numberText(received) }}</b>
+      <PagePanel title="主机">
+        <template v-if="overview.data.value">
+          <template v-if="overview.data.value.resources">
+            <div class="res">
+              <div class="res-head">
+                CPU<span
+                  ><b>{{ Math.round(overview.data.value.resources.cpu_percent) }}</b
+                  >%</span
+                >
               </div>
-              <el-progress
-                :percentage="percentOf(received)"
-                :show-text="false"
-                :stroke-width="8"
-                color="var(--tk-ok-solid)"
-              />
-            </div>
-            <div class="flow-row">
-              <div class="flow-head">
-                <span>发送</span><b>{{ numberText(sent) }}</b>
+              <div class="track">
+                <i :style="{ width: percent(overview.data.value.resources.cpu_percent) }" />
               </div>
-              <el-progress
-                :percentage="percentOf(sent)"
-                :show-text="false"
-                :stroke-width="8"
-                color="var(--tk-coral)"
-              />
             </div>
-            <p class="note">
-              {{ totalMessages ? `发送占比 ${sentShare.toFixed(1)}%。` : '本次启动后暂无消息。' }}
-            </p>
+            <div class="res">
+              <div class="res-head">
+                内存<span
+                  ><b>{{ Math.round(overview.data.value.resources.memory_percent) }}</b
+                  >% · {{ bytesText(overview.data.value.resources.memory_used) }} /
+                  {{ bytesText(overview.data.value.resources.memory_total) }}</span
+                >
+              </div>
+              <div class="track">
+                <i :style="{ width: percent(overview.data.value.resources.memory_percent) }" />
+              </div>
+            </div>
+            <div class="res">
+              <div class="res-head">
+                磁盘<span
+                  ><b>{{ Math.round(overview.data.value.resources.disk_percent) }}</b
+                  >% · {{ bytesText(overview.data.value.resources.disk_used) }} /
+                  {{ bytesText(overview.data.value.resources.disk_total) }}</span
+                >
+              </div>
+              <div class="track">
+                <i :style="{ width: percent(overview.data.value.resources.disk_percent) }" />
+              </div>
+            </div>
           </template>
-        </ResourceBoundary>
+          <p v-else class="note first">未安装 psutil，无法读取主机资源。</p>
+          <div v-if="overview.data.value.rss != null" class="res">
+            <div class="res-head">
+              Tenko 进程<span
+                ><b>{{ bytesText(overview.data.value.rss) }}</b></span
+              >
+            </div>
+          </div>
+        </template>
+        <p v-else class="note first">数据读取完成后显示。</p>
       </PagePanel>
     </div>
   </PageContainer>
 </template>
 
 <style scoped>
+/* ---------------- 顶部状态卡：两个主题下都是深色毛玻璃 ---------------- */
 .hero {
   position: relative;
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 12px 28px;
-  margin-bottom: 16px;
-  padding: 18px 26px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 300px);
+  align-items: start;
+  gap: 24px 32px;
+  isolation: isolate;
   overflow: hidden;
-  border-radius: 6px;
-  background:
-    repeating-linear-gradient(0deg, transparent 0 31px, rgba(45, 74, 107, 0.05) 31px 32px),
-    repeating-linear-gradient(90deg, transparent 0 31px, rgba(45, 74, 107, 0.05) 31px 32px),
-    var(--tk-surface);
-  box-shadow: var(--tk-shadow);
+  padding: 28px 32px 26px;
+  border-radius: 18px;
+  background: #131a33;
+  color: #fff;
 }
 .hero::before {
   position: absolute;
-  top: 0;
-  bottom: 0;
-  left: 0;
-  width: 4px;
-  background: var(--tk-coral);
+  inset: -30%;
+  z-index: -2;
+  background: url('@/assets/tenshi.webp') 70% 30% / cover;
+  filter: blur(70px) saturate(1.5) brightness(0.8);
   content: '';
 }
-.hero-title {
-  color: var(--tk-heading);
-  font-family: 'Arial Black', var(--tk-font);
-  font-size: 2.4rem;
-  font-weight: 900;
-  letter-spacing: 8px;
-  line-height: 1;
+.hero::after {
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  background: linear-gradient(
+    90deg,
+    rgba(14, 18, 40, 0.72) 0,
+    rgba(14, 18, 40, 0.35) 60%,
+    rgba(14, 18, 40, 0.15) 100%
+  );
+  content: '';
 }
-.hero-copy {
-  min-width: 0;
-  flex: 1 1 220px;
-}
-.hero-eyebrow {
-  color: var(--tk-kicker);
-  font-size: 10px;
-  font-style: italic;
-  font-weight: 700;
-  letter-spacing: 3px;
-}
-.ribbon {
-  display: inline-block;
-  margin-top: 6px;
-  padding: 5px 20px 5px 13px;
-  background: var(--tk-badge-navy);
-  clip-path: polygon(0 0, 100% 0, calc(100% - 12px) 100%, 0 100%);
-  color: #f5f1e8;
-  font-size: 11px;
-  letter-spacing: 3px;
-}
-.hero-tags {
+.state {
   display: flex;
-  flex-wrap: wrap;
-  gap: 7px;
+  align-items: center;
+  gap: 10px;
+  font-size: 13px;
+  letter-spacing: 0.12em;
+  opacity: 0.85;
 }
-.hero-tags .el-tag {
-  font-weight: 600;
-  letter-spacing: 1.2px;
+.pulse {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: #6fe0a0;
+  box-shadow: 0 0 0 5px rgba(111, 224, 160, 0.18);
 }
-.tag-navy {
-  --el-tag-bg-color: var(--tk-badge-navy);
-  --el-tag-border-color: var(--tk-badge-navy);
-  --el-tag-text-color: #f5f1e8;
-}
-html.dark .tag-navy {
-  --el-tag-text-color: #f5f1e8;
-}
-
-.grid-4 {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 12px;
-}
-.grid-2 {
-  display: grid;
-  grid-template-columns: minmax(0, 1.35fr) minmax(0, 1fr);
-  gap: 16px;
-  margin-top: 16px;
-}
-.kpi {
-  --el-card-padding: 15px 16px;
-  min-height: 104px;
-}
-.num {
-  color: var(--tk-heading);
-  font-size: 27px;
-  font-variant-numeric: tabular-nums;
-  font-weight: 800;
+.hero h2 {
+  margin: 10px 0 6px;
+  font-size: 40px;
+  font-weight: 900;
+  letter-spacing: 0.03em;
   line-height: 1.15;
 }
-.num small {
-  color: var(--tk-muted);
+.hero .sub {
   font-size: 14px;
-  font-weight: 600;
+  opacity: 0.78;
 }
-.lbl {
-  margin-top: 6px;
+.hero .sub b {
+  font-weight: 700;
+}
+.hero-stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px 0;
+  margin-top: 28px;
+}
+.hero-stats > div {
+  padding: 0 30px;
+  border-left: 1px solid rgba(255, 255, 255, 0.18);
+  font-size: 12.5px;
+  letter-spacing: 0.08em;
+  opacity: 0.9;
+}
+.hero-stats > div:first-child {
+  padding-left: 0;
+  border-left: 0;
+}
+.hero-stats b {
+  display: block;
+  font-family: var(--tk-font-num);
+  font-size: 38px;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+  line-height: 1.1;
+}
+.hero-stats b small {
+  font-size: 20px;
+  opacity: 0.6;
+}
+.alerts {
+  display: grid;
+  margin: 0;
+  padding: 0;
+  gap: 8px;
+  list-style: none;
+}
+.alerts li {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 12px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 11px;
+  background: rgba(255, 255, 255, 0.1);
+  backdrop-filter: blur(6px);
+  font-size: 13px;
+}
+.alerts .dot {
+  width: 7px;
+  height: 7px;
+  flex: none;
+  border-radius: 50%;
+}
+.alerts .dot.is-danger {
+  background: #ff8c84;
+}
+.alerts .dot.is-pending {
+  background: #f0c56a;
+}
+.alert-text {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.alerts a {
+  margin-left: auto;
+  color: #b9cdff;
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+/* ---------------- 消息活动 ---------------- */
+.activity {
+  --el-card-padding: 0;
+  margin-top: 18px;
+}
+.chart-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 10px 28px;
+  padding: 18px 22px 0;
+}
+.chart-head h3 {
+  margin: 0;
+  color: var(--tk-heading);
+  font-size: 15px;
+}
+.chart-head .sub {
   color: var(--tk-muted);
   font-size: 12px;
-  letter-spacing: 1.5px;
 }
-.delta {
-  margin-top: 3px;
+.kpi {
   color: var(--tk-muted);
   font-size: 12px;
 }
-.delta.up {
-  color: var(--tk-ok);
+.kpi b {
+  margin-right: 4px;
+  color: var(--tk-heading);
+  font-family: var(--tk-font-num);
+  font-size: 24px;
+}
+.legend {
+  display: flex;
+  gap: 16px;
+  margin-left: auto;
+  color: var(--tk-muted);
+  font-size: 12px;
+}
+.legend span {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.legend i {
+  width: 10px;
+  height: 10px;
+  border-radius: 3px;
+}
+.recv {
+  fill: var(--tk-primary);
+  background: var(--tk-primary);
+}
+.sent {
+  fill: var(--tk-orange);
+  background: var(--tk-orange);
+}
+.idle {
+  fill: var(--tk-line-strong);
+}
+.chart-wrap {
+  position: relative;
+  margin-top: 8px;
+}
+.chart {
+  display: block;
+  width: 100%;
+  height: 150px;
+}
+.quiet {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  color: var(--tk-muted);
+  font-size: 13px;
+  pointer-events: none;
+}
+.axis {
+  display: flex;
+  justify-content: space-between;
+  padding: 4px 22px 16px;
+  color: var(--tk-muted);
+  font-family: var(--tk-font-num);
+  font-size: 11px;
+}
+
+/* ---------------- 底部三列 ---------------- */
+.row {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 18px;
+  margin-top: 18px;
 }
 .note {
   margin: 12px 0 0;
@@ -410,170 +598,176 @@ html.dark .tag-navy {
   font-size: 12px;
   line-height: 1.65;
 }
-
+.note.first {
+  margin-top: 0;
+}
+.dot {
+  width: 8px;
+  height: 8px;
+  flex: none;
+  border-radius: 50%;
+  background: var(--tk-off);
+}
+.dot.is-on {
+  background: var(--tk-ok-solid);
+}
+.dot.is-pending {
+  background: var(--tk-gold);
+}
+.dot.is-danger {
+  background: var(--tk-coral);
+}
 .account-list,
-.attention-list {
+.plugin-list {
   margin: 0;
   padding: 0;
   list-style: none;
 }
 .account-list li {
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto;
+  display: flex;
   align-items: center;
-  gap: 4px 12px;
-  padding: 10px 0;
-  border-bottom: 1px dashed var(--tk-line-strong);
+  gap: 12px;
+  padding: 11px 0;
+  border-top: 1px solid var(--tk-line);
 }
-.account-list li:last-child {
-  border-bottom: 0;
+.account-list li:first-child {
+  border-top: 0;
+  padding-top: 2px;
 }
-.status-dot {
-  width: 9px;
-  height: 9px;
-  border-radius: 50%;
-  background: var(--tk-off);
+.account-list li > div {
+  min-width: 0;
+  flex: 1;
 }
-.status-dot.on {
-  background: var(--tk-ok-solid);
-  box-shadow: 0 0 0 3px rgba(46, 139, 87, 0.2);
-}
-.strong {
+.account-id {
+  color: var(--tk-heading);
+  font-family: var(--tk-font-num);
+  font-size: 15px;
   font-weight: 700;
 }
 .meta {
   color: var(--tk-muted);
   font-size: 12px;
 }
-
-.stat-trio {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+.plugin-big {
+  display: flex;
+  align-items: baseline;
   gap: 8px;
+  margin-bottom: 8px;
 }
-.stat {
-  padding: 10px 12px;
-  border: 1px solid var(--tk-line);
-  border-radius: 4px;
-  background: var(--tk-surface-2);
-}
-.stat b {
-  display: block;
+.plugin-big b {
   color: var(--tk-heading);
-  font-size: 22px;
-  font-variant-numeric: tabular-nums;
-  line-height: 1.2;
+  font-family: var(--tk-font-num);
+  font-size: 34px;
+  line-height: 1;
 }
-.stat b small {
+.plugin-big span {
   color: var(--tk-muted);
-  font-size: 14px;
-  font-weight: 600;
-}
-.stat span {
-  color: var(--tk-muted);
-  font-size: 12px;
-  letter-spacing: 1px;
-}
-.stat-bar {
-  display: flex;
-  height: 10px;
-  margin-top: 14px;
-  overflow: hidden;
-  border-radius: 5px;
-  background: var(--tk-off-bg);
-}
-.stat-bar i {
-  display: block;
-  height: 100%;
-}
-.bar-legend {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 4px 14px;
-  margin-top: 8px;
-  color: var(--tk-muted);
-  font-size: 12px;
-}
-.bar-legend i {
-  display: inline-block;
-  width: 9px;
-  height: 9px;
-  margin-right: 5px;
-  border-radius: 2px;
-}
-
-.flow-row + .flow-row {
-  margin-top: 12px;
-}
-.flow-head {
-  display: flex;
-  justify-content: space-between;
-  color: var(--tk-text);
   font-size: 13px;
 }
-.flow-head b {
-  color: var(--tk-heading);
-  font-variant-numeric: tabular-nums;
+.seg-bar {
+  display: flex;
+  height: 8px;
+  margin: 6px 0 12px;
+  gap: 3px;
 }
-
-.attention-list li {
+.seg-bar i {
+  border-radius: 3px;
+}
+.plugin-list li {
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 9px 0;
-  border-bottom: 1px dashed var(--tk-line-strong);
+  padding: 6px 0;
+  font-size: 13px;
 }
-.attention-list li:last-child {
-  border-bottom: 0;
+.plugin-name {
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
-.attention-list .tk-link {
+.plugin-state {
   margin-left: auto;
+  color: var(--tk-muted);
+  font-size: 12px;
   white-space: nowrap;
 }
-.attention-ok {
-  display: flex;
-  align-items: center;
-  gap: 8px;
+.all-ok {
+  margin: 0;
   color: var(--tk-ok);
+  font-size: 13px;
+}
+.res + .res {
+  margin-top: 12px;
+}
+.res-head {
+  display: flex;
+  justify-content: space-between;
+  font-size: 13px;
+}
+.res-head span {
+  color: var(--tk-muted);
+  font-size: 12px;
+}
+.res-head b {
+  color: var(--tk-heading);
+  font-family: var(--tk-font-num);
+  font-size: 14px;
+}
+.track {
+  height: 6px;
+  margin-top: 5px;
+  overflow: hidden;
+  border: 1px solid var(--tk-line);
+  border-radius: 3px;
+  background: var(--tk-surface-2);
+}
+.track i {
+  display: block;
+  height: 100%;
+  border-radius: 3px;
+  background: var(--tk-primary);
 }
 
-@media (max-width: 980px) {
-  .grid-4 {
+@media (max-width: 1100px) {
+  .row {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
-  .grid-2 {
-    grid-template-columns: 1fr;
+}
+@media (max-width: 900px) {
+  .hero {
+    grid-template-columns: minmax(0, 1fr);
   }
 }
-@media (max-width: 820px) {
-  .hero-title {
-    font-size: 2rem;
-    letter-spacing: 6px;
+@media (max-width: 700px) {
+  .row {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .legend {
+    margin-left: 0;
   }
 }
 @media (max-width: 520px) {
-  .grid-4 {
-    gap: 10px;
-  }
-  .kpi {
-    --el-card-padding: 12px;
-    min-height: 92px;
-  }
-  .num {
-    font-size: 22px;
-  }
   .hero {
-    padding: 14px 16px 14px 20px;
+    padding: 22px 20px;
   }
-  .hero-title {
-    font-size: 1.7rem;
-    letter-spacing: 5px;
+  .hero h2 {
+    font-size: 30px;
   }
-  .stat-trio {
-    gap: 6px;
+  .hero-stats {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 18px 0;
   }
-  .stat b {
-    font-size: 19px;
+  .hero-stats > div,
+  .hero-stats > div:first-child {
+    padding: 0 0 0 18px;
+    border-left: 1px solid rgba(255, 255, 255, 0.18);
+  }
+  .hero-stats > div:nth-child(odd) {
+    padding-left: 0;
+    border-left: 0;
+  }
+  .hero-stats b {
+    font-size: 32px;
   }
 }
 </style>

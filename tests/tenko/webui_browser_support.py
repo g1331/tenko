@@ -105,9 +105,29 @@ DATA = {
     "/api/overview": {
         "version": "4.0.0-test",
         "uptime_seconds": 93784,
+        "rss": 327155712,
+        "resources": {
+            "cpu_percent": 23.4,
+            "memory_used": 5261334937,
+            "memory_total": 8589934592,
+            "memory_percent": 61.2,
+            "disk_used": 36507222016,
+            "disk_total": 85899345920,
+            "disk_percent": 42.5,
+            "net_sent": 1048576,
+            "net_received": 2097152,
+        },
+        "activity": [
+            [(i * 7) % 23 + (30 if i > 48 else 0), (i * 3) % 5] for i in range(60)
+        ],
         "online_accounts": 1,
         "active_groups": 14,
-        "messages": {"received_count": 12873, "sent_count": 951},
+        "messages": {
+            "received_count": 12873,
+            "sent_count": 951,
+            "received_rate": 31,
+            "sent_rate": 7,
+        },
     },
     "/api/accounts": ACCOUNTS,
     "/api/features": FEATURES,

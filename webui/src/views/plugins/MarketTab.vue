@@ -175,19 +175,18 @@ async function refresh() {
   flex-direction: column;
   gap: 10px;
   padding: 16px 18px;
-  border: 0;
-  border-top: 3px solid var(--tk-rule);
-  border-radius: 4px;
+  border: 1px solid var(--tk-line);
+  border-radius: var(--tk-radius);
   background: var(--tk-surface);
   box-shadow: var(--tk-shadow);
   color: var(--tk-text);
   font: inherit;
   text-align: left;
   cursor: pointer;
-  transition: transform 120ms ease;
+  transition: border-color 120ms ease;
 }
 .market-card:hover {
-  transform: translateY(-2px);
+  border-color: var(--tk-primary);
 }
 .head {
   display: flex;
@@ -227,7 +226,7 @@ async function refresh() {
   gap: 6px 8px;
   margin-top: auto;
   padding-top: 10px;
-  border-top: 1px dashed var(--tk-line-strong);
+  border-top: 1px solid var(--tk-line);
   font-size: 12px;
 }
 .version {

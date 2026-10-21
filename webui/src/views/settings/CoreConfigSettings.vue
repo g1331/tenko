@@ -246,10 +246,10 @@ async function restart() {
 .group h4 {
   margin: 0 0 10px;
   padding-bottom: 6px;
-  border-bottom: 1px solid var(--tk-rule);
+  border-bottom: 1px solid var(--tk-line);
   color: var(--tk-heading);
   font-size: 13px;
-  letter-spacing: 2px;
+  letter-spacing: 0.04em;
 }
 .fields {
   display: grid;
