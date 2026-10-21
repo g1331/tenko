@@ -28,7 +28,12 @@ from packaging.specifiers import InvalidSpecifier, SpecifierSet
 from packaging.utils import canonicalize_name
 from packaging.version import InvalidVersion, Version
 
-from .plugin_manager import PluginManagerError, PluginSource, parse_source
+from .plugin_manager import (
+    PluginManager,
+    PluginManagerError,
+    PluginSource,
+    parse_source,
+)
 
 DEFAULT_URLS = (
     "https://g1331.github.io/tenko-registry/index.json",
@@ -177,6 +182,51 @@ def source_for(plugin: RegistryPlugin, version: RegistryVersion) -> PluginSource
     return replace(
         source, trust=plugin.tier, expected_id=plugin.id, pins=version.sha256
     )
+
+
+def installed_notes(
+    index: RegistryIndex, plugin_id: str, dist: str, version: str, trust: str
+) -> dict[str, str | None]:
+    """已安装插件在目录里的状态：封禁原因、当前版本的撤回原因、可更新到的版本。"""
+
+    notes: dict[str, str | None] = {"blocked": None, "yanked": None, "update": None}
+    notes["blocked"] = index.blocked_reason(plugin_id, dist)
+    entry = index.plugins.get(plugin_id)
+    if entry is None or trust == "unlisted":
+        return notes
+    installed = next((v for v in entry.versions if v.version == version), None)
+    if installed is not None:
+        notes["yanked"] = installed.yanked
+    latest = compatible(entry)
+    if latest and Version(latest.version) > Version(version):
+        notes["update"] = latest.version
+    return notes
+
+
+async def registry_updates(
+    manager: PluginManager, plugin_id: str | None = None
+) -> dict[str, PluginSource]:
+    """已收录的插件在目录里有更新的可用版本时，给出新来源（固定版本和哈希）。"""
+
+    rows = [
+        r
+        for r in manager.status()
+        if r.trust != "unlisted" and plugin_id in (None, r.plugin_id)
+    ]
+    if not rows:
+        return {}
+    try:
+        index = await get_registry().load()
+    except RegistryError as error:
+        logger.warning("{}", error)
+        return {}
+    sources = {}
+    for row in rows:
+        entry = index.plugins.get(row.plugin_id)
+        latest = entry and compatible(entry)
+        if latest and Version(latest.version) > Version(row.version):
+            sources[row.plugin_id] = source_for(entry, latest)
+    return sources
 
 
 # ------------------------------------------------------------------ 解析

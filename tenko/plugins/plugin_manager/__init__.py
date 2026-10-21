@@ -24,7 +24,6 @@ from arclet.entari.command import Match, Query
 from arclet.entari.plugin import PluginRole
 from loguru import logger
 from packaging.requirements import Requirement
-from packaging.version import Version
 from satori import Text
 
 from tenko.host.accounts import account_registry
@@ -44,6 +43,8 @@ from tenko.host.registry import (
     RegistryPlugin,
     compatible,
     get_registry,
+    installed_notes,
+    registry_updates,
     source_for,
     why_incompatible,
 )
@@ -199,7 +200,9 @@ async def update(
         changes = await get_plugin_manager().update(
             target,
             parsed,
-            sources={} if parsed else await registry_updates(target),
+            sources={}
+            if parsed
+            else await registry_updates(get_plugin_manager(), target),
             actor=_actor(session),
         )
     except PluginManagerError as error:
@@ -208,28 +211,6 @@ async def update(
         return "已是最新版本"
     lines = [f"<{c.plugin_id}> {_version_change(c)}" for c in changes]
     return "已更新：\n" + "\n".join(lines) + "\n执行 /重启 后生效；不满意可 /回滚插件。"
-
-
-async def registry_updates(plugin_id: str | None) -> dict[str, PluginSource]:
-    """已收录的插件在目录里有更新的可用版本时，给出新来源（固定版本和哈希）。"""
-
-    rows = [r for r in get_plugin_manager().status() if r.trust != "unlisted"]
-    if not rows:
-        return {}
-    try:
-        index = await get_registry().load()
-    except RegistryError as error:
-        logger.warning("{}", error)
-        return {}
-    sources = {}
-    for row in rows:
-        if plugin_id not in (None, row.plugin_id):
-            continue
-        entry = index.plugins.get(row.plugin_id)
-        latest = entry and compatible(entry)
-        if latest and Version(latest.version) > Version(row.version):
-            sources[row.plugin_id] = source_for(entry, latest)
-    return sources
 
 
 uninstall_command = Alconna(
@@ -392,18 +373,12 @@ disable_command = Alconna(
 
 
 def _registry_note(index: RegistryIndex, row) -> str:
-    if reason := index.blocked_reason(row.plugin_id, row.dist):
-        return f" 已被目录封禁：{reason}"
-    entry = index.plugins.get(row.plugin_id)
-    if entry is None or row.trust == "unlisted":
-        return ""
-    installed = next((v for v in entry.versions if v.version == row.version), None)
-    if installed and installed.yanked:
-        return f" 此版本已撤回：{installed.yanked}"
-    latest = compatible(entry)
-    if latest and Version(latest.version) > Version(row.version):
-        return f" 可更新到 {latest.version}"
-    return ""
+    notes = installed_notes(index, row.plugin_id, row.dist, row.version, row.trust)
+    if notes["blocked"]:
+        return f" 已被目录封禁：{notes['blocked']}"
+    if notes["yanked"]:
+        return f" 此版本已撤回：{notes['yanked']}"
+    return f" 可更新到 {notes['update']}" if notes["update"] else ""
 
 
 async def _toggle(plugin_id: str, enabled: bool) -> str:

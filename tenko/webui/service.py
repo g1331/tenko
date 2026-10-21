@@ -37,6 +37,7 @@ from .auth import (
     success_response as _success_response,
 )
 from .logs import LogReader
+from .market import PluginMarket
 from ..events import MessageMetrics, message_metrics
 from ..host.accounts import AccountRegistry, account_registry
 from ..host.features import FeatureService, feature_service as default_feature_service
@@ -250,7 +251,8 @@ class WebUIService(Service):
             ("/api/manage/settings", ["GET", "POST"], self.settings),
             ("/api/manage/logs", ["GET"], self.log_view),
         )
-        for path, methods, handler in routes:
+        self.market = PluginMarket(self)
+        for path, methods, handler in (*routes, *self.market.routes()):
             self.server.asgi_route(f"{WEBUI_PATH}{path}", methods=methods)(handler)
 
     async def _read(
@@ -658,22 +660,23 @@ class WebUIService(Service):
             "can_rotate": self._config_stamp is not None,
         }
 
-    def _rotate_token(self) -> str:
+    def update_config(
+        self,
+        mutate: Callable[[dict[str, Any]], None],
+        check: Callable[[dict[str, Any]], None] | None = None,
+    ) -> None:
+        """改写 TOML 配置：先写临时文件并校验，再原子替换；外部改过文件时拒绝。"""
+
         import tomllib
 
         if self._config_path is None or self._config_stamp is None:
             raise RuntimeError("没有可写回的配置文件")
         if self._config_path.suffix != ".toml":
-            raise RuntimeError("令牌轮换仅支持当前项目的 TOML 配置")
+            raise RuntimeError("只支持写回当前项目的 TOML 配置")
         if self._stamp() != self._config_stamp:
-            raise RuntimeError("配置文件已被外部修改，请重启加载后再轮换")
-        raw = tomllib.loads(self._config_path.read_text())
-        value = raw.get("onebot", {}).get("access_token", "")
-        if isinstance(value, str) and "${" in value:
-            raise RuntimeError("OneBot token 由环境变量提供，请在配置来源中轮换")
-        token = secrets.token_urlsafe(32)
+            raise RuntimeError("配置文件已被外部修改，请重启加载后再修改")
         native = copy.deepcopy(self.tenko_config.entari_config)
-        native.data.setdefault("onebot", {})["access_token"] = token
+        mutate(native.data)
         descriptor, name = tempfile.mkstemp(
             prefix=".tenko-config-", suffix=".toml", dir=self._config_path.parent
         )
@@ -682,8 +685,8 @@ class WebUIService(Service):
         try:
             native.save(temporary)
             parsed = tomllib.loads(temporary.read_text())
-            if parsed.get("onebot", {}).get("access_token") != token:
-                raise RuntimeError("配置保存未生成预期令牌")
+            if check is not None:
+                check(parsed)
             TenkoConfig.from_mapping(parsed)
             with temporary.open("rb") as stream:
                 os.fsync(stream.fileno())
@@ -693,10 +696,34 @@ class WebUIService(Service):
         finally:
             temporary.unlink(missing_ok=True)
         self._config_stamp = self._stamp()
-        self.tenko_config.entari_config.data.setdefault("onebot", {})[
-            "access_token"
-        ] = token
+        mutate(self.tenko_config.entari_config.data)
         self.tenko_config.entari_config.save_flag = True
+
+    def raw_config(self) -> dict[str, Any]:
+        """配置文件的原始内容（环境变量占位符未展开）。"""
+
+        import tomllib
+
+        if self._config_path is None:
+            raise RuntimeError("没有可写回的配置文件")
+        return tomllib.loads(self._config_path.read_text())
+
+    def _rotate_token(self) -> str:
+        value = self.raw_config().get("onebot", {}).get("access_token", "")
+        if isinstance(value, str) and "${" in value:
+            raise RuntimeError("OneBot token 由环境变量提供，请在配置来源中轮换")
+        token = secrets.token_urlsafe(32)
+
+        def check(parsed: dict[str, Any]) -> None:
+            if parsed.get("onebot", {}).get("access_token") != token:
+                raise RuntimeError("配置保存未生成预期令牌")
+
+        self.update_config(
+            lambda data: data.setdefault("onebot", {}).__setitem__(
+                "access_token", token
+            ),
+            check,
+        )
         previous = self.connection.adapter.access_token
         if previous:
             self._retired_tokens.append(previous)
