@@ -9,7 +9,7 @@
     <script>
       // 首屏前应用主题，避免深色主题闪白；逻辑与 src/composables/useTheme.ts 保持一致。
       ;(function () {
-        var pref = localStorage.getItem('tenko-webui-theme') || 'light'
+        var pref = localStorage.getItem('tenko-webui-theme') || 'system'
         var dark = pref === 'dark' || (pref === 'system' && matchMedia('(prefers-color-scheme: dark)').matches)
         document.documentElement.classList.toggle('dark', dark)
       })()

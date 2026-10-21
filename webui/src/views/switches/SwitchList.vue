@@ -89,6 +89,12 @@ function onRowKey(event: KeyboardEvent) {
   position: sticky;
   top: 12px;
 }
+/* 单列布局里列表在详情上方，固定住会让详情滚到它下面，按钮还会盖住搜索框。 */
+@media (max-width: 700px) {
+  .sw-side.sw-side {
+    position: static;
+  }
+}
 .sw-search {
   padding: 12px 12px 0;
 }

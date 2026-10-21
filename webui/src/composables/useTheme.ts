@@ -7,7 +7,7 @@ const media = matchMedia('(prefers-color-scheme: dark)')
 const stored = localStorage.getItem(STORAGE_KEY)
 
 const preference = ref<ThemePreference>(
-  stored === 'dark' || stored === 'system' || stored === 'light' ? stored : 'light',
+  stored === 'dark' || stored === 'system' || stored === 'light' ? stored : 'system',
 )
 const systemDark = ref(media.matches)
 media.addEventListener('change', (event) => (systemDark.value = event.matches))
