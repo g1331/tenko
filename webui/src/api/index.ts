@@ -9,6 +9,7 @@ import type {
   GroupResponseBody,
   GroupResponseResult,
   AuthState,
+  CoreConfigData,
   FeaturesData,
   FeatureToggleBody,
   FeatureToggleResult,
@@ -81,6 +82,9 @@ export const api = {
         body: { values, confirm: true },
       }),
     restart: () => request<{ restarting: boolean }>('/manage/restart', { body: { confirm: true } }),
+    config: () => request<CoreConfigData>('/manage/config'),
+    saveConfig: (values: Record<string, unknown>) =>
+      request<CoreConfigData>('/manage/config', { body: { values } }),
     settings: () => request<SettingsData>('/manage/settings'),
     saveSettings: (body: SettingsBody) => request<SettingsData>('/manage/settings', { body }),
     logs: (query: LogQuery = {}) => request<LogData>('/manage/logs', { query: { ...query } }),

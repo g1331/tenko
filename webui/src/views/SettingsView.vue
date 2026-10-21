@@ -3,6 +3,7 @@ import { nextTick, onMounted, ref } from 'vue'
 import { useRoute } from 'vue-router'
 import PageContainer from '@/components/PageContainer.vue'
 import FriendRequestSettings from './settings/FriendRequestSettings.vue'
+import CoreConfigSettings from './settings/CoreConfigSettings.vue'
 import AccountForm from './settings/AccountForm.vue'
 import RuntimeSettings from './settings/RuntimeSettings.vue'
 import SessionList from './settings/SessionList.vue'
@@ -27,6 +28,11 @@ onMounted(async () => {
         <RuntimeSettings />
         <FriendRequestSettings />
       </div>
+    </section>
+
+    <section class="section" aria-labelledby="sec-core">
+      <h2 id="sec-core">宿主配置<small>HOST CONFIG</small></h2>
+      <CoreConfigSettings />
     </section>
 
     <section id="account-security" ref="security" class="section" aria-labelledby="sec-security">

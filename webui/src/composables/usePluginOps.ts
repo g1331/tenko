@@ -8,11 +8,9 @@ import {
   type PluginTaskBody,
 } from '@/api'
 import { resource, usePanelData, type Resource } from '@/composables/usePanelData'
+import { useRestart } from '@/composables/useRestart'
 
 const TASK_POLL_MS = 1000
-const RESTART_FIRST_POLL_MS = 3000
-const RESTART_POLL_MS = 2000
-const RESTART_GIVE_UP_MS = 90_000
 const MAX_POLL_FAILURES = 5
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
@@ -30,8 +28,7 @@ export function createPluginOps() {
   const starting = ref(false)
   /** 本页已有任务成功：卸载等变更不会体现在 restart_required 上，需要自己记着。 */
   const changed = ref(false)
-  const restarting = ref(false)
-  const restartFailed = ref(false)
+  const { restarting, failed: restartFailed, restart: requestRestart } = useRestart()
   let alive = true
   onScopeDispose(() => {
     alive = false
@@ -110,35 +107,14 @@ export function createPluginOps() {
     if (task.value?.state !== 'running') task.value = null
   }
 
-  /** 请求重启后轮询 /auth/state，面板重新应答后再取回数据。 */
+  /** 重启并等面板恢复应答后，重置本页状态并取回数据。 */
   async function restart() {
-    try {
-      await api.manage.restart()
-    } catch (error) {
-      ElMessage.error(`重启失败：${messageOf(error)}`)
-      return
-    }
-    restarting.value = true
-    restartFailed.value = false
-    await sleep(RESTART_FIRST_POLL_MS)
-    const deadline = Date.now() + RESTART_GIVE_UP_MS
-    while (alive && Date.now() < deadline) {
-      try {
-        await api.auth.state()
-        restarting.value = false
-        changed.value = false
-        task.value = null
-        ElMessage.success('已重启')
-        void load(installed, api.installedPlugins)
-        if (marketLoaded) void loadMarket()
-        void panel.refresh()
-        return
-      } catch {
-        await sleep(RESTART_POLL_MS)
-      }
-    }
-    restarting.value = false
-    restartFailed.value = alive
+    if (!(await requestRestart())) return
+    changed.value = false
+    task.value = null
+    void load(installed, api.installedPlugins)
+    if (marketLoaded) void loadMarket()
+    void panel.refresh()
   }
 
   return {

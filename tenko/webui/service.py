@@ -38,6 +38,7 @@ from .auth import (
 from .logs import LogReader
 from .market import PluginMarket
 from ..events import MessageMetrics, message_metrics
+from . import core_config
 from ..host.accounts import AccountRegistry, account_registry
 from ..host.features import FeatureService, feature_service as default_feature_service
 from ..host.plugins import PluginRuntime
@@ -197,6 +198,7 @@ class WebUIService(Service):
         self._retired_tokens: list[str] = []
         native = tenko_config.entari_config if tenko_config else None
         self._config_path = Path(native.path) if native is not None else None
+        self._core_config_changed = False
         self._config_stamp = self._stamp()
         self._register_routes()
 
@@ -249,6 +251,7 @@ class WebUIService(Service):
             ("/api/manage/plugins/{plugin}", ["POST"], self.manage_plugin),
             ("/api/manage/features/{plugin}", ["POST"], self.manage_feature),
             ("/api/manage/settings", ["GET", "POST"], self.settings),
+            ("/api/manage/config", ["GET", "POST"], self.core_config),
             ("/api/manage/logs", ["GET"], self.log_view),
         )
         self.market = PluginMarket(self)
@@ -931,6 +934,26 @@ class WebUIService(Service):
                 "default_enabled": self.feature_service.default_enabled,
                 "stored": await repository.setting("feature-default") is not None,
                 "friend_request_mode": await get_friend_request_mode(repository),
+            }
+
+        return await self._manage(request, action)
+
+    async def core_config(self, request: Request) -> JSONResponse:
+        async def action():
+            writable = self._config_path is not None and self._config_stamp is not None
+            raw = self.raw_config() if writable else {}
+            if request.method == "POST":
+                body = await self._body(request)
+                changes = core_config.plan(raw, body.get("values"))
+                self.update_config(lambda data: core_config.apply(data, changes))
+                self._core_config_changed = True
+                request.state.webui_action = "config"
+                raw = self.raw_config()
+            return {
+                "fields": core_config.read(raw),
+                "writable": writable,
+                "restart_required": self._core_config_changed,
+                "can_restart": bool(getattr(self.market.updater, "enabled", False)),
             }
 
         return await self._manage(request, action)

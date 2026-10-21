@@ -198,6 +198,31 @@ export interface SettingsBody {
   friend_request_mode?: FriendRequestMode
 }
 
+export type CoreConfigKind = 'boolean' | 'integer' | 'number' | 'enum' | 'identifier' | 'urls'
+export type CoreConfigGroup =
+  'basic' | 'upgrade' | 'render' | 'ratelimit' | 'exception' | 'registry'
+/** 宿主配置项；value 的类型随 kind：boolean / 数字 / 选项值 / 字符串 / 字符串数组。 */
+export interface CoreConfigField {
+  key: string
+  group: CoreConfigGroup
+  label: string
+  kind: CoreConfigKind
+  default: unknown
+  help: string
+  options: { value: string | number; label: string }[]
+  min: number | null
+  max: number | null
+  value: unknown
+  /** 值引用了环境变量，只能在配置文件里改。 */
+  read_only: boolean
+}
+export interface CoreConfigData {
+  fields: CoreConfigField[]
+  writable: boolean
+  restart_required: boolean
+  can_restart: boolean
+}
+
 export type LogLevel = 'INFO' | 'SUCCESS' | 'WARNING' | 'ERROR' | 'CRITICAL'
 export interface LogRecord {
   id: number

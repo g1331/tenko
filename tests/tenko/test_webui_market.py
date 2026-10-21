@@ -157,6 +157,33 @@ async def test_plugin_config_form_validates_and_writes_toml(market) -> None:
 
 
 @pytest.mark.asyncio
+async def test_core_config_validates_and_keeps_legacy_layout(market) -> None:
+    client, url = market.client, "/webui/api/manage/config"
+    fields = {f["key"]: f for f in (await client.get(url)).json()["data"]["fields"]}
+    assert fields["render.quality"]["value"] == 85
+
+    for bad in (
+        {"render.quality": 0},
+        {"upgrade.channel": "nightly"},
+        {"notify_group": "abc"},
+        {"onebot.access_token": "x"},
+    ):
+        response = await client.post(url, json={"values": bad})
+        assert response.status_code == 400, bad
+    assert market.path.read_text() == CONFIG
+
+    saved = await client.post(
+        url, json={"values": {"render.quality": 90, "log_level": "DEBUG"}}
+    )
+    assert saved.json()["data"]["restart_required"] is True
+    text = market.path.read_text()
+    assert text.startswith(CONFIG)
+    # 没有 [basic] 节时写旧 [runtime]，避免新建 basic 让旧 [entari] 失效。
+    assert "[runtime]\nlog_level = " in text and "[basic" not in text
+    assert TenkoConfig.load(market.path).render.quality == 90
+
+
+@pytest.mark.asyncio
 async def test_restart_needs_upgrade_system(market) -> None:
     url = "/webui/api/manage/restart"
     calls = []
