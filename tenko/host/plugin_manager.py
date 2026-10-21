@@ -430,6 +430,7 @@ class PluginManager:
         previous_lock: str,
         *,
         upgrade: Sequence[str] = (),
+        refresh: Sequence[str] = (),
         host_root: Path | None = None,
     ) -> str:
         """解析出完整的插件锁（环境不受影响）；以现有锁为偏好，未被要求升级的包不变。"""
@@ -449,6 +450,9 @@ class PluginManager:
             ]  # fmt: skip
             for name in upgrade:
                 args += ["--upgrade-package", name]
+            # uv 会缓存索引页，不刷新就看不到刚发布的版本。
+            for name in dict.fromkeys([*upgrade, *refresh]):
+                args += ["--refresh-package", name]
             self._uv("解析依赖", *args)
             entries = _lock_entries(output.read_text(encoding="utf-8"))
         return _render_lock(
@@ -815,6 +819,9 @@ class PluginManager:
             new_lock = self._compile(
                 [*(r["requirement"] for r in records.values()), source.requirement],
                 old_lock,
+                refresh=[Requirement(source.requirement).name]
+                if source.kind == "pypi"
+                else [],
             )
             dist = (
                 canonicalize_name(Requirement(source.requirement).name)
@@ -876,6 +883,9 @@ class PluginManager:
                     records[i]["dist"]
                     for i in targets
                     if records[i]["source"] == "pypi" and i not in sources
+                ],
+                refresh=[
+                    records[i]["dist"] for i, s in sources.items() if s.kind == "pypi"
                 ],
             )
             if new_lock == old_lock and not sources:

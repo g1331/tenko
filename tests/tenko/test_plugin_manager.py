@@ -150,6 +150,27 @@ async def test_install_pins_host_api_and_locks_plugin_only(env, tmp_path) -> Non
 
 
 @pytest.mark.asyncio
+async def test_resolve_refreshes_index_cache_for_target(env) -> None:
+    # uv 缓存的索引页会让刚发布的版本“不存在”，安装和更新都要刷新目标包。
+    env.plugin("foo")
+    manager = env.manager()
+    calls, real = [], manager._uv
+    manager._uv = lambda step, *args, **kw: (
+        calls.append(args) or real(step, *args, **kw)
+    )
+
+    await manager.install(parse_source("tenko-plugin-foo"))
+    env.plugin("foo", "1.1.0")
+    await manager.update("foo")
+
+    compiles = [a for a in calls if a[:2] == ("pip", "compile")]
+    assert len(compiles) == 2
+    assert all(
+        a[a.index("--refresh-package") + 1] == "tenko-plugin-foo" for a in compiles
+    )
+
+
+@pytest.mark.asyncio
 async def test_failed_import_check_rolls_back_update(env, tmp_path) -> None:
     env.plugin("foo", "1.0.0")
     manager = env.manager(real_import_check=True)
