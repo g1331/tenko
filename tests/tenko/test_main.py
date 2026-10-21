@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+
 from pathlib import Path
 
 import pytest
@@ -175,6 +177,9 @@ def test_main_stops_when_automatic_rollback_handoff_fails(
 
     with pytest.raises(SystemExit, match="1"):
         main_module._run_startup_bootstrap(TenkoConfig(), [])
+    # 进程停止前留下提示，人工重启后由启动通知告诉管理员。
+    notice = json.loads(layout.recovery_notice_file.read_text(encoding="utf-8"))
+    assert "自动回滚也失败" in notice["message"] and notice["version"] == "2.0.0"
 
 
 @pytest.mark.parametrize(

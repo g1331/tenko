@@ -1525,6 +1525,9 @@ class DefaultHealthChecker:
 _IMPORT_CHECK_MIN_TIMEOUT = 120
 # 在子进程里用候选代码导入宿主，并通过 Entari 加载全部内置插件和已启用的第三方
 # 插件。load_plugin 失败只返回错误而不抛异常，所以要逐个检查结果。
+# 脚本由当前版本提供，却在候选版本的代码和依赖上运行（回滚时是更旧的版本），
+# 所以只能用各版本都有的接口：旧版没有第三方插件和 source 字段，Entari 0.18 的
+# load_plugin 失败时返回 None 而不是带 error 的结果。
 _IMPORT_CHECK_SCRIPT = """
 import sys
 from pathlib import Path
@@ -1535,7 +1538,7 @@ EntariConfig(Path(".tenko/entari-boot.yaml"))
 import tenko.runtime
 from tenko.host.plugins import PluginRuntime
 runtime = PluginRuntime()
-enabled = runtime._enabled_external_ids() | set(sys.argv[2:])
+enabled = getattr(runtime, "_enabled_external_ids", set)() | set(sys.argv[2:])
 infos = runtime.discover()
 failed = [
     f"{name}: 没有发现这个第三方插件"
@@ -1543,17 +1546,23 @@ failed = [
     if name not in {info.name for info in infos}
 ]
 for info in infos:
-    if info.source == "external" and info.name not in enabled:
+    if getattr(info, "source", None) == "external" and info.name not in enabled:
         continue
     result = load_plugin(info.qualified_name)
     if not result:
-        failed.append(f"{info.name}: {type(result.error).__name__}: {result.error}")
+        error = getattr(result, "error", None)
+        detail = f"{type(error).__name__}: {error}" if error else "加载失败"
+        failed.append(f"{info.name}: {detail}")
 if failed:
     print("插件导入失败:\\n" + "\\n".join(failed), file=sys.stderr)
     raise SystemExit(1)
 """.strip()
 
 _DEPENDENCY_SYNC_TIMEOUT = 600
+
+
+def _lock_digest(release_root: Path) -> str:
+    return hashlib.sha256((release_root / "uv.lock").read_bytes()).hexdigest()
 
 
 def find_uv(explicit: str | None = None) -> str:
@@ -1619,6 +1628,32 @@ class UvDependencySync:
             raise DependencySyncError(
                 f"依赖同步失败（uv sync 返回 {completed.returncode}）: {output[-800:]}"
             )
+        try:
+            self._stamp.write_text(_lock_digest(release_root), encoding="utf-8")
+        except OSError as exc:
+            logger.warning("Tenko 依赖同步标记写入失败: {}", exc)
+
+    @property
+    def _stamp(self) -> Path:
+        # 记录环境最后按哪份 uv.lock 同步；旧版升级器不写它，缺失即视为未同步。
+        return self.environment / "tenko-uv-lock.sha256"
+
+    def ensure(self, release_root: Path) -> bool:
+        """环境不是按该版本 uv.lock 同步的就补同步，返回是否同步过。
+
+        旧版升级器切换版本时不同步依赖，新代码跑在旧依赖上会在启动中途崩溃；
+        版本自己启动时补这一步，不依赖把它切换进来的那个升级器。
+        """
+
+        if not (release_root / "uv.lock").is_file():
+            return False
+        try:
+            if self._stamp.read_text(encoding="utf-8") == _lock_digest(release_root):
+                return False
+        except OSError:
+            pass
+        self._sync(release_root)
+        return True
 
     async def __call__(self, release_root: Path) -> None:
         await asyncio.to_thread(self._sync, release_root)
@@ -1840,13 +1875,14 @@ class UpgradeLayout:
         version: str | Version,
         *,
         reason: str = "startup failure",
+        message: str | None = None,
     ) -> None:
         target_version = parse_version(version)
         _atomic_write_json(
             self.recovery_notice_file,
             {
                 "version": str(target_version),
-                "message": f"已自动回滚至 {target_version} 版本",
+                "message": message or f"已自动回滚至 {target_version} 版本",
                 "reason": reason,
                 "created_at": datetime.now(UTC).isoformat(),
             },

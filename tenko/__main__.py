@@ -100,6 +100,18 @@ def _run_startup_bootstrap(config: TenkoConfig, arguments: Sequence[str]) -> boo
                     "a restart loop: {}",
                     result.reason,
                 )
+                # 进程就此停止，此刻发不出消息；留给人工重启后的启动通知。
+                active = manager.layout.read_active()
+                if active is not None:
+                    manager.layout.write_recovery_notice(
+                        active.version,
+                        reason="automatic rollback failure",
+                        message=(
+                            "升级后启动失败，自动回滚也失败，Tenko 曾停止运行；"
+                            f"现以 {active.version} 版本重新启动，"
+                            "详情见 .tenko/upgrades/audit.jsonl"
+                        ),
+                    )
                 raise SystemExit(1)
             if getattr(result, "rolled_back", False):
                 logger.warning(
@@ -135,6 +147,20 @@ def _run_startup_bootstrap(config: TenkoConfig, arguments: Sequence[str]) -> boo
         return False
 
     if active.path == _current_code_root():
+        from .host.updater import DependencySyncError, UvDependencySync
+
+        try:
+            synced = UvDependencySync().ensure(active.path)
+        except DependencySyncError as error:
+            logger.error(
+                "Tenko 补同步 {} 的依赖失败，按现有环境启动: {}", active.version, error
+            )
+            return False
+        if synced:
+            # 已导入的旧依赖还留在本进程里，换新进程才能用上同步后的环境。
+            logger.info("Tenko 已按 {} 的 uv.lock 补同步依赖，重新启动", active.version)
+            _exec_release_root(active.path, stable_root, arguments)
+            return True
         return False
 
     logger.info(

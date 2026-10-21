@@ -1785,6 +1785,29 @@ async def test_import_check_failure_blocks_post_switch_only(tmp_path: Path) -> N
     assert not post.ok and "导入检查失败" in post.reason
 
 
+@pytest.mark.asyncio
+async def test_import_check_runs_on_older_release_api(tmp_path: Path) -> None:
+    # 回滚目标是旧版本：它的 PluginRuntime 没有第三方插件接口，PluginInfo 没有 source。
+    candidate = tmp_path / "candidate"
+    (candidate / "tenko" / "host").mkdir(parents=True)
+    for name in ("tenko/__init__.py", "tenko/runtime.py", "tenko/host/__init__.py"):
+        (candidate / name).write_text("", encoding="utf-8")
+    (candidate / "tenko_old_demo.py").write_text("", encoding="utf-8")
+    (candidate / "tenko" / "host" / "plugins.py").write_text(
+        "from collections import namedtuple\n"
+        "Info = namedtuple('Info', 'name qualified_name')\n"
+        "class PluginRuntime:\n"
+        "    def discover(self):\n"
+        "        return (Info('demo', 'tenko_old_demo'),)\n",
+        encoding="utf-8",
+    )
+    checker = DefaultHealthChecker(import_check=True, stable_root=tmp_path)
+
+    result = await checker.check(candidate, phase="rollback")
+
+    assert result.ok, result.reason
+
+
 def test_uv_dependency_sync_is_inexact_and_targets_running_environment(
     tmp_path: Path,
 ) -> None:
@@ -1814,3 +1837,22 @@ def test_uv_dependency_sync_is_inexact_and_targets_running_environment(
         "--project",
         str(release),
     ]
+
+
+def test_release_start_resyncs_environment_left_by_old_updater(tmp_path: Path) -> None:
+    # 旧版升级器切换版本不同步依赖：新版本启动时按自己的 uv.lock 补同步一次。
+    uv = tmp_path / "fake-uv"
+    uv.write_text('#!/bin/sh\necho x >> "$0.calls"\n', encoding="utf-8")
+    uv.chmod(0o755)
+    (tmp_path / "venv").mkdir()
+    release = tmp_path / "release"
+    release.mkdir()
+    (release / "uv.lock").write_text("a", encoding="utf-8")
+    sync = UvDependencySync(environment=tmp_path / "venv", uv=str(uv))
+    calls = tmp_path / "fake-uv.calls"
+
+    assert sync.ensure(release) is True
+    assert sync.ensure(release) is False  # 已按这份锁文件同步过
+    (release / "uv.lock").write_text("b", encoding="utf-8")
+    assert sync.ensure(release) is True
+    assert calls.read_text().count("x") == 2
