@@ -28,7 +28,7 @@ async function install() {
   const plugin = props.plugin
   if (!plugin || !version.value) return
   const ok = await confirmAction(
-    `将安装 ${plugin.name}（${plugin.id}）${version.value}。安装在后台进行，完成后需要重启才会生效。`,
+    `将安装 ${plugin.name}（${plugin.id}）${version.value}。安装在后台进行，完成后启用即可使用。`,
     '安装插件',
     '安装',
   )

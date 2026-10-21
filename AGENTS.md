@@ -128,7 +128,9 @@ config/tenko.toml.example    # 配置模板
   非法、重名的入口会被跳过并记录错误。
 - **不要声明 `entari.plugin` 入口**：Entari 会无视 Tenko 的启用状态自动加载它。
 - 第三方插件默认关闭。在 WebUI 插件页启用后写入 `.tenko/plugins/state.json`
-  （`{"enabled": ["<id>"]}`），首次加载需要重启 Tenko；状态文件缺失或损坏时视为全部未启用。
+  （`{"enabled": ["<id>"]}`），随后 `PluginManager.load_now` 尝试运行中加载：要求启动以来插件锁
+  只新增过条目、插件模块未在本进程导入过，配置沿用启动时的 `[plugin_config.<id>]`；定义了数据库模型
+  等加载失败时提示重启。状态文件缺失或损坏时视为全部未启用。
   `/状态`、总览只统计已加载的插件；`/帮助` 把已加载的第三方插件单列为“第三方”区，
   编号与 `/开启`、`/关闭` 一致。
 - 第三方插件的命令与内置插件走同一套维护模式、功能开关和限流，功能开关以插件 ID 为键。
@@ -187,8 +189,8 @@ config/tenko.toml.example    # 配置模板
   转成固定版本加 `pins`（登记的文件哈希，`_check_pins` 要求解析出的哈希都在其中）的
   `PluginSource`。目录在 Ready 和每小时刷新，被封禁（按 ID 或分发名）的已启用插件立即停用并
   私聊 Master。命令仅限 Master（群聊私聊均可），未收录来源二次确认，
-  确认只接受同一人同一会话的回复。WebUI 直接调用 `PluginManager` 的公开方法。变更不热加载，
-  重启后生效。宿主升级时 `UpgradeManager.prepare` 先用 `plugin_check`（即
+  确认只接受同一人同一会话的回复。WebUI 直接调用 `PluginManager` 的公开方法。安装后首次启用可直接加载（见上），
+  更新、卸载、回滚不热加载，重启后生效。宿主升级时 `UpgradeManager.prepare` 先用 `plugin_check`（即
   `PluginManager.incompatible`）以候选版本的宿主锁预检，不兼容抛 `PluginCompatibilityError`；
   切换时 `plugin_sync`（即 `PluginManager.reconcile`）把当时的插件锁存到离开的版本名下
   （`.tenko/plugins/releases/`），回滚或失败退回时恢复目标版本存下的插件锁，再补回缺失的插件包并

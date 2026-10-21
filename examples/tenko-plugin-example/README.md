@@ -56,11 +56,16 @@ uv run ruff check .
 
 1. 在运行 Tenko 的环境里安装插件：`uv pip install tenko-plugin-xxx`（本地调试用
    `uv pip install -e /path/to/plugin`）。
-2. 打开 WebUI 的插件页，启用该插件（带“第三方”标记）。第三方插件默认关闭，启用后
-   写入 `.tenko/plugins/state.json`。
-3. 如有配置，在 `config/tenko.toml` 里添加 `[plugin_config.<插件 ID>]`，见仓库中
-   `config/tenko.toml.example` 末尾的说明。
-4. 重启 Tenko（聊天里的 `/重启` 或重新运行进程），插件才会被加载。
+2. 如有配置，在 `config/tenko.toml` 里添加 `[plugin_config.<插件 ID>]`，见仓库中
+   `config/tenko.toml.example` 末尾的说明。运行中的 Tenko 只认启动时读到的配置，改了配置
+   要重启。
+3. 打开 WebUI 的插件页，启用该插件（带“第三方”标记）。第三方插件默认关闭，启用后写入
+   `.tenko/plugins/state.json` 并直接加载。
+4. 本示例定义了数据库模型，运行中加载会被拒绝，面板会提示重启（聊天里的 `/重启` 或重新
+   运行进程）。没有数据库模型的插件不需要这一步。
+
+插件可能在 Tenko 运行中被加载，这时启动、就绪等生命周期事件已经过去，初始化不要只放在
+这些事件里。
 
 之后可以在 WebUI 开关页或用 `/开启`、`/关闭` 按群控制，插件命令与内置命令走同一套
 维护模式、功能开关和限流。

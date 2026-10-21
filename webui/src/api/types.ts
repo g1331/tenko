@@ -228,6 +228,8 @@ export interface PluginToggleResult {
   enabled: boolean
   /** 第三方插件已启用但尚未加载，需重启后生效。 */
   restart_required: boolean
+  /** 首次启用的第三方插件没能直接加载的原因。 */
+  restart_reason?: string | null
 }
 
 /** POST /manage/features/{plugin} 的三种请求体：维护开关、全局开关（null 表示清除）、群级开关。 */

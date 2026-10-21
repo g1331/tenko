@@ -878,8 +878,11 @@ async def test_external_plugin_toggle_uses_state_file_and_reports_restart(
     from tenko.host import plugins as plugin_host
     from tenko.host.account_management import AccountManagement
     from tenko.host.actions import ActionService
+    from tenko.host import plugin_manager
     from tenko.host.plugins import PluginRuntime
 
+    # 进程内共享的管理器可能已被别的测试走过启动检查；这里要一个没有启动记录的。
+    monkeypatch.setattr(plugin_manager, "_manager", None)
     monkeypatch.setattr(
         plugin_host,
         "entry_points",
@@ -936,6 +939,8 @@ async def test_external_plugin_toggle_uses_state_file_and_reports_restart(
             "plugin": "ext_demo",
             "enabled": True,
             "restart_required": True,
+            # 没有经过启动流程，不知道启动时的插件环境，不在运行中加载。
+            "restart_reason": "本次启动没有记录插件环境",
         }
         assert json.loads(state_file.read_text(encoding="utf-8")) == {
             "enabled": ["ext_demo"]

@@ -155,11 +155,11 @@ def test_market_search_and_detail_versions(open_panel):
     assert not page.errors
 
 
-def test_install_success_shows_changes_and_restart_banner(open_panel):
+def test_install_success_shows_changes_without_restart_banner(open_panel):
     panel = MarketPanel()
     panel.outcome = {
         "state": "succeeded",
-        "message": "完成，重启后生效",
+        "message": "已安装，启用后生效",
         "changes": [{"plugin_id": "weather", "dist": "d", "from": None, "to": "1.2.0"}],
     }
     page = open_market(open_panel, panel)
@@ -168,7 +168,8 @@ def test_install_success_shows_changes_and_restart_banner(open_panel):
     confirm(page, "安装插件", "安装")
     page.get_by_text("已完成：安装 weather").wait_for()
     assert "weather：未安装 → 1.2.0" in page.locator(".banners").inner_text()
-    page.get_by_text("有插件变更需要重启后生效").wait_for()
+    # 新装的插件默认不启用，启用时多数能直接加载：安装本身不提示重启。
+    assert page.get_by_text("有插件变更需要重启后生效").count() == 0
     assert panel.calls("POST", "/api/manage/plugin-tasks")[0][3] == {
         "action": "install",
         "plugin_id": "weather",

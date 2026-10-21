@@ -511,3 +511,50 @@ async def test_invalid_plugin_config_fails_only_that_plugin(
     finally:
         unload_plugin("tenko_t_cfg3")
         sys.modules.pop("tenko_t_cfg3", None)
+
+
+@pytest.mark.asyncio
+async def test_first_enable_loads_plugin_installed_after_startup(
+    entari_plugin_host, monkeypatch, tmp_path: Path
+) -> None:
+    from arclet.entari.plugin import unload_plugin
+
+    from tenko.host.plugin_manager import PluginManager
+
+    monkeypatch.syspath_prepend(tmp_path)
+    patch_entry_points(monkeypatch)
+    state_file = tmp_path / "state.json"
+    lock = tmp_path / "plugins.lock"
+    runtime = PluginRuntime(tmp_path / "no_builtin", state_file=state_file)
+    manager = PluginManager(python=sys.executable, runtime=runtime, cwd=tmp_path)
+    manager.startup_check()  # 启动时插件锁为空
+    await runtime.load_all()
+
+    # 运行中安装：插件锁只新增条目，新插件启用即可加载，命令也能归到它名下。
+    _write_command_plugin(tmp_path, "tenko_t_live", "热加载演示")
+    _write_command_plugin(tmp_path, "tenko_t_late", "晚到演示")
+    patch_entry_points(
+        monkeypatch,
+        tenko=[_entry("live", "tenko_t_live"), _entry("late", "tenko_t_late")],
+    )
+    lock.write_text("tenko-plugin-live==1.0.0\n", encoding="utf-8")
+    try:
+        live = next(i for i in runtime.discover() if i.name == "live")
+        assert await runtime.set_enabled(live, True)
+        assert await manager.load_now(runtime, live) is None
+        assert runtime.is_loaded("live") and not runtime.restart_required("live")
+        assert runtime.command_owner("热加载演示").name == "live"
+
+        # 已有的包版本变了：本进程里可能是旧代码，必须重启。
+        lock.write_text(
+            "tenko-plugin-live==1.0.1\ntenko-plugin-late==1.0.0\n", encoding="utf-8"
+        )
+        manager._startup_lock = {"tenko-plugin-live": "tenko-plugin-live==1.0.0"}
+        late = next(i for i in runtime.discover() if i.name == "late")
+        assert await runtime.set_enabled(late, True)
+        assert "变化" in (await manager.load_now(runtime, late) or "")
+        assert runtime.restart_required("late") and "tenko_t_late" not in sys.modules
+    finally:
+        for module in ("tenko_t_live", "tenko_t_late"):
+            unload_plugin(module)
+            sys.modules.pop(module, None)

@@ -166,7 +166,7 @@ async def install(session: Session, source: Match[str]):
         return str(error)
     return (
         f"已安装插件<{change.plugin_id}> {change.new_version}（默认未启用）。\n"
-        f"/启用插件 {change.plugin_id} 后执行 /重启 生效。"
+        f"/启用插件 {change.plugin_id} 即可加载（个别插件需要 /重启）。"
     )
 
 
@@ -405,8 +405,8 @@ async def _toggle(plugin_id: str, enabled: bool) -> str:
     if not await runtime.set_enabled(info, enabled):
         return f"插件<{plugin_id}>状态切换失败"
     if enabled:
-        if runtime.restart_required(info):
-            return f"已启用插件<{plugin_id}>，执行 /重启 后加载。"
+        if reason := await get_plugin_manager().load_now(runtime, info):
+            return f"已启用插件<{plugin_id}>，但{reason}，执行 /重启 后加载。"
         return f"已启用插件<{plugin_id}>"
     return f"已停用插件<{plugin_id}>"
 

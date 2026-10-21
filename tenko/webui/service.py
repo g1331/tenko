@@ -827,6 +827,7 @@ class WebUIService(Service):
                 raise ValueError("请确认插件启停操作")
             before = self.plugin_runtime.is_enabled(info)
             enabled = body["enabled"]
+            restart_reason = None
             request.state.webui_action = "enable" if enabled else "disable"
             if info.source == "external":
                 if enabled and (reason := self.market.blocked_reason(info.name)):
@@ -834,6 +835,10 @@ class WebUIService(Service):
                 # 第三方插件默认关闭，状态由 PluginRuntime 写入状态文件。
                 if not await self.plugin_runtime.set_enabled(info, enabled):
                     raise RuntimeError("插件当前未能切换状态")
+                if enabled:
+                    restart_reason = await self.market.manager.load_now(
+                        self.plugin_runtime, info
+                    )
             else:
                 disabled = set(await repository.setting("disabled-plugins") or [])
                 if enabled:
@@ -851,6 +856,7 @@ class WebUIService(Service):
                 "plugin": info.name,
                 "enabled": enabled,
                 "restart_required": self.plugin_runtime.restart_required(info),
+                "restart_reason": restart_reason,
             }
 
         return await self._manage(request, change)

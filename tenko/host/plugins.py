@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import importlib
 import json
 import os
 import re
@@ -31,6 +32,9 @@ _DEFAULT_PLUGIN_DIR = Path(__file__).resolve().parent.parent / "plugins"
 # 第三方插件入口组；不能用 Entari 的 ``entari.plugin``，它会被无条件自动加载。
 EXTERNAL_ENTRY_POINT_GROUP = "tenko.plugins"
 _DEFAULT_STATE_FILE = Path(".tenko/plugins/state.json")
+# 启动时的 ``[plugin_config.<id>]``，运行中首次加载第三方插件时沿用。
+# shortcut: 启动后才写的配置要重启才生效；常见到需要时改为加载前重读配置文件。
+_external_configs: Mapping[str, Mapping[str, Any]] = {}
 _PLUGIN_ID = re.compile(r"[a-z][a-z0-9_]*")
 _MODULE_PATH = re.compile(r"[A-Za-z_]\w*(\.[A-Za-z_]\w*)*")
 _LEGACY_PLUGIN_NAMESPACES = (
@@ -308,11 +312,14 @@ class PluginRuntime:
             return plugin
         if not self._discovered:
             self.discover()
-        if plugin in self._discovered:
-            return self._discovered[plugin]
-        for info in self._discovered.values():
-            if plugin in info.lookup_names:
-                return info
+        for attempt in range(2):
+            if attempt:
+                self.discover()  # 运行中新装的插件
+            if plugin in self._discovered:
+                return self._discovered[plugin]
+            for info in self._discovered.values():
+                if plugin in info.lookup_names:
+                    return info
         raise KeyError(f"未发现插件: {plugin}")
 
     def is_enabled(
@@ -406,12 +413,16 @@ class PluginRuntime:
                 continue
             if all(str(name) != command for _prefixes, name in registered):
                 continue
-            for info in self._discovered.values():
-                # 子插件的 ID 以父插件模块名为前缀。
-                if native_plugin.id in info.lookup_names or native_plugin.id.startswith(
-                    f"{info.qualified_name}."
-                ):
-                    return info
+            # 运行中首次加载的第三方插件不在启动时的发现结果里，再发现一次。
+            for attempt in range(2):
+                if attempt:
+                    self.discover()
+                for info in self._discovered.values():
+                    # 子插件的 ID 以父插件模块名为前缀。
+                    if native_plugin.id in info.lookup_names or (
+                        native_plugin.id.startswith(f"{info.qualified_name}.")
+                    ):
+                        return info
             return PluginInfo(
                 native_plugin.id, None, False, native_plugin.id, "unmanaged"
             )
@@ -469,7 +480,9 @@ class PluginRuntime:
                 continue
             await self.load(info)
         enabled = self._enabled_external_ids()
+        global _external_configs
         external_configs = {} if external_configs is None else external_configs
+        _external_configs = external_configs
         for info in self._discovered.values():
             if info.source != "external" or info.name not in enabled:
                 continue
@@ -488,6 +501,24 @@ class PluginRuntime:
                 if loaded is None:
                     logger.error("第三方插件加载失败: {}", info.name)
         return self.loaded_plugins
+
+    async def load_external(self, plugin: str | PluginInfo) -> Plugin:
+        """运行中加载第三方插件，配置沿用启动时的 ``[plugin_config.<id>]``。
+
+        是否可以不重启就加载由 ``PluginManager.load_now`` 判断；加载失败时抛出原因。
+        """
+
+        info = self._info(plugin)
+        importlib.invalidate_caches()  # 让导入系统看见启动之后才装进环境的包
+        config = _external_configs.get(info.name)
+        result = (
+            load_plugin(info.qualified_name)
+            if config is None
+            else load_plugin(info.qualified_name, dict(config))
+        )
+        if not result:
+            raise result.error
+        return result.plugin
 
     def unload(self, plugin: str | PluginInfo) -> bool:
         """通过 Entari 卸载插件。"""
@@ -515,8 +546,8 @@ class PluginRuntime:
     async def set_enabled(self, plugin: str | PluginInfo, enabled: bool) -> bool:
         """启停插件；第三方插件的意愿同时写入状态文件。
 
-        第三方插件未加载时只更新状态文件，启用要等重启后才加载，调用方用
-        ``restart_required`` 判断是否需要提示重启。
+        第三方插件未加载时只更新状态文件；调用方随后用 ``PluginManager.load_now``
+        尝试直接加载，再用 ``restart_required`` 判断是否还需要提示重启。
         """
 
         if type(enabled) is not bool:

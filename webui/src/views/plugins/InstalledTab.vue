@@ -5,6 +5,7 @@ import ResourceBoundary from '@/components/ResourceBoundary.vue'
 import StatusTag from '@/components/StatusTag.vue'
 import { confirmAction } from '@/composables/confirm'
 import { usePanelData } from '@/composables/usePanelData'
+import { restartNotice } from '@/composables/usePluginActions'
 import { usePluginOps } from '@/composables/usePluginOps'
 import { type StatusInfo } from '@/composables/status'
 import PluginConfigDrawer from './PluginConfigDrawer.vue'
@@ -37,7 +38,7 @@ async function toggle(item: InstalledPlugin) {
   const enabled = !item.enabled
   const title = enabled ? '启用插件' : '停用插件'
   const ok = await confirmAction(
-    `${enabled ? '插件将在重启后开始响应。' : '插件将停止在所有群响应。'}插件：${displayName(item)}（${item.plugin_id}）。`,
+    `${enabled ? '插件将开始响应，个别插件需要重启后加载。' : '插件将停止在所有群响应。'}插件：${displayName(item)}（${item.plugin_id}）。`,
     title,
   )
   if (!ok) return
@@ -46,7 +47,7 @@ async function toggle(item: InstalledPlugin) {
     const result = await api.manage.togglePlugin(item.plugin_id, { enabled, confirm: true })
     if (result.restart_required) {
       ops.markChanged()
-      ElMessage.info(enabled ? '已启用，重启后生效' : '已停用，重启后生效')
+      ElMessage.info(enabled ? restartNotice(result.restart_reason) : '已停用，重启后生效')
     } else ElMessage.success(enabled ? '插件已启用' : '插件已停用')
     await Promise.all([ops.loadInstalled(), refresh()])
   } catch (error) {

@@ -45,7 +45,7 @@ from packaging.utils import canonicalize_name
 from packaging.version import InvalidVersion, Version
 
 from . import plugin_storage
-from .plugins import _MODULE_PATH, _PLUGIN_ID, PluginRuntime
+from .plugins import _MODULE_PATH, _PLUGIN_ID, PluginInfo, PluginRuntime
 from .updater import (
     AuditLogger,
     DefaultHealthChecker,
@@ -60,6 +60,8 @@ LOCK_NAME = "plugins.lock"
 HISTORY_KEEP = 5
 _UV_TIMEOUT = 600
 _PROCESS_START = datetime.now(UTC).isoformat()
+# 运行中加载的第三方插件及加载时间：之后的变更才需要重启。
+_live_loaded: dict[str, str] = {}
 _LOCK_HEADER = (
     "# Tenko 插件锁：由 uv pip compile 生成，已排除宿主锁里的包，请勿手工编辑。\n"
     "# 恢复环境：/同步插件环境 或 python -m tenko plugins sync\n"
@@ -292,6 +294,8 @@ class PluginManager:
         self.audit = audit or AuditLogger(Path(".tenko/upgrades/audit.jsonl"))
         self.import_check = import_check or self._default_import_check
         self._busy = threading.Lock()
+        # 本进程加载插件时的插件锁；之后只新增过包时，新启用的插件可以直接加载。
+        self._startup_lock: dict[str, str] | None = None
 
     # ----------------------------------------------------------------- 文件
 
@@ -1209,7 +1213,44 @@ class PluginManager:
                     f"插件环境与 plugins.lock 不一致（{'、'.join(drift)}），"
                     "Master 可执行 /同步插件环境 恢复"
                 )
+            self._startup_lock = _lock_entries(self._read_lock())
             return problems
+
+    async def load_now(self, runtime: PluginRuntime, info: PluginInfo) -> str | None:
+        """已启用但未加载的第三方插件尝试不重启直接加载；返回仍需重启的原因。
+
+        只在不会新旧代码混用时加载：启动以来插件锁只新增过包（已导入的依赖版本
+        都没变），且插件模块从未在本进程导入过。插件定义了数据库模型等运行中
+        无法完成的初始化时，加载失败，由调用方提示重启。
+        """
+
+        if not runtime.restart_required(info):
+            return None
+        if self._startup_lock is None:
+            return "本次启动没有记录插件环境"
+        current = _lock_entries(self._read_lock())
+        if any(
+            current.get(name) != entry for name, entry in self._startup_lock.items()
+        ):
+            return "启动之后已有的插件包发生过变化"
+        if info.qualified_name.split(".")[0] in sys.modules:
+            return "插件模块在本次运行中已导入过"
+        if not self._busy.acquire(blocking=False):
+            return "有插件任务正在执行"
+        try:
+            await runtime.load_external(info)
+        except Exception as error:  # noqa: BLE001 - 插件代码的任何错误都只意味着要重启
+            # Entari 把插件抛出的异常包成 ImportError，原异常在 __context__ 上。
+            cause = error.__cause__ or error.__context__ or error
+            logger.warning("第三方插件 {} 无法在运行中加载: {}", info.name, cause)
+            if isinstance(cause, plugin_storage.PluginStorageError):
+                return "插件使用了独立数据库"
+            return f"运行中加载失败（{cause}）"
+        finally:
+            self._busy.release()
+        _live_loaded[info.name] = _now()
+        logger.info("第三方插件 {} 已在运行中加载", info.name)
+        return None
 
     # ------------------------------------------------------------ 查询
 
@@ -1235,9 +1276,13 @@ class PluginManager:
                     rec["requirement"],
                     plugin_id in enabled,
                     loaded,
-                    # 上次变更发生在本进程启动之后：已加载的仍是旧代码；已启用但
+                    # 上次变更发生在插件加载之后：已加载的仍是旧代码；已启用但
                     # 未加载的要等重启。
-                    (loaded and rec["updated_at"] > _PROCESS_START)
+                    (
+                        loaded
+                        and rec["updated_at"]
+                        > _live_loaded.get(plugin_id, _PROCESS_START)
+                    )
                     or (plugin_id in enabled and not loaded),
                     rec["installed_at"],
                     rec["updated_at"],

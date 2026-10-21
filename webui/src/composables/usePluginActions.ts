@@ -8,6 +8,10 @@ type Change = { title: string; message: string; done: string; body: () => Promis
  * 插件级操作：启停、维护、全局开关。确认 → 提交 → 提示并调用 after 刷新数据；
  * 失败只提示，不改变界面状态。插件列表和插件详情页共用。
  */
+/** 启用后仍需重启时的提示，带上没能直接加载的原因。 */
+export const restartNotice = (reason?: string | null) =>
+  reason ? `已启用，${reason}，重启后生效` : '已启用，重启后生效'
+
 export function usePluginActions(after: () => Promise<unknown>) {
   const busy = ref('')
 
@@ -21,7 +25,7 @@ export function usePluginActions(after: () => Promise<unknown>) {
     busy.value = feature.plugin
     try {
       const result = (await change.body()) as Partial<PluginToggleResult> | undefined
-      if (result?.restart_required) ElMessage.info('已启用，重启后生效')
+      if (result?.restart_required) ElMessage.info(restartNotice(result.restart_reason))
       else ElMessage.success(change.done)
       await after()
     } catch (error) {

@@ -74,7 +74,7 @@ export function pluginStats(features: FeatureInfo[]): PluginStats {
   }
 }
 
-/** 第三方插件默认未加载，启用开关必须在未加载时也可用（重启后才生效）。 */
+/** 第三方插件默认未加载，启用开关必须在未加载时也可用。 */
 export function toggleLocked(feature: FeatureInfo): boolean {
   return feature.protected || (!feature.loaded && feature.source !== 'external')
 }

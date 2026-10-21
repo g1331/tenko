@@ -82,7 +82,8 @@ export function createPluginOps() {
       }
     }
     if (!alive) return
-    if (task.value?.state === 'succeeded') changed.value = true
+    // 新装的插件默认不启用，启用时多数能直接加载，安装本身不需要重启。
+    if (task.value?.state === 'succeeded' && task.value.action !== 'install') changed.value = true
     await settle()
   }
 

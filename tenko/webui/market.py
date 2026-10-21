@@ -492,6 +492,8 @@ class PluginMarket:
                 )
             elif not task.changes:
                 task.message = "已是最新版本"
+            elif task.action == "install":
+                task.message = "已安装，启用后生效"
             else:
                 task.message = "完成，重启后生效"
             task.state = "succeeded"
