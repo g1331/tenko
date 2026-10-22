@@ -252,6 +252,10 @@ def test_account_preferences_dialog_saves_alias_and_capabilities(open_panel):
     ).click()
     dialog = page.locator(".el-dialog")
     dialog.get_by_text("账户偏好").first.wait_for()
+    # 遮罩要相对视口铺满；页面容器残留 transform 时会被困在内容区里。
+    overlay = page.locator(".el-overlay:visible").bounding_box()
+    assert (overlay["x"], overlay["y"]) == (0, 0)
+    assert overlay["width"] == page.viewport_size["width"]
     alias = dialog.get_by_label("别名")
     assert alias.input_value() == "天子"
     alias.fill("新别名")

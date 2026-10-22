@@ -12,7 +12,7 @@
 <style scoped>
 .page-container {
   min-width: 0;
-  animation: tk-page-in 260ms ease both;
+  animation: tk-page-in 260ms ease backwards;
 }
 .page-actions {
   display: flex;

@@ -1,0 +1,1 @@
+import{Cr as e,Mn as t,Xn as n,Zn as r,br as i,nr as a}from"./css-BDQsDs7S.js";var o={class:`page-container`},s={key:0,class:`page-actions`},c=t(a({__name:`PageContainer`,setup(t){return(t,a)=>(i(),r(`div`,o,[t.$slots.actions?(i(),r(`div`,s,[e(t.$slots,`actions`,{},void 0,!0)])):n(``,!0),e(t.$slots,`default`,{},void 0,!0)]))}}),[[`__scopeId`,`data-v-a21689dd`]]);export{c as t};
