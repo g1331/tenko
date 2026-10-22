@@ -57,13 +57,13 @@ def success_response(data: object) -> JSONResponse:
     )
 
 
-async def read_json(request: Request) -> dict[str, Any]:
-    """读取不超过 16 KiB 的 JSON 对象请求体。"""
+async def read_json(request: Request, limit: int = 16384) -> dict[str, Any]:
+    """读取不超过 ``limit`` 字节（默认 16 KiB）的 JSON 对象请求体。"""
 
     data = bytearray()
     async for chunk in request.stream():
-        if len(data) + len(chunk) > 16384:
-            raise ValueError("请求体不能超过 16 KiB")
+        if len(data) + len(chunk) > limit:
+            raise ValueError(f"请求体不能超过 {limit // 1024} KiB")
         data.extend(chunk)
     try:
         value = json.loads(data)

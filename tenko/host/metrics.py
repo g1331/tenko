@@ -13,6 +13,7 @@ from arclet.entari.logger import escape_tag, log
 import arclet.letoderea as le
 
 from ..context import MessageContext
+from .chat_log import chat_log
 
 
 def _compact_text(value: object, limit: int = 160) -> str:
@@ -301,6 +302,7 @@ async def _record_entari_send(event: SendResponse) -> None:
     # Entari 的每条发送（Session.send、ActionService、account.protocol）都在成功后
     # 发布 SendResponse；在这里补齐出站统计和取证日志。
     message_metrics.record_send_response(event)
+    chat_log.record_send(event)
     # 与 Entari 记录收到消息的 “[群名(群号)] 昵称(QQ) -> 内容” 同一形式，发送者是 bot。
     account = event.account
     user = getattr(getattr(account, "self_info", None), "user", None)

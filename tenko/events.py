@@ -15,6 +15,7 @@ from satori.model import Event
 from .config import DebugConfig
 from .context import MessageContext, is_message_created
 from .host.accounts import AccountRegistry, account_key
+from .host.chat_log import ChatLog
 from .host.metrics import MessageMetrics, message_metrics
 
 
@@ -104,6 +105,7 @@ class MessageEventHandler:
     command_prefix: str = "/"
     metrics: MessageMetrics | None = None
     action_service: Any | None = None
+    chat_log: ChatLog | None = None
     # 在有界缓存中保留 origin 引用，确保在重复检查前，object ID 不会被其他
     # 事件复用。
     _received_event_cache: deque[tuple[int, object]] = field(
@@ -255,6 +257,9 @@ class MessageEventHandler:
 
         async def dispatch(account: Account, event: Event) -> Any:
             self._record_received_event(event)
+            # 在选路之前记录：同群的每个账号都要有自己的一份聊天记录。
+            if self.chat_log is not None:
+                self.chat_log.record_event(account, event)
             if self.should_skip(account, event):
                 return None
             return await callback(account, event)

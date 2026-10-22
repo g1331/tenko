@@ -10,6 +10,7 @@ from typing import Any
 
 from loguru import logger
 from satori.client import Account
+from satori.element import Element
 
 from ..context import MessageContext
 from .accounts import AccountRegistry, account_registry, account_key, account_reference
@@ -1229,12 +1230,15 @@ class ActionService:
         self,
         account_or_id: Account | str | int,
         user_id: str | int,
-        content: str,
+        content: str | list[Element],
     ) -> ActionReceipt:
-        """发送宿主系统私聊通知，不把通知发送伪装成用户命令。"""
+        """发送宿主系统私聊通知，不把通知发送伪装成用户命令。
+
+        str 按纯文本发送；需要 @、图片等元素时传元素列表。
+        """
 
         user = _key(user_id, "用户 ID")
-        if not isinstance(content, str) or not content:
+        if not isinstance(content, str | list) or not content:
             raise ValueError("私聊消息不能为空")
         return await self._invoke(
             account_or_id,
@@ -1248,7 +1252,7 @@ class ActionService:
         self,
         account_or_id: Account | str | int,
         group_id: str | int,
-        content: str,
+        content: str | list[Element],
         *,
         context: MessageContext | None,
         permission_checker: PermissionChecker | None = None,
@@ -1260,7 +1264,7 @@ class ActionService:
         提供上下文并通过 BotAdmin 权限检查。
         """
 
-        if not isinstance(content, str) or not content:
+        if not isinstance(content, str | list) or not content:
             raise ValueError("公告内容不能为空")
         if type(system) is not bool:
             raise TypeError("system 必须是布尔值")

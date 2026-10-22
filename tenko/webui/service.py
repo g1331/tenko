@@ -41,8 +41,10 @@ from .auth import (
     read_json,
     success_response as _success_response,
 )
+from .chat import ChatPanel
 from .logs import LogReader
 from .plugins import PluginMarket
+from ..host.chat_log import chat_log
 from ..host.metrics import MessageMetrics, message_metrics
 from . import core_config
 from .live import MAX_STREAMS, TOPICS, LiveStreams
@@ -278,7 +280,12 @@ class WebUIService(Service):
             ("/api/events", ["GET"], self.live_events),
         )
         self.market = PluginMarket(self)
-        for path, methods, handler in (*routes, *self.market.routes()):
+        self.chat = ChatPanel(self)
+        for path, methods, handler in (
+            *routes,
+            *self.market.routes(),
+            *self.chat.routes(),
+        ):
             self.server.asgi_route(f"{WEBUI_PATH}{path}", methods=methods)(handler)
 
     async def _read(
@@ -609,9 +616,14 @@ class WebUIService(Service):
             )
         return tuple(value for value in values if isinstance(value, str) and value)
 
-    async def _manage(self, request: Request, operation: Callable) -> JSONResponse:
+    async def _manage(
+        self, request: Request, operation: Callable, *, lock: bool = True
+    ) -> JSONResponse:
         try:
-            async with self._write_lock:
+            if lock:
+                async with self._write_lock:
+                    value = await operation()
+            else:
                 value = await operation()
         except ValueError as error:
             return _error_response("invalid_request", str(error), 400)
@@ -1127,6 +1139,7 @@ class WebUIService(Service):
         return {
             "accounts": hash(json.dumps(self._accounts_data(), sort_keys=True)),
             "features": hash(json.dumps(features, sort_keys=True, default=str)),
+            "chat": chat_log.sequence,
         }
 
     async def live_events(self, request: Request) -> Response:

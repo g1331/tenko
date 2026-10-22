@@ -20,6 +20,16 @@ def empty_inbox():
     inbox._items.clear()
 
 
+@pytest.fixture(autouse=True)
+def disabled_chat_log():
+    """聊天记录是进程级单例；运行时测试会接上数据库，结束后恢复为关闭。"""
+
+    from tenko.host.chat_log import chat_log
+
+    yield
+    chat_log.configure(None, enabled=False, retention_days=7, max_messages=50000)
+
+
 @pytest_asyncio.fixture
 async def tenko_database():
     """为调用点测试提供独立的内存 SQLite repository。"""

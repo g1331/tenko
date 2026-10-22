@@ -22,6 +22,7 @@ OneBot 11 协议接入 QQ（协议端推荐 NapCat，也可替换为任何兼容
 ## WebUI 一览
 
 内置的 Web 管理面板与 bot 共用监听端口，账号、插件、功能开关、升级和日志都能在浏览器里处理，
+还能以 bot 的身份查看和回复群聊、私聊，
 手机上也能用。以下截图来自演示环境，群号、账号和头像均为虚构。
 
 <p align="center">
@@ -49,7 +50,8 @@ OneBot 11 协议接入 QQ（协议端推荐 NapCat，也可替换为任何兼容
   <img src="docs/assets/webui/mobile.webp" alt="手机端" width="22%">
 </p>
 
-面板的开启、登录、反向代理和各页面说明见 [WebUI 管理面板](docs/webui.md)。
+面板的开启、登录、反向代理和各页面说明见 [WebUI 管理面板](docs/webui.md)。聊天页会把收发的消息
+记录到数据库（默认保留 7 天），不需要时可在 [`[chat_log]`](docs/configuration.md#chat_log) 关闭。
 
 ## 缘起
 

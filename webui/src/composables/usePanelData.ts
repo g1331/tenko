@@ -111,8 +111,16 @@ function refresh(): Promise<void> {
   return queued
 }
 
+/** 聊天记录有新消息时递增；聊天页监听它增量拉取，不触发整体刷新。 */
+const chatSignal = ref(0)
+
 /** 只重读指定数据源（实时通知“某类数据变了”时用）；没有匹配的名字就整体刷新。 */
 function refreshResources(names: string[]): Promise<void> {
+  if (names.includes('chat')) {
+    chatSignal.value += 1
+    names = names.filter((name) => name !== 'chat')
+    if (!names.length) return Promise.resolve()
+  }
   const wanted = new Set<Resource<unknown>>()
   if (names.includes('accounts'))
     [accounts, managedAccounts, overview].forEach((item) => wanted.add(item))
@@ -194,6 +202,7 @@ export function usePanelData() {
     managedAccounts,
     settings,
     refreshing: readonly(refreshing),
+    chatSignal: readonly(chatSignal),
     lastSynced: readonly(lastSynced),
     sync,
     live,

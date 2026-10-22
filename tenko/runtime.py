@@ -24,6 +24,7 @@ from .db.bootstrap import load_database_plugin
 from .db.errors import DatabaseUnavailableError
 from .db.runtime import RuntimeStateService
 from .events import MessageEventHandler
+from .host.chat_log import chat_log
 from .host.metrics import configure_message_metrics
 from .host.accounts import account_registry
 from .host.account_management import AccountManagement
@@ -86,6 +87,7 @@ class TenkoRuntime:
             command_prefix=config.command_prefix,
             metrics=self.message_metrics,
             action_service=self.actions,
+            chat_log=chat_log,
         )
         self.app: Entari | None = None
         self.manager: Launart | None = None
@@ -114,6 +116,7 @@ class TenkoRuntime:
 
         from .db.repositories import (
             account_state_repository,
+            chat_message_repository,
             ManagementRepository,
             feature_state_repository,
             group_setting_repository,
@@ -129,6 +132,13 @@ class TenkoRuntime:
         )
         self.rate_limiter.configure(rate_limit_repository, group_setting_repository)
         startup_history.configure(startup_time_repository)
+        log = self.config.chat_log
+        chat_log.configure(
+            chat_message_repository,
+            enabled=log.enabled,
+            retention_days=log.retention_days,
+            max_messages=log.max_messages,
+        )
 
     def _mark_runtime_state_unavailable(self) -> None:
         """数据库 bootstrap 失败时让运行期状态统一进入保守状态。"""
@@ -183,6 +193,7 @@ class TenkoRuntime:
             await self.rate_limiter.persist_state()
         except Exception as error:
             logger.error("Could not flush Tenko rate limit state: {}", error)
+        await chat_log.flush()
 
     @staticmethod
     def _plugin_module(loaded_plugins: object, name: str) -> object | None:

@@ -13,6 +13,7 @@ const GROUPS: [CoreConfigGroup, string][] = [
   ['upgrade', '升级'],
   ['render', '图片渲染'],
   ['ratelimit', '命令限流'],
+  ['chat_log', '聊天记录'],
   ['exception', '异常报告'],
   ['registry', '插件市场'],
 ]

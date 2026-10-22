@@ -785,6 +785,30 @@ class ExceptionConfig:
 
 
 @dataclass(frozen=True, slots=True)
+class ChatLogConfig:
+    """面板聊天页使用的消息记录：bot 账号收到和发出的群聊、私聊消息。"""
+
+    enabled: bool = True
+    retention_days: int = 7
+    max_messages: int = 50000
+
+    def __post_init__(self) -> None:
+        if type(self.retention_days) is not int or self.retention_days <= 0:
+            raise ValueError("chat_log retention_days 必须是正整数")
+        if type(self.max_messages) is not int or self.max_messages <= 0:
+            raise ValueError("chat_log max_messages 必须是正整数")
+
+    @classmethod
+    def from_mapping(cls, section: Mapping[str, Any]) -> ChatLogConfig:
+        defaults = cls()
+        return cls(
+            enabled=_boolean(section, "enabled", defaults.enabled),
+            retention_days=_integer(section, "retention_days", defaults.retention_days),
+            max_messages=_integer(section, "max_messages", defaults.max_messages),
+        )
+
+
+@dataclass(frozen=True, slots=True)
 class DatabaseConfig:
     """Tenko 数据库连接配置。"""
 
@@ -828,6 +852,7 @@ class TenkoConfig:
     ratelimit: RateLimitConfig = field(default_factory=RateLimitConfig)
     render: RenderConfig = field(default_factory=RenderConfig)
     exception: ExceptionConfig = field(default_factory=ExceptionConfig)
+    chat_log: ChatLogConfig = field(default_factory=ChatLogConfig)
     database: DatabaseConfig = field(default_factory=DatabaseConfig)
     notify_group: str | None = None
     # 第三方插件配置 ``[plugin_config.<id>]``，加载时按 ID 传给 load_plugin。
@@ -879,6 +904,7 @@ class TenkoConfig:
             ratelimit=RateLimitConfig.from_mapping(_section(normalized, "ratelimit")),
             render=RenderConfig.from_mapping(_section(normalized, "render")),
             exception=ExceptionConfig.from_mapping(_section(normalized, "exception")),
+            chat_log=ChatLogConfig.from_mapping(_section(normalized, "chat_log")),
             database=DatabaseConfig.from_mapping(_section(normalized, "database")),
             notify_group=_optional_identifier(normalized, "notify_group", None),
             plugin_config=_plugin_config(normalized),

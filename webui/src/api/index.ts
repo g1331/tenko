@@ -11,6 +11,9 @@ import type {
   InboxAction,
   InboxData,
   AuthState,
+  ChatConversationsData,
+  ChatMessagesData,
+  ChatSendBody,
   CoreConfigData,
   FeaturesData,
   FeatureToggleBody,
@@ -104,5 +107,19 @@ export const api = {
         body: { action, confirm: true, comment },
       }),
     logs: (query: LogQuery = {}) => request<LogData>('/manage/logs', { query: { ...query } }),
+    chatConversations: (platform: string, account: string) =>
+      request<ChatConversationsData>('/manage/chat/conversations', {
+        query: { platform, account },
+      }),
+    chatMessages: (
+      platform: string,
+      account: string,
+      channel: string,
+      cursor: { before?: number; after?: number } = {},
+    ) =>
+      request<ChatMessagesData>('/manage/chat/messages', {
+        query: { platform, account, channel, ...cursor },
+      }),
+    chatSend: (body: ChatSendBody) => request<{ sent: boolean }>('/manage/chat/send', { body }),
   },
 }

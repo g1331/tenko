@@ -80,6 +80,14 @@ url = "sqlite+aiosqlite:///./.tenko/tenko.db"
 echo = false
 create_table_at = "preparing"
 
+[chat_log]
+# 面板“聊天”页的消息记录：收到和发出的群聊、私聊消息写入数据库，便于在面板里查看和回复。
+# 记录包含群友的聊天内容；不需要时可以关闭，关闭后聊天页仍能发送，但不显示历史。
+enabled = true
+# 超过保留天数或总条数的旧消息会被定期删除。
+retention_days = 7
+max_messages = 50000
+
 [debug]
 # 开启后，Tenko 只处理 masters 中 QQ 号对应用户产生的事件。
 enabled = false

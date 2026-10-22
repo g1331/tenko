@@ -49,6 +49,16 @@ export const router = createRouter({
           },
         },
         {
+          path: 'chat',
+          name: 'chat',
+          component: () => import('@/views/ChatView.vue'),
+          meta: {
+            title: '聊天',
+            subtitle: '以 bot 账号的身份查看和发送群聊、私聊消息',
+            nav: { label: '聊天', short: '聊天', group: '管理' },
+          },
+        },
+        {
           path: 'accounts',
           name: 'accounts',
           component: () => import('@/views/AccountsView.vue'),

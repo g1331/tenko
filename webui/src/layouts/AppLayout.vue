@@ -2,6 +2,7 @@
 import { computed, type Component } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import {
+  ChatDotRound,
   Connection,
   Message,
   Odometer,
@@ -29,6 +30,7 @@ const activeNav = computed(() => `/${route.path.split('/')[1] ?? ''}`)
 const icons: Record<string, Component> = {
   overview: Odometer,
   inbox: Message,
+  chat: ChatDotRound,
   accounts: User,
   plugins: Connection,
   switches: Switch,

@@ -288,7 +288,7 @@ export interface SettingsBody {
 
 export type CoreConfigKind = 'boolean' | 'integer' | 'number' | 'enum' | 'identifier' | 'urls'
 export type CoreConfigGroup =
-  'basic' | 'upgrade' | 'render' | 'ratelimit' | 'exception' | 'registry'
+  'basic' | 'upgrade' | 'render' | 'ratelimit' | 'chat_log' | 'exception' | 'registry'
 /** 宿主配置项；value 的类型随 kind：boolean / 数字 / 选项值 / 字符串 / 字符串数组。 */
 export interface CoreConfigField {
   key: string
@@ -525,3 +525,58 @@ export interface InboxData {
   items: InboxItem[]
 }
 export type InboxAction = 'approve' | 'reject' | 'dismiss'
+
+/** 聊天消息段：后端把 Satori 元素归一化成这几种，未知元素是 other 占位。 */
+export type ChatSegment =
+  | { type: 'text'; text: string }
+  | { type: 'at'; id: string; name: string }
+  | { type: 'face'; id: string; name: string }
+  /** src 为空表示图片没有可用地址（例如渲染出的内嵌图片不入库）。 */
+  | { type: 'image'; src: string }
+  | { type: 'quote'; id: string; user_id: string; name: string; text: string }
+  | { type: 'other'; name: string }
+export interface ChatMessage {
+  /** 记录编号，用作翻页和增量读取的游标。 */
+  id: number
+  /** 平台消息 ID，回复时引用它。 */
+  message_id: string | null
+  outgoing: boolean
+  user_id: string
+  user_name: string
+  content: ChatSegment[]
+  created_at: string
+}
+export type ChatType = 'group' | 'private'
+export interface ChatConversation {
+  /** 群号，或 private:<QQ号>。 */
+  channel_id: string
+  chat_type: ChatType
+  /** 群号或私聊对方的 QQ 号。 */
+  peer_id: string
+  name: string
+  last: { preview: string; user_name: string; outgoing: boolean; created_at: string } | null
+  muted: boolean
+}
+export interface ChatConversationsData {
+  /** 消息记录是否开启；关闭时仍可发送，但看不到历史。 */
+  enabled: boolean
+  retention_days: number
+  online: boolean
+  conversations: ChatConversation[]
+}
+export interface ChatMessagesData {
+  messages: ChatMessage[]
+  has_more: boolean
+}
+/** 发送时可用的消息段；回复只能在最前面。 */
+export type ChatSendSegment =
+  | { type: 'text'; text: string }
+  | { type: 'at'; id: string; name?: string }
+  | { type: 'image'; src: string }
+  | { type: 'quote'; id: string }
+export interface ChatSendBody {
+  platform: string
+  account: string
+  channel: string
+  content: ChatSendSegment[]
+}

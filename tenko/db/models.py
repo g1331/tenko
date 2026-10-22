@@ -20,6 +20,7 @@ from sqlalchemy import (
     Index,
     Integer,
     String,
+    Text,
     UniqueConstraint,
 )
 
@@ -218,6 +219,41 @@ class WebUISession(BaseOrm):
     user_agent: Mapped[str] = mapped_column(String(200), nullable=False, default="")
 
 
+class ChatMessage(BaseOrm):
+    """面板聊天页的消息记录：某个 bot 账号在群聊或私聊里收到、发出的一条消息。
+
+    每个账号各存一份：同一条群消息的 message_id 在各账号的协议端里并不相同，
+    引用回复也必须用发送账号自己的 ID。
+    """
+
+    __tablename__ = "TenkoChatMessage"
+    __table_args__ = (
+        UniqueConstraint(
+            "platform",
+            "account_id",
+            "channel_id",
+            "message_id",
+            name="uq_tenko_chat_message",
+        ),
+        Index("ix_tenko_chat_conversation", "platform", "account_id", "channel_id"),
+        Index("ix_tenko_chat_created", "created_at"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    platform: Mapped[str] = mapped_column(String(32), nullable=False)
+    account_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    chat_type: Mapped[str] = mapped_column(String(16), nullable=False)
+    channel_id: Mapped[str] = mapped_column(String(160), nullable=False)
+    channel_name: Mapped[str] = mapped_column(String(128), nullable=False, default="")
+    message_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    outgoing: Mapped[bool] = mapped_column(Boolean, nullable=False)
+    user_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    user_name: Mapped[str] = mapped_column(String(128), nullable=False, default="")
+    # 归一化后的消息段 JSON，见 tenko.host.chat_log.segments。
+    content: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[float] = mapped_column(Float, nullable=False)
+
+
 MODEL_CLASSES = (
     MemberPerm,
     GroupPerm,
@@ -232,9 +268,11 @@ MODEL_CLASSES = (
     WebUISetting,
     WebUIAccount,
     WebUISession,
+    ChatMessage,
 )
 
 __all__ = [
+    "ChatMessage",
     "GroupPerm",
     "GroupSetting",
     "FeatureState",
