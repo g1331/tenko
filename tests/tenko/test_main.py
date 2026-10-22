@@ -11,6 +11,25 @@ from tenko.config import TenkoConfig
 from tenko.host.updater import InstallResult, RollbackResult, UpgradeLayout, Version
 
 
+@pytest.fixture(autouse=True)
+def _notify_target_configured(monkeypatch) -> None:
+    # 这些测试没有配置文件；通知接收方的检查单独测试。
+    monkeypatch.setattr(TenkoConfig, "notify_target_error", lambda self: None)
+
+
+def test_main_refuses_to_start_without_any_notify_target(
+    monkeypatch, tmp_path: Path
+) -> None:
+    monkeypatch.undo()
+    monkeypatch.chdir(tmp_path)
+
+    assert main_module.main(["--dry-run"]) == 2
+
+    config = tmp_path / "tenko.toml"
+    config.write_text('notify_group = "40001"\n', encoding="utf-8")
+    assert main_module.main(["--config", str(config), "--dry-run"]) == 0
+
+
 def _write_project_version(root: Path, version: str = "1.0.0") -> None:
     (root / "pyproject.toml").write_text(
         f'[project]\nversion = "{version}"\n', encoding="utf-8"

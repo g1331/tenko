@@ -34,7 +34,7 @@ from tenko.host.accounts import AccountRegistry
 from tenko.host.guards import REQUIRES_ATTR
 from tenko.host.inbox import inbox
 from tenko.host.perm import Permission, PermissionChecker, PermissionRegistry
-from tenko.plugins._common import NotifyGroupConfig
+from tenko.host import notify
 from tenko.host.action_errors import action_error_message
 from tenko.host.render import RenderService
 
@@ -736,11 +736,13 @@ async def test_unprivileged_inviter_is_recorded_for_command_and_panel_review(
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("loaded_plugin", ["group_manager"], indirect=True)
-async def test_invite_notice_prefers_configured_notify_group(loaded_plugin) -> None:
+async def test_invite_notice_prefers_configured_notify_group(
+    loaded_plugin, monkeypatch
+) -> None:
     protocol = InviteProtocol()
     account = InviteAccount(protocol)
     install_invite_action_service(loaded_plugin, account, PermissionRegistry())
-    loaded_plugin.config = NotifyGroupConfig(notify_group="40002")
+    monkeypatch.setattr(notify, "_defaults", notify.NotifySettings("group", "40002"))
     await clear_pending_invites(loaded_plugin)
 
     try:
@@ -751,15 +753,13 @@ async def test_invite_notice_prefers_configured_notify_group(loaded_plugin) -> N
             ("40002", loaded_plugin._invite_notice(pending))
         ]
         assert protocol.private_messages == []
-        assert pending.notification_id == "group-notice-1"
-        assert pending.notification_channel_id == "group:40002"
     finally:
         await clear_pending_invites(loaded_plugin)
 
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("loaded_plugin", ["group_manager"], indirect=True)
-async def test_invite_notice_falls_back_to_one_master(loaded_plugin) -> None:
+async def test_invite_notice_goes_to_every_master(loaded_plugin) -> None:
     protocol = InviteProtocol()
     account = InviteAccount(protocol)
     install_invite_action_service(
@@ -779,10 +779,9 @@ async def test_invite_notice_falls_back_to_one_master(loaded_plugin) -> None:
         pending = loaded_plugin.pending_invites["request-1"]
         assert protocol.private_messages == [
             ("90001", loaded_plugin._invite_notice(pending)),
+            ("90002", loaded_plugin._invite_notice(pending)),
         ]
         assert protocol.group_messages == []
-        assert pending.notification_id == "notice-1"
-        assert pending.notification_channel_id == "private:90001"
     finally:
         EntariConfig.instance.basic.superusers = original_superusers
         await clear_pending_invites(loaded_plugin)
@@ -810,7 +809,7 @@ async def test_invite_notice_without_group_or_master_only_logs(
         assert protocol.group_messages == []
         assert "request-1" in loaded_plugin.pending_invites
         assert any(
-            call.args and "without configured Master" in call.args[0]
+            call.args and "没有配置 Master" in call.args[0]
             for call in warning.call_args_list
         )
     finally:
@@ -1101,7 +1100,7 @@ async def test_expired_pending_invite_is_rejected_with_legacy_comment(
     protocol = InviteProtocol()
     account = InviteAccount(protocol)
     install_invite_action_service(loaded_plugin, account, PermissionRegistry())
-    loaded_plugin.config = NotifyGroupConfig(notify_group="40002")
+    monkeypatch.setattr(notify, "_defaults", notify.NotifySettings("group", "40002"))
     loaded_plugin.pending_invites["request-1"] = loaded_plugin.PendingInvite(
         request_id="request-1",
         account=account,

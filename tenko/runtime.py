@@ -27,6 +27,7 @@ from .db.runtime import RuntimeStateService
 from .events import MessageEventHandler
 from .host.chat_log import chat_log
 from .host.metrics import configure_message_metrics
+from .host import notify
 from .host.accounts import account_registry
 from .host.account_management import AccountManagement
 from .host.actions import action_service
@@ -65,6 +66,7 @@ class TenkoRuntime:
             blacklist_seconds=config.ratelimit.blacklist_seconds,
         )
         startup_history.configure(None)
+        notify.configure(config.notify_group)
         configure_registry(config.registry.urls)
         stable_root = Path.cwd().resolve()
         self.updater = UpgradeManager.from_config(
@@ -280,10 +282,19 @@ class TenkoRuntime:
         # notice 保留在 EventType.INTERNAL；处理器按已核实的 _type/_data
         # 再识别一次，避免 kick_me 因“已被踢后无法查成员信息”丢失解绑。
         app.register_on(EventType.INTERNAL)(self.message_handler.handle_member_removed)
+        app.register_on(EventType.INTERNAL)(self._on_internal)
         app.register_on(EventType.MESSAGE_CREATED)(self.message_handler.handle)
         app.lifecycle(self._on_lifecycle)
         self.app = app
         return app
+
+    async def _on_internal(self, account: Account, event: object) -> None:
+        reason = notify.bot_offline_reason(event)
+        if reason is not None:
+            logger.warning(
+                "OneBot account {} was logged out: {}", account.self_id, reason
+            )
+            notify.account_alerts.kicked(account, reason)
 
     async def _on_lifecycle(self, account: Account, state: LoginStatus) -> None:
         if is_sandbox(account):
@@ -311,9 +322,11 @@ class TenkoRuntime:
         elif state in (LoginStatus.DISCONNECT, LoginStatus.OFFLINE):
             if self.accounts.get(account) is not None:
                 self.accounts.set_available(account, False)
+                notify.account_alerts.offline(account)
 
         if state == LoginStatus.ONLINE:
             logger.info("OneBot account {} is online", account.self_id)
+            notify.account_alerts.online(account)
             startup_notify = self._startup_notify_module
             if startup_notify is None:
                 # 保留对测试替身和直接导入插件的兼容；正常的 Entari 插件
@@ -381,12 +394,8 @@ class TenkoRuntime:
         self.plugin_runtime = PluginRuntime()
         await self._check_plugin_environment()
         # 宿主配置作为 Entari 插件配置在加载时传入，插件模块导入后即可使用。
-        notify_group = {"notify_group": self.config.notify_group}
         loaded_plugins = await self.plugin_runtime.load_all(
             {
-                "group_manager": notify_group,
-                "perm_manager": notify_group,
-                "startup_notify": notify_group,
                 "webui_account": {
                     "enabled": self.config.webui.enabled,
                     "public_url": self.config.webui.public_url,

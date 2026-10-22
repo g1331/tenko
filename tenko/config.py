@@ -869,6 +869,16 @@ class TenkoConfig:
                 "python -m tenko webui-passwd 获取登录密码"
             )
 
+    def notify_target_error(self) -> str | None:
+        """没有任何通知接收方时返回原因：异常报告、掉线提醒等都将无处可发。"""
+
+        if self.notify_group or _flatten_identifiers(_basic_superusers(self.basic)):
+            return None
+        return (
+            "没有配置通知接收方：请在 [basic] superusers 中填写 Master 的 QQ 号，"
+            "或在顶层设置 notify_group"
+        )
+
     @property
     def command_prefix(self) -> str:
         """返回首个非空命令前缀，用于提示文案和命令策略。"""

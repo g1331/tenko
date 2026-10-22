@@ -7,6 +7,7 @@ import pytest
 from arclet.entari.plugin import get_plugins
 
 from tenko.host.features import FeatureService
+from tenko.host.notify import NotifySettings
 from tenko.host.perm import PermissionChecker, PermissionRegistry
 from tenko.host.startup import (
     StartupHistory,
@@ -29,6 +30,13 @@ class NotificationActions:
         self.private_messages.append((str(user_id), content))
 
 
+def settings(group: str | None = None):
+    async def load() -> NotifySettings:
+        return NotifySettings("group", group) if group else NotifySettings()
+
+    return load
+
+
 def make_notifier(
     actions: NotificationActions,
     *,
@@ -38,7 +46,7 @@ def make_notifier(
     now: float = 12.5,
 ) -> StartupNotifier:
     return StartupNotifier(
-        notify_group=notify_group,
+        settings=settings(notify_group),
         history=StartupHistory(),
         action_service=actions,
         feature_service=FeatureService(),
@@ -121,7 +129,7 @@ async def test_startup_notifier_persists_history_in_database(repositories) -> No
     await features.initialize()
     history = StartupHistory(repositories["startup"])
     notifier = StartupNotifier(
-        notify_group="40002",
+        settings=settings("40002"),
         history=history,
         action_service=actions,
         feature_service=features,
@@ -154,7 +162,7 @@ async def test_startup_notifier_continues_when_history_database_is_unavailable()
 
     actions = NotificationActions()
     notifier = StartupNotifier(
-        notify_group="40002",
+        settings=settings("40002"),
         history=StartupHistory(FailingRepository()),
         action_service=actions,
         feature_service=FeatureService(),
@@ -177,7 +185,7 @@ async def test_startup_notifier_skips_send_when_feature_is_disabled() -> None:
     features = FeatureService()
     features.set_global_enabled("startup_notify", False)
     notifier = StartupNotifier(
-        notify_group="40002",
+        settings=settings("40002"),
         history=StartupHistory(),
         action_service=actions,
         feature_service=features,
@@ -226,7 +234,7 @@ async def test_startup_notifier_sends_and_clears_recovery_notice_first(
     features = FeatureService()
     features.set_global_enabled("startup_notify", False)
     notifier = StartupNotifier(
-        notify_group="40002",
+        settings=settings("40002"),
         history=StartupHistory(),
         action_service=actions,
         feature_service=features,
@@ -254,7 +262,7 @@ async def test_recovery_notice_uses_master_fallback_when_group_is_unset(
     features = FeatureService()
     features.set_global_enabled("startup_notify", False)
     notifier = StartupNotifier(
-        notify_group=None,
+        settings=settings(),
         history=StartupHistory(),
         action_service=actions,
         feature_service=features,

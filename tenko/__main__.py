@@ -225,6 +225,10 @@ def main(argv: Sequence[str] | None = None) -> int:
         print("已重装：" + "、".join(repaired) if repaired else "插件环境与插件锁一致")
         return 0
 
+    if (error := config.notify_target_error()) is not None:
+        print(f"错误：{error}", file=sys.stderr)
+        return 2
+
     if args.dry_run:
         logger.info("Tenko dry-run: configuration loaded; no network connection opened")
         logger.info(

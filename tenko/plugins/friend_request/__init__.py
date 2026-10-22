@@ -22,7 +22,7 @@ from tenko.host.friend_requests import (
 from tenko.host.guards import private_only, require
 from tenko.host.inbox import InboxItem, inbox
 from tenko.host.perm import Permission, PermissionChecker
-from tenko.host.perm import master_id_for_account
+from tenko.host.notify import notify
 
 
 plugin.metadata(
@@ -57,9 +57,12 @@ async def _is_admin(user_id: str, account_id: str, platform: str) -> bool:
         return False
 
 
-def _notice(user_id: str, name: str, comment: str, request_id: str, reason: str) -> str:
+def _notice(
+    account_id: str, user_id: str, name: str, comment: str, request_id: str, reason: str
+) -> str:
     return (
         f"好友申请待处理（{reason}）\n"
+        f"收到申请的账号: {account_id}\n"
         f"申请人: {name}({user_id})\n"
         f"验证消息: {comment or '（无）'}\n"
         f"请求 ID: {request_id}\n"
@@ -116,26 +119,19 @@ async def friend_request_event(event: FriendRequestEvent):
             decide=decide,
         )
     )
-    master_id = master_id_for_account(account, permission_checker)
-    if master_id is None:
-        logger.warning(
-            "Friend request {} pending without configured Master", request_id
-        )
-        return
-    try:
-        await action_service.send_private_message(
-            account,
-            master_id,
-            _notice(
-                user_id,
-                str(event.user.name or user_id),
-                str(event.message.content or ""),
-                request_id,
-                reason,
-            ),
-        )
-    except Exception:
-        logger.exception("Failed to notify Master about friend request {}", request_id)
+    await notify(
+        _notice(
+            str(account.self_id),
+            user_id,
+            str(event.user.name or user_id),
+            str(event.message.content or ""),
+            request_id,
+            reason,
+        ),
+        preferred=account,
+        actions=action_service,
+        permission_checker=permission_checker,
+    )
 
 
 friend_request_command = Alconna(

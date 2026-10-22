@@ -587,6 +587,20 @@ async def test_management_auth_persistence_and_failure_boundaries(
         ):
             assert (await client.post(settings_url, json=bad)).status_code == 400
         assert await ManagementRepository().setting("friend-request-mode") == "all"
+        saved = await client.post(
+            settings_url, json={"notify": {"mode": "group", "group": "40001"}}
+        )
+        assert saved.json()["data"]["notify"] == {
+            "mode": "group",
+            "group": "40001",
+            "account": None,
+        }
+        for bad in (
+            {"notify": {"mode": "group", "group": None}},
+            {"notify": {"account": "99999"}},  # 不是 Tenko 的账号
+            {"notify": "group"},
+        ):
+            assert (await client.post(settings_url, json=bad)).status_code == 400
 
     restored = AccountManagement(AccountRegistry(), ActionService())
     restored.repository = ManagementRepository()

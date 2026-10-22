@@ -22,7 +22,7 @@ from satori import (
 from satori.model import Event, Member
 
 from tenko.host.perm import Permission, PermissionChecker, PermissionRegistry
-from tenko.plugins._common import NotifyGroupConfig
+from tenko.host import notify
 
 
 def make_session(user_id: str, role: str):
@@ -348,9 +348,7 @@ async def test_notify_group_protection_blocks_both_permission_commands(
     loaded_plugin.permission_checker = PermissionChecker(
         registry=PermissionRegistry(bot_admin_ids=["20001"])
     )
-    monkeypatch.setattr(
-        loaded_plugin, "config", NotifyGroupConfig(notify_group="40001")
-    )
+    monkeypatch.setattr(notify, "_defaults", notify.NotifySettings("group", "40001"))
     session = make_session("20001", "member")
     group_result = await loaded_plugin.change_group_perm.callable_target(
         session, Match("2", True), Query("group.group_id")
@@ -408,7 +406,7 @@ async def test_platform_admin_demotion_keeps_tenko_permission_and_prompts_in_gro
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("loaded_plugin", ["perm_manager"], indirect=True)
-async def test_platform_admin_demotion_falls_back_to_master_private_notice(
+async def test_platform_admin_demotion_without_channel_notifies_master(
     loaded_plugin, monkeypatch
 ) -> None:
     account = MemberEventAccount()
@@ -417,9 +415,8 @@ async def test_platform_admin_demotion_falls_back_to_master_private_notice(
     loaded_plugin._permission_type = AsyncMock(return_value="default")
     loaded_plugin._member_permission = AsyncMock(return_value=Permission.GroupOwner)
     loaded_plugin._write_member_permission = AsyncMock()
-    monkeypatch.setattr(loaded_plugin, "superuser_ids", lambda _platform: ("90001",))
-    private_sender = AsyncMock()
-    monkeypatch.setattr(Session, "send_private_message", private_sender)
+    sent = AsyncMock(return_value=True)
+    monkeypatch.setattr(loaded_plugin, "notify", sent)
 
     event = make_member_update_event(account, channel=False)
     await loaded_plugin.auto_change_member_permission.callable_target(
@@ -427,9 +424,9 @@ async def test_platform_admin_demotion_falls_back_to_master_private_notice(
     )
 
     loaded_plugin._write_member_permission.assert_not_awaited()
-    private_sender.assert_awaited_once()
-    notice = private_sender.await_args.args[0]
-    assert private_sender.await_args.kwargs == {"user_id": "90001"}
+    sent.assert_awaited_once()
+    notice = sent.await_args.args[0]
+    assert sent.await_args.kwargs["preferred"] is account
     assert "检测到群管理权限变动" in notice
     assert "群 40001" in notice
 

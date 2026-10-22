@@ -25,11 +25,10 @@ from arclet.entari.plugin import PluginRole
 from loguru import logger
 from packaging.requirements import Requirement
 
-from tenko.context import QQ_PLATFORM
-from tenko.host.accounts import account_registry
 from tenko.host.actions import action_service
 from tenko.host.guards import require
-from tenko.host.perm import Permission, superuser_ids
+from tenko.host.notify import notify
+from tenko.host.perm import Permission
 from tenko.host.plugins.docs import plugin_icon_path
 from tenko.host.plugins.manager import (
     PluginChange,
@@ -720,24 +719,9 @@ async def enforce_blocklist(index: RegistryIndex) -> list[str]:
 
 
 async def notify_masters(text: str) -> None:
-    """用第一个在线账号私聊该平台的全部 Master。"""
+    """按通知设置告知 Master。"""
 
-    account = next(
-        (
-            a
-            for a in account_registry.accounts.values()
-            if account_registry.is_available(a)
-        ),
-        None,
-    )
-    if account is None:
-        logger.warning("没有在线账号，无法通知 Master：{}", text)
-        return
-    for user_id in superuser_ids(getattr(account, "platform", QQ_PLATFORM)):
-        try:
-            await action_service.send_private_message(account, user_id, text)
-        except Exception:
-            logger.exception("通知 Master {} 失败", user_id)
+    await notify(text, actions=action_service)
 
 
 async def refresh_registry() -> None:

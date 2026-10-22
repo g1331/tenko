@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import asyncio
-import inspect
 from collections.abc import Mapping
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime, timedelta
@@ -11,7 +10,7 @@ from arclet.alconna import Alconna, Args, CommandMeta, MultiVar, Option
 from arclet.entari import Session, command, plugin
 from arclet.entari.command import Match, Query
 from arclet.entari.event.base import GuildRequestEvent
-from arclet.entari.plugin import PluginRole, collect_disposes, plugin_config
+from arclet.entari.plugin import PluginRole, collect_disposes
 from loguru import logger
 from satori import User
 from satori.element import At, Author, select
@@ -23,10 +22,10 @@ from tenko.host.guards import group_only, private_only, require
 from tenko.host.inbox import InboxItem, inbox
 from tenko.host.perm import Permission, PermissionChecker
 from tenko.host.ratelimit import rate_limit_service
-from tenko.plugins._common import NotifyGroupConfig, list_data, render_or_text
+from tenko.plugins._common import list_data, render_or_text
 from tenko.host.action_errors import action_errors, report_action_error
 from tenko.context import context_from_session
-from tenko.host.perm import master_id_for_account
+from tenko.host.notify import notify
 from tenko.host.render import RenderService
 
 
@@ -41,7 +40,6 @@ plugin.metadata(
 
 permission_checker = PermissionChecker()
 _database_warning_groups: set[str] = set()
-config = plugin_config(NotifyGroupConfig)
 
 
 INVITE_TIMEOUT_SECONDS = 60 * 60
@@ -59,8 +57,6 @@ class PendingInvite:
     inviter_name: str
     comment: str
     created_at: float
-    notification_id: str | None = None
-    notification_channel_id: str | None = None
 
 
 pending_invites: dict[str, PendingInvite] = {}
@@ -159,74 +155,13 @@ def _ensure_action_account(pending: PendingInvite) -> None:
     registry.register(pending.account)
 
 
-async def _send_reviewer_notice(
-    pending: PendingInvite,
-    text: str,
-) -> None:
-    notify_group = _normalize_id(config.notify_group)
-    if notify_group is not None:
-        send_group = getattr(action_service, "send_group_message", None)
-        if not callable(send_group):
-            logger.warning(
-                "Pending invite {} recorded but ActionService has no group "
-                "notification API",
-                pending.request_id,
-            )
-            return
-        try:
-            receipt = send_group(
-                pending.account,
-                notify_group,
-                text,
-                context=None,
-                permission_checker=permission_checker,
-                system=True,
-            )
-            if inspect.isawaitable(receipt):
-                receipt = await receipt
-            result = getattr(receipt, "data", receipt)
-            items = tuple(result or ())
-            if items and getattr(items[-1], "id", None) is not None:
-                pending.notification_id = str(items[-1].id)
-                pending.notification_channel_id = f"group:{notify_group}"
-        except Exception:
-            logger.exception(
-                "Failed to notify group {} about pending invite {}",
-                notify_group,
-                pending.request_id,
-            )
-        return
-
-    send_private = getattr(action_service, "send_private_message", None)
-    if not callable(send_private):
-        logger.warning(
-            "Pending invite {} recorded but ActionService has no private "
-            "notification API",
-            pending.request_id,
-        )
-        return
-    master_id = master_id_for_account(pending.account, permission_checker)
-    if master_id is None:
-        logger.warning(
-            "Pending invite {} recorded without configured Master",
-            pending.request_id,
-        )
-        return
-    try:
-        receipt = send_private(pending.account, master_id, text)
-        if inspect.isawaitable(receipt):
-            receipt = await receipt
-        result = getattr(receipt, "data", receipt)
-        items = tuple(result or ())
-        if items and getattr(items[-1], "id", None) is not None:
-            pending.notification_id = str(items[-1].id)
-            pending.notification_channel_id = f"private:{master_id}"
-    except Exception:
-        logger.exception(
-            "Failed to notify Master {} about pending invite {}",
-            master_id,
-            pending.request_id,
-        )
+async def _send_reviewer_notice(pending: PendingInvite, text: str) -> None:
+    await notify(
+        text,
+        preferred=pending.account,
+        actions=action_service,
+        permission_checker=permission_checker,
+    )
 
 
 async def _apply_invite_decision(
@@ -303,7 +238,8 @@ def _invite_notice(pending: PendingInvite) -> str:
         else ""
     )
     return (
-        f"群邀请待审\n群: {group}\n邀请人: {inviter}\n"
+        f"群邀请待审\n收到邀请的账号: {pending.account.self_id}\n"
+        f"群: {group}\n邀请人: {inviter}\n"
         f"请求 ID: {pending.request_id}\n"
         "审批权限：目标群 BotAdmin/Master；GroupAdmin 无权审批。"
         f"{inviter_warning}\n"

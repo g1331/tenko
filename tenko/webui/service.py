@@ -52,6 +52,10 @@ from ..host.metrics import MessageMetrics, message_metrics
 from . import core_config
 from .live import MAX_STREAMS, TOPICS, LiveStreams
 from ..host.inbox import Inbox, inbox as default_inbox
+from ..host.notify import (
+    load_settings as load_notify_settings,
+    save_settings as save_notify_settings,
+)
 from ..context import QQ_PLATFORM
 from ..host.accounts import AccountRegistry, account_reference, account_registry
 from ..host.features import FeatureService, feature_service as default_feature_service
@@ -1056,8 +1060,11 @@ class WebUIService(Service):
                 if not body or not set(body) <= {
                     "default_enabled",
                     "friend_request_mode",
+                    "notify",
                 }:
-                    raise ValueError("只能设置 default_enabled 或 friend_request_mode")
+                    raise ValueError(
+                        "只能设置 default_enabled、friend_request_mode 或 notify"
+                    )
                 if (
                     "default_enabled" in body
                     and type(body["default_enabled"]) is not bool
@@ -1066,6 +1073,10 @@ class WebUIService(Service):
                 mode = body.get("friend_request_mode", "admins")
                 if not isinstance(mode, str) or mode not in MODE_LABELS:
                     raise ValueError("friend_request_mode 必须是 off、admins 或 all")
+                if not isinstance(body.get("notify", {}), dict):
+                    raise ValueError("notify 必须是对象")
+                if "notify" in body:
+                    await save_notify_settings(body["notify"], repository)
                 if "default_enabled" in body:
                     await repository.save_setting(
                         "feature-default", body["default_enabled"]
@@ -1079,6 +1090,7 @@ class WebUIService(Service):
                 "default_enabled": self.feature_service.default_enabled,
                 "stored": await repository.setting("feature-default") is not None,
                 "friend_request_mode": await get_friend_request_mode(repository),
+                "notify": (await load_notify_settings(repository)).to_dict(),
             }
 
         return await self._manage(request, action)

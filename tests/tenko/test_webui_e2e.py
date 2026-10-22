@@ -20,7 +20,9 @@ async def test_webui_real_connection_disable_restart_enable_and_forget(tmp_path)
         port = listener.getsockname()[1]
     (tmp_path / "pyproject.toml").write_text('[project]\nversion = "4.0.0-pre12"\n')
     config = tmp_path / "tenko.toml"
-    config.write_text(f"""[onebot]
+    config.write_text(f"""notify_group = "40001"
+
+[onebot]
 listen_port = {port}
 access_token = "protocol-test-token"
 [webui]

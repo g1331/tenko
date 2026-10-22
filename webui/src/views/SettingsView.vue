@@ -3,6 +3,7 @@ import { nextTick, onMounted, ref } from 'vue'
 import { useRoute } from 'vue-router'
 import PageContainer from '@/components/PageContainer.vue'
 import FriendRequestSettings from './settings/FriendRequestSettings.vue'
+import NotifySettings from './settings/NotifySettings.vue'
 import CoreConfigSettings from './settings/CoreConfigSettings.vue'
 import AccountForm from './settings/AccountForm.vue'
 import RuntimeSettings from './settings/RuntimeSettings.vue'
@@ -26,6 +27,7 @@ onMounted(async () => {
       <h2 id="sec-runtime">运行设置</h2>
       <div class="stack">
         <RuntimeSettings />
+        <NotifySettings />
         <FriendRequestSettings />
       </div>
     </section>

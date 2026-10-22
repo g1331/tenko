@@ -149,6 +149,7 @@ DATA = {
         "default_enabled": True,
         "stored": True,
         "friend_request_mode": "admins",
+        "notify": {"mode": "private", "group": None, "account": None},
     },
 }
 

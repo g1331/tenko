@@ -2,16 +2,10 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 
-from arclet.entari import BasicConfModel, MessageChain
+from arclet.entari import MessageChain
 from satori import Image
 
 from tenko.host.render import RenderService, try_render
-
-
-class NotifyGroupConfig(BasicConfModel):
-    """内置插件共用的 Entari 插件配置：管理通知的群目标，空值表示改发 Master 私聊。"""
-
-    notify_group: str | int | None = None
 
 
 def normalize_targets(value: object) -> tuple[str, ...]:

@@ -21,7 +21,7 @@ from tenko.host.actions import (
     ActionFailure,
     ActionTargetUnavailable,
 )
-from tenko.host.perm import superuser_ids
+from tenko.host.notify import notify
 from tenko.host.render import RenderService, try_render
 
 
@@ -266,7 +266,7 @@ async def send_error_report(
     render_service: RenderService | None = None,
     evidence_dir: str | Path | None = None,
 ) -> None:
-    """先向所有 superusers 发送报告，投递不完整时保留本地证据。
+    """按通知设置发送报告，没有全部送达时保留本地证据。
 
     ``render_service=None`` 仅覆盖直接调用这个工具函数、无法经过 Entari
     listener 注入的边界；生产 listener ``except_handle`` 总是显式传入注入的
@@ -276,48 +276,22 @@ async def send_error_report(
     if is_ignored_exception(exception) or _in_cooldown(exception):
         return
     report = generate_error_report(exception, origin)
-    account = getattr(origin, "account", None)
-    delivery_failed = account is None
-    if account is None:
-        logger.error("无法发送异常报告：ExceptionEvent 没有关联 Entari account")
-    else:
-        user_ids = superuser_ids(getattr(account, "platform", None))
-        if not user_ids:
-            delivery_failed = True
-            logger.error(
-                "无法发送异常报告：平台 {} 没有配置 Entari superusers",
-                getattr(account, "platform", "-"),
-            )
-        else:
-            image = (
-                None
-                if render_service is None
-                else await try_render(
-                    render_service.render_template, "report.html", {"report": report}
-                )
-            )
-            for user_id in user_ids:
-                try:
-                    content = (
-                        [Image.of(raw=image, mime="image/jpeg")]
-                        if image is not None
-                        else [Text(report)]
-                    )
-                    # 直接走协议：报告可能是图片，且 ActionService 自身出错时也要能送达。
-                    await account.protocol.send_private_message(user_id, content)
-                except Exception:
-                    delivery_failed = True
-                    failure = getattr(exception, "failure", None)
-                    logger.exception(
-                        "发送异常报告给 {} 失败: account={} action={} retcode={} "
-                        "message={} wording={}",
-                        user_id,
-                        getattr(failure, "account_id", None),
-                        getattr(failure, "action", None),
-                        getattr(failure, "retcode", None),
-                        getattr(failure, "message", None),
-                        getattr(failure, "wording", None),
-                    )
+    image = (
+        None
+        if render_service is None
+        else await try_render(
+            render_service.render_template, "report.html", {"report": report}
+        )
+    )
+    content = (
+        [Image.of(raw=image, mime="image/jpeg")]
+        if image is not None
+        else [Text(report)]
+    )
+    # 直接走协议：报告可能是图片，且 ActionService 自身出错时也要能送达。
+    delivery_failed = not await notify(
+        content, preferred=getattr(origin, "account", None), direct=True
+    )
 
     if delivery_failed:
         _write_local_evidence(

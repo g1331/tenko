@@ -24,6 +24,7 @@ BUILTIN_ICONS = {
     "friend_request": "user-plus",
     "group_manager": "shield-check",
     "helper": "question",
+    "notify": "bell-ringing",
     "perm_manager": "key",
     "plugin_manager": "puzzle-piece",
     "response_manager": "robot",

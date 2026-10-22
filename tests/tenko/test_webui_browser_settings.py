@@ -78,6 +78,21 @@ def test_friend_request_policy_save_posts_only_the_mode(open_panel):
     assert not page.errors
 
 
+def test_notify_settings_save_group_target(open_panel):
+    panel, page = open_settings(open_panel)
+    save = page.get_by_role("button", name="保存通知设置")
+    assert save.is_disabled()
+
+    page.locator(".el-radio-button", has_text="通知群").click()
+    page.get_by_label("通知群号").fill("40001")
+    save.click()
+    page.get_by_text("通知设置已保存").wait_for()
+    assert panel.calls("POST", "/api/manage/settings")[0][3] == {
+        "notify": {"mode": "group", "group": "40001"}
+    }
+    assert not page.errors
+
+
 def test_sessions_list_marks_current_and_disables_its_revoke(open_panel):
     _panel, page = open_settings(open_panel)
     items = page.locator(".item")

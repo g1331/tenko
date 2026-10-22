@@ -53,11 +53,13 @@ import sys
 import time
 import traceback
 from pathlib import Path
+from types import SimpleNamespace
 
 from tenko import SOURCE
 from tenko._production_main import _run_startup_bootstrap
 from tenko.config import TenkoConfig
 from tenko.host.features import FeatureService
+from tenko.host.notify import NotifySettings
 from tenko.host.startup import StartupHistory, StartupNotifier
 
 
@@ -132,8 +134,11 @@ def _watchdog_startup():
 
     features = FeatureService()
     features.set_global_enabled("startup_notify", False)
+    async def notify_settings():
+        return NotifySettings("group", "40002")
+
     notifier = StartupNotifier(
-        notify_group="40002",
+        settings=notify_settings,
         history=StartupHistory(),
         action_service=Actions(),
         feature_service=features,
@@ -144,7 +149,7 @@ def _watchdog_startup():
     )
     async def notify():
         await notifier.mark_framework_ready()
-        await notifier.mark_account_online(object())
+        await notifier.mark_account_online(SimpleNamespace(self_id="10001"))
 
     asyncio.run(notify())
     _server()

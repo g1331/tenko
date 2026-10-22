@@ -138,9 +138,6 @@ async def test_run_async_loads_plugins_before_starting_entari(
         assert external_configs == runtime.config.plugin_config
         # 宿主配置在加载时作为插件配置传入，不再事后注入插件模块。
         assert configs == {
-            "group_manager": {"notify_group": "40002"},
-            "perm_manager": {"notify_group": "40002"},
-            "startup_notify": {"notify_group": "40002"},
             "webui_account": {"enabled": False, "public_url": None},
             "exception_catcher": {"evidence_dir": ".tenko/exceptions"},
         }
@@ -376,7 +373,7 @@ async def test_build_app_uses_basic_without_rewriting_entari_config(
         def register_on(self, event_type):
             def register(callback):
                 self.registered_message_handler = callback
-                self.registered_handlers[event_type] = callback
+                self.registered_handlers.setdefault(event_type, []).append(callback)
                 return callback
 
             return register
@@ -428,17 +425,19 @@ async def test_build_app_uses_basic_without_rewriting_entari_config(
         )
         assert runtime.message_handler.debug_config is config.debug
         assert (
-            app.registered_handlers[EventType.GUILD_MEMBER_REMOVED].__func__
+            app.registered_handlers[EventType.GUILD_MEMBER_REMOVED][0].__func__
             is runtime.message_handler.handle_member_removed.__func__
         )
         assert (
-            app.registered_handlers[EventType.GUILD_REMOVED].__func__
+            app.registered_handlers[EventType.GUILD_REMOVED][0].__func__
             is runtime.message_handler.handle_member_removed.__func__
         )
-        assert (
-            app.registered_handlers[EventType.INTERNAL].__func__
-            is runtime.message_handler.handle_member_removed.__func__
-        )
+        assert [
+            handler.__func__ for handler in app.registered_handlers[EventType.INTERNAL]
+        ] == [
+            runtime.message_handler.handle_member_removed.__func__,
+            runtime._on_internal.__func__,
+        ]
     finally:
         runtime_module.configure_command_prefix()
         EntariConfig.instance.basic.prefix = original_prefix

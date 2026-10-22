@@ -1,7 +1,9 @@
 # Tenko 配置示例。
 # 复制为 config/tenko.toml 后按 NapCat 实际地址修改；不要把真实 token 提交到仓库。
 
-# 通知群：邀请审批等管理通知的播报目标；留空表示私发 Master。该键必须位于 TOML 顶层。
+# 通知群：启动通知、异常报告、邀请审批等通知的默认目标；留空表示私聊 Master。该键必须位于 TOML 顶层。
+# 面板“设置 > 通知”或 Master 私聊 /通知设置 修改后以那里为准，并可指定发送账号。
+# superusers 和 notify_group 至少要配置一个，否则 Tenko 拒绝启动。
 notify_group = ""
 
 # 旧版 [runtime] / [entari] 中的通用字段统一放在 Entari 官方 [basic] 节。

@@ -276,14 +276,22 @@ export interface GroupResponseResult {
 }
 
 export type FriendRequestMode = 'off' | 'admins' | 'all'
+/** 给 Master 的通知：发往私聊还是通知群，由哪个账号发送（null 表示任选在线账号）。 */
+export interface NotifySettings {
+  mode: 'private' | 'group'
+  group: string | null
+  account: string | null
+}
 export interface SettingsData {
   default_enabled: boolean
   stored: boolean
   friend_request_mode: FriendRequestMode
+  notify: NotifySettings
 }
 export interface SettingsBody {
   default_enabled?: boolean
   friend_request_mode?: FriendRequestMode
+  notify?: Partial<NotifySettings>
 }
 
 export type CoreConfigKind = 'boolean' | 'integer' | 'number' | 'enum' | 'identifier' | 'urls'

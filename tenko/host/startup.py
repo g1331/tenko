@@ -1,11 +1,11 @@
 from __future__ import annotations
 
+import asyncio
 import importlib.metadata
-import inspect
 import json
 import math
 import time
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Awaitable, Callable, Mapping, Sequence
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -13,7 +13,9 @@ from loguru import logger
 
 from tenko.host.actions import action_service as default_action_service
 from tenko.host.features import feature_service as default_feature_service
-from tenko.host.perm import PermissionChecker, master_id_for_account
+from tenko.host.accounts import account_registry
+from tenko.host.notify import NotifySettings, load_settings, notify
+from tenko.host.perm import PermissionChecker
 
 try:
     import tomllib
@@ -22,6 +24,8 @@ except ModuleNotFoundError:  # pragma: no cover - Python 3.10 回退路径
 
 
 STARTUP_NOTIFY_FEATURE = "startup_notify"
+# 指定的通知账号最多等这么久；还没上线就改用已在线的账号发送启动通知。
+NOTIFY_ACCOUNT_GRACE = 30.0
 _PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
 if TYPE_CHECKING:
@@ -35,13 +39,6 @@ def _duration(value: object, label: str = "启动耗时") -> float:
     if not math.isfinite(normalized) or normalized < 0:
         raise ValueError(f"{label}必须是有限的非负数字")
     return normalized
-
-
-def _normalize_id(value: object) -> str | None:
-    if value is None:
-        return None
-    normalized = str(value).strip()
-    return normalized or None
 
 
 class StartupHistory:
@@ -166,7 +163,7 @@ class StartupNotifier:
     def __init__(
         self,
         *,
-        notify_group: str | int | None = None,
+        settings: Callable[[], Awaitable[NotifySettings]] = load_settings,
         history: StartupHistory | None = None,
         action_service: Any | None = None,
         feature_service: Any | None = None,
@@ -176,7 +173,7 @@ class StartupNotifier:
         version_provider: Callable[[], str] | None = None,
         recovery_notice_path: str | Path | None = None,
     ) -> None:
-        self.notify_group_id = _normalize_id(notify_group)
+        self.settings = settings
         self.history = history or StartupHistory()
         self.action_service = (
             default_action_service if action_service is None else action_service
@@ -203,6 +200,8 @@ class StartupNotifier:
         self._framework_ready = False
         self._attempted = False
         self._sending = False
+        self._ready_at: float | None = None
+        self._grace: asyncio.Task | None = None
 
     async def mark_account_online(self, account: object) -> None:
         self._online_account = account
@@ -220,36 +219,54 @@ class StartupNotifier:
             or self._sending
         ):
             return
+        if self._ready_at is None:
+            # 启动耗时算到框架和账号都就绪为止，不含等待通知账号的时间。
+            self._ready_at = float(self.clock())
         self._sending = True
-        self._attempted = True
         try:
-            recovery_notice = self._recovery_notice()
-            if recovery_notice is not None:
-                try:
-                    if await self._send(recovery_notice):
-                        self._clear_recovery_notice()
-                except Exception:
-                    logger.exception("Tenko automatic rollback notification failed")
-
-            if not self.feature_service.is_enabled(STARTUP_NOTIFY_FEATURE):
-                logger.info("Tenko startup notification is disabled")
+            settings = await self.settings()
+            if (
+                settings.account is not None
+                and self._grace is None
+                and not account_registry.is_available(settings.account)
+            ):
+                self._grace = asyncio.ensure_future(self._after_grace())
                 return
-
-            duration = max(float(self.clock()) - self.started_at, 0.0)
-            notice = build_startup_notice(self.version_provider(), duration)
-            try:
-                await self.history.record(duration)
-            except Exception:
-                logger.exception(
-                    "Could not persist startup duration history",
-                )
-            await self._send(notice)
+            self._attempted = True
+            await self._notify(settings)
         except Exception:
             # 通知属于启动后的附加动作；任何格式、配置或动作异常都不能让
             # Entari/Launart 的主生命周期失败。
             logger.exception("Tenko startup notification failed")
         finally:
             self._sending = False
+
+    async def _after_grace(self) -> None:
+        await asyncio.sleep(NOTIFY_ACCOUNT_GRACE)
+        await self._maybe_notify()
+
+    async def _notify(self, settings: NotifySettings) -> None:
+        recovery_notice = self._recovery_notice()
+        if recovery_notice is not None:
+            try:
+                if await self._send(recovery_notice, settings):
+                    self._clear_recovery_notice()
+            except Exception:
+                logger.exception("Tenko automatic rollback notification failed")
+
+        if not self.feature_service.is_enabled(STARTUP_NOTIFY_FEATURE):
+            logger.info("Tenko startup notification is disabled")
+            return
+
+        duration = max(float(self._ready_at) - self.started_at, 0.0)
+        notice = build_startup_notice(self.version_provider(), duration)
+        try:
+            await self.history.record(duration)
+        except Exception:
+            logger.exception(
+                "Could not persist startup duration history",
+            )
+        await self._send(notice, settings)
 
     def _recovery_notice(self) -> str | None:
         path = self.recovery_notice_path
@@ -277,47 +294,17 @@ class StartupNotifier:
         except OSError:
             logger.exception("Could not clear Tenko automatic rollback notice")
 
-    async def _send(self, notice: str) -> bool:
-        account = self._online_account
-        if account is None:  # pragma: no cover - _maybe_notify 已建立此条件
-            return False
-        if self.notify_group_id is not None:
-            sender = getattr(self.action_service, "send_group_message", None)
-            if not callable(sender):
-                logger.warning("ActionService has no group notification API")
-                return False
-            result = sender(
-                account,
-                self.notify_group_id,
-                notice,
-                context=None,
-                permission_checker=self.permission_checker,
-                system=True,
-            )
-            if inspect.isawaitable(result):
-                await result
-            logger.info(
-                "Tenko startup notification sent to group {}",
-                self.notify_group_id,
-            )
-            return True
-
-        master_id = master_id_for_account(account, self.permission_checker)
-        if master_id is None:
-            logger.warning("Tenko startup notification has no configured Master")
-            return False
-        sender = getattr(self.action_service, "send_private_message", None)
-        if not callable(sender):
-            logger.warning("ActionService has no private notification API")
-            return False
-        result = sender(account, master_id, notice)
-        if inspect.isawaitable(result):
-            await result
-        logger.info(
-            "Tenko startup notification sent to Master {}",
-            master_id,
+    async def _send(self, notice: str, settings: NotifySettings) -> bool:
+        delivered = await notify(
+            notice,
+            preferred=self._online_account,
+            settings=settings,
+            actions=self.action_service,
+            permission_checker=self.permission_checker,
         )
-        return True
+        if delivered:
+            logger.info("Tenko startup notification sent")
+        return delivered
 
 
 __all__ = [

@@ -12,15 +12,15 @@ from arclet.entari.event.base import (
     GuildMemberUpdatedEvent,
     InternalEvent,
 )
-from arclet.entari.plugin import PluginRole, plugin_config
+from arclet.entari.plugin import PluginRole
 from loguru import logger
 
 from tenko.db.errors import DatabaseUnavailableError
 from tenko.host.actions import ActionServiceError, action_service
 from tenko.host.guards import group_only, private_only, require
-from tenko.host.perm import Permission, PermissionChecker, superuser_ids
+from tenko.host.notify import load_settings, notify
+from tenko.host.perm import Permission, PermissionChecker
 from tenko.plugins._common import (
-    NotifyGroupConfig,
     list_data,
     normalize_targets,
     render_or_text,
@@ -41,13 +41,13 @@ plugin.get_plugin().metadata.group_level = Permission.InactiveGroup
 
 
 permission_checker = PermissionChecker()
-config = plugin_config(NotifyGroupConfig)
 
 
-def _is_notify_group(group_id: str) -> bool:
+async def _is_notify_group(group_id: str) -> bool:
     """通知群的权限不能通过命令修改；未配置通知群时不启用该保护。"""
 
-    return config.notify_group is not None and group_id == str(config.notify_group)
+    settings = await load_settings()
+    return settings.mode == "group" and group_id == settings.group
 
 
 def _member_repository():
@@ -176,11 +176,7 @@ async def _notify_permission_demotion(
             )
         return
 
-    for reviewer_id in superuser_ids(event.account.platform):
-        try:
-            await session.send_private_message(notice, user_id=reviewer_id)
-        except Exception:
-            logger.exception("管理员降级提示私聊发送失败: user={}", reviewer_id)
+    await notify(notice, preferred=event.account, permission_checker=permission_checker)
 
 
 def _database_error_message(error: BaseException, *, action: str) -> object:
@@ -402,7 +398,7 @@ async def change_group_perm(
     target_group, _ = await _target_group(session, group)
     if target_group is None:
         return "没有找到目标群"
-    if _is_notify_group(target_group):
+    if await _is_notify_group(target_group):
         return f"无法通过该指令修改通知群({target_group})权限!"
     try:
         await _group_repository().set(
@@ -447,7 +443,7 @@ async def change_group_perm_type(
     target_group, _ = await _target_group(session, group)
     if target_group is None:
         return "没有找到目标群"
-    if _is_notify_group(target_group):
+    if await _is_notify_group(target_group):
         return f"无法通过该指令修改通知群({target_group})权限!"
     try:
         members = await _target_members(session, target_group)
