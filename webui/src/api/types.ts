@@ -212,7 +212,7 @@ export interface ManagedAccount {
   connected: boolean
   /** 展示名（协议端用户名，缺省为账号 ID）。 */
   name: string
-  /** 仅 onebot 账号可管理。 */
+  /** 仅 QQ（qq-client）账号可管理。 */
   manageable: boolean
 }
 export interface ManagedAccountsData {

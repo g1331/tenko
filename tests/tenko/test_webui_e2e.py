@@ -172,7 +172,7 @@ save = {{rotation = "1 MB", compression = "gz", colorize = false}}
 
         async def action(name, body=None):
             response = await client.post(
-                f"/webui/api/manage/accounts/onebot/10001/{name}",
+                f"/webui/api/manage/accounts/qq-client/10001/{name}",
                 json={"confirm": True} if body is None else body,
             )
             assert response.status_code == 200, response.text

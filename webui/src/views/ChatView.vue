@@ -437,7 +437,7 @@ async function send(content: ChatSendSegment[]) {
             :messages="messages"
             :has-more="hasMore"
             :loading="loading"
-            :platform="account?.platform ?? 'onebot'"
+            :platform="account?.platform ?? 'qq-client'"
             :chat-type="current?.chat_type"
             @load-more="loadOlder"
             @reply="replyTo"

@@ -12,7 +12,7 @@ from loguru import logger
 from satori.client import Account
 from satori.exception import ActionFailed
 
-from ..context import MessageContext
+from ..context import QQ_PLATFORM, MessageContext, normalize_platform
 
 if TYPE_CHECKING:
     from ..db.repositories import AccountStateRepository
@@ -45,28 +45,31 @@ AccountInput = Account | str | int | AccountKey
 
 
 def account_key(account_or_id: object) -> AccountKey:
-    """账号内部使用平台限定键；旧命令和路由中的裸 ID 属于 OneBot。"""
+    """账号内部使用平台限定键；旧命令和路由中的裸 ID 是 QQ 号。"""
 
     if isinstance(account_or_id, tuple) and len(account_or_id) == 2:
-        return (_key(account_or_id[0]), _key(account_or_id[1]))
+        return (normalize_platform(_key(account_or_id[0])), _key(account_or_id[1]))
     if isinstance(account_or_id, str | int):
         value = str(account_or_id)
         if value.startswith("["):
             pair = json.loads(value)
             if not isinstance(pair, list) or len(pair) != 2:
                 raise ValueError("账号键必须包含平台和账号 ID")
-            return (_key(pair[0]), _key(pair[1]))
-        return ("onebot", value)
+            return (normalize_platform(_key(pair[0])), _key(pair[1]))
+        return (QQ_PLATFORM, value)
     platform = getattr(account_or_id, "platform", None) or getattr(
-        getattr(account_or_id, "self_info", None), "platform", "onebot"
+        getattr(account_or_id, "self_info", None), "platform", None
     )
-    return (_key(platform or "onebot"), _key(getattr(account_or_id, "self_id", None)))
+    return (
+        normalize_platform(_key(platform or QQ_PLATFORM)),
+        _key(getattr(account_or_id, "self_id", None)),
+    )
 
 
 def account_reference(key: AccountKey) -> str:
-    """保留既有 OneBot 路由格式；其他平台编码为无歧义的二元 JSON。"""
+    """QQ 号保留既有的裸 ID 路由格式；其他平台编码为无歧义的二元 JSON。"""
 
-    return key[1] if key[0] == "onebot" else json.dumps(key, ensure_ascii=False)
+    return key[1] if key[0] == QQ_PLATFORM else json.dumps(key, ensure_ascii=False)
 
 
 def _account_default_availability(account: Account) -> bool:

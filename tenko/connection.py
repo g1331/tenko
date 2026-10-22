@@ -23,6 +23,7 @@ from satori.server import Server
 from starlette.websockets import WebSocket, WebSocketState
 
 from .config import OneBotConfig
+from .context import QQ_PLATFORM
 
 
 # Server 仍对外提供 Satori HTTP API（账号调用平台接口走这里），路径固定即可。
@@ -109,9 +110,8 @@ class _ManagedConnection(_Connection):
     async def message_handle(self) -> None:
         """替换 satori-python-adapter-onebot11 的同名方法。
 
-        上游实现会用内部的 ``_login_add``（0.5.1 起平台名为 ``qq-client``），
-        登录完成前收到事件会结束整个接收循环。这里沿用 Tenko 的 ``onebot``
-        平台名、只丢弃登录前的事件，并把每条事件的数据作为参数交给任务。
+        上游实现登录完成前收到事件会结束整个接收循环；这里只丢弃登录前的事件，
+        登录走带断线保护的 ``_login_add``，并把每条事件的数据作为参数交给任务。
         """
 
         async for _connection, data in self.message_receive():
@@ -141,7 +141,7 @@ class _ManagedConnection(_Connection):
             sn=0,
             status=LoginStatus.ONLINE,
             adapter="onebot",
-            platform="onebot",
+            platform=QQ_PLATFORM,
             user=User(
                 self.account_id,
                 (info or {})["nickname"],
@@ -179,6 +179,10 @@ class ManagedOneBotAdapter(OneBot11ReverseAdapter):
 
     admission: Callable[[str, str], bool] | None = None
 
+    def ensure(self, platform: str, self_id: str) -> bool:
+        # 0.5.1 的登录平台已改为 qq-client，上游 ensure 仍只认 onebot，API 调用会 404。
+        return platform == QQ_PLATFORM and self_id in self.logins
+
     async def websocket_server_handler(self, ws: WebSocket) -> None:
         authorization = ws.headers.get("Authorization", "")
         expected = f"Bearer {self.access_token}" if self.access_token else ""
@@ -189,12 +193,12 @@ class ManagedOneBotAdapter(OneBot11ReverseAdapter):
         if not account_id or len(account_id) > 128 or account_id in self.connections:
             await ws.close(1008, "Invalid or duplicate X-Self-ID")
             return
-        if self.admission is not None and not self.admission("onebot", account_id):
+        if self.admission is not None and not self.admission(QQ_PLATFORM, account_id):
             await ws.close(1008, "Account is disabled or state is not ready")
             return
         await ws.accept()
         if account_id in self.connections or (
-            self.admission is not None and not self.admission("onebot", account_id)
+            self.admission is not None and not self.admission(QQ_PLATFORM, account_id)
         ):
             await ws.close(1008, "Account is disabled")
             return

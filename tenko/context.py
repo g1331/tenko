@@ -13,6 +13,15 @@ if TYPE_CHECKING:
 
 ChatType = Literal["private", "group", "other"]
 
+# QQ 号所在的平台，与 satori 1.3.10 的命名一致：OneBot、Milky 等协议端共用，
+# 由 Login.adapter 区分协议。rc30 之前叫 "onebot"，旧配置和旧数据按别名读取。
+QQ_PLATFORM = "qq-client"
+LEGACY_QQ_PLATFORM = "onebot"
+
+
+def normalize_platform(platform: str) -> str:
+    return QQ_PLATFORM if platform == LEGACY_QQ_PLATFORM else platform
+
 
 def _value(value: object) -> str:
     return str(getattr(value, "value", value))
@@ -50,7 +59,7 @@ class MessageContext:
     text: str
     image_urls: tuple[str, ...]
     member_role: str | None = None
-    platform: str = "onebot"
+    platform: str = QQ_PLATFORM
 
     @classmethod
     def from_event(cls, event: Event) -> MessageContext:

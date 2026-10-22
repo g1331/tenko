@@ -25,6 +25,7 @@ from arclet.entari.plugin import PluginRole
 from loguru import logger
 from packaging.requirements import Requirement
 
+from tenko.context import QQ_PLATFORM
 from tenko.host.accounts import account_registry
 from tenko.host.actions import action_service
 from tenko.host.guards import require
@@ -732,7 +733,7 @@ async def notify_masters(text: str) -> None:
     if account is None:
         logger.warning("没有在线账号，无法通知 Master：{}", text)
         return
-    for user_id in superuser_ids(getattr(account, "platform", "onebot")):
+    for user_id in superuser_ids(getattr(account, "platform", QQ_PLATFORM)):
         try:
             await action_service.send_private_message(account, user_id, text)
         except Exception:

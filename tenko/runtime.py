@@ -20,6 +20,7 @@ from satori.client import Account
 from .config import TenkoConfig
 from .commands import configure_command_prefix
 from .connection import OneBotConnection
+from .context import LEGACY_QQ_PLATFORM, QQ_PLATFORM
 from .db.bootstrap import load_database_plugin
 from .db.errors import DatabaseUnavailableError
 from .db.runtime import RuntimeStateService
@@ -157,6 +158,16 @@ class TenkoRuntime:
 
     async def _initialize_runtime_state(self) -> None:
         """在数据库服务就绪后加载快照；单类失败不阻止宿主启动。"""
+
+        if self.account_management.repository is not None:
+            try:
+                renamed = await self.account_management.repository.rename_platform(
+                    LEGACY_QQ_PLATFORM, QQ_PLATFORM
+                )
+                if renamed:
+                    logger.info("已将 {} 行数据的平台名迁移为 {}", renamed, QQ_PLATFORM)
+            except Exception as error:
+                logger.error("Could not migrate legacy platform name: {}", error)
 
         state_loaders = (
             ("account routes", self.accounts.initialize),

@@ -16,7 +16,7 @@ config/tenko.toml 可以从 `config/tenko.toml.example` 复制后按需补充。
     prefix = ["/"]
     ignore_self_message = true
     skip_req_missing = false
-    superusers = { onebot = ["<QQ_ID>"] }
+    superusers = { qq-client = ["<QQ_ID>"] }
 
     [basic.log]
     level = "INFO"
@@ -95,10 +95,11 @@ Entari，内部接口的令牌每次启动随机生成。配置里留着这几�
 | debug.enabled | 是否只处理 debug.masters 中用户产生的事件，默认关闭 |
 | debug.masters | 调试白名单；省略时继承 basic.superusers，显式空列表表示不放行用户 |
 
-例如，OneBot 11 的超级用户和日志轮转配置为：
+QQ 号的平台名是 `qq-client`，与 satori 1.3.10 起的命名一致，OneBot、Milky 等协议端共用；
+4.0.0-rc30 之前的 `onebot` 仍按别名读取。例如，超级用户和日志轮转配置为：
 
     [basic]
-    superusers = { onebot = ["<QQ_ID>"] }
+    superusers = { qq-client = ["<QQ_ID>"] }
 
     [basic.log]
     save = { rotation = "00:00", compression = "gz", colorize = false }

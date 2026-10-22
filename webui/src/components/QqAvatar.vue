@@ -10,7 +10,7 @@ const props = withDefaults(
     kind?: 'group' | 'user'
     platform?: string
   }>(),
-  { name: '', size: 32, kind: 'group', platform: 'onebot' },
+  { name: '', size: 32, kind: 'group', platform: 'qq-client' },
 )
 const failed = ref(false)
 watch(
@@ -18,7 +18,7 @@ watch(
   () => (failed.value = false),
 )
 const src = computed(() =>
-  props.platform !== 'onebot'
+  props.platform !== 'qq-client'
     ? null
     : props.kind === 'group'
       ? `https://p.qlogo.cn/gh/${props.id}/${props.id}/100`

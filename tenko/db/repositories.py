@@ -1085,6 +1085,64 @@ class ManagementRepository(_Repository):
             )
             await session.commit()
 
+    async def rename_platform(self, old: str, new: str) -> int:
+        """把账号偏好和聊天记录中的旧平台名改为新名，返回改动的行数。
+
+        升级、回滚、再升级后两种名字可能同时存在：与新名冲突的旧行以新行为准。
+        冲突行先查出 ID 再删除，避免 MySQL 不支持在 DELETE 里自引用同一张表。
+        """
+        from sqlalchemy.orm import aliased
+        from .models import AccountPreference
+
+        async with self._session() as session:
+            current = aliased(AccountPreference)
+            stale = (
+                await session.scalars(
+                    select(AccountPreference.account_id)
+                    .join(
+                        current,
+                        (current.platform == new)
+                        & (current.account_id == AccountPreference.account_id),
+                    )
+                    .where(AccountPreference.platform == old)
+                )
+            ).all()
+            if stale:
+                await session.execute(
+                    delete(AccountPreference).where(
+                        AccountPreference.platform == old,
+                        AccountPreference.account_id.in_(stale),
+                    )
+                )
+            current = aliased(ChatMessage)
+            stale = (
+                await session.scalars(
+                    select(ChatMessage.id)
+                    .join(
+                        current,
+                        (current.platform == new)
+                        & (current.account_id == ChatMessage.account_id)
+                        & (current.channel_id == ChatMessage.channel_id)
+                        & (current.message_id == ChatMessage.message_id),
+                    )
+                    .where(ChatMessage.platform == old)
+                )
+            ).all()
+            for start in range(0, len(stale), 500):
+                await session.execute(
+                    delete(ChatMessage).where(
+                        ChatMessage.id.in_(stale[start : start + 500])
+                    )
+                )
+            changed = 0
+            for model in (AccountPreference, ChatMessage):
+                result = await session.execute(
+                    update(model).where(model.platform == old).values(platform=new)
+                )
+                changed += result.rowcount or 0
+            await session.commit()
+            return changed
+
     async def setting(self, name: str) -> Any:
         import json
         from .models import WebUISetting

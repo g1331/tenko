@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 from typing import TYPE_CHECKING, Any
 
+from ..context import QQ_PLATFORM
 from .accounts import AccountRegistry, account_key, account_reference
 from .actions import ActionCapability, ActionService
 
@@ -32,7 +33,7 @@ class AccountManagement:
             from .actions import _capability
 
             for account_id, capabilities in legacy_capabilities.items():
-                key = ("onebot", str(account_id))
+                key = (QQ_PLATFORM, str(account_id))
                 if key not in preferences:
                     value = self.default(key)
                     value["capabilities"] = {

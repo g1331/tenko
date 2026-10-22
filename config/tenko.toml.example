@@ -15,8 +15,8 @@ cmd_count = 4096
 external_dirs = []
 schema = false
 check_metadata = false
-# 超管唯一权威来源：键为平台名称，值为该平台的用户 ID 字符串列表。
-superusers = { onebot = ["YOUR_QQ_ID"] }
+# 超管唯一权威来源：键为平台名称（QQ 号为 qq-client，旧名 onebot 仍可用），值为用户 ID 字符串列表。
+superusers = { qq-client = ["YOUR_QQ_ID"] }
 
 [basic.log]
 level = "INFO"

@@ -149,7 +149,7 @@ def test_config_example_is_loadable_with_official_basic_section(tmp_path) -> Non
 
     assert config.basic.prefix == ["/"]
     assert config.basic.log.save is None
-    assert config.basic.superusers == {"onebot": ["YOUR_QQ_ID"]}
+    assert config.basic.superusers == {"qq-client": ["YOUR_QQ_ID"]}
     assert config.notify_group is None
 
 

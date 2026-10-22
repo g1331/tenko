@@ -7,7 +7,7 @@ from typing import Any
 
 from arclet.entari.config import EntariConfig
 
-from ..context import MessageContext
+from ..context import LEGACY_QQ_PLATFORM, QQ_PLATFORM, MessageContext
 from ..db.errors import is_database_unavailable
 from .sandbox import SANDBOX_MASTER_ID, SANDBOX_PLATFORM
 from loguru import logger
@@ -26,7 +26,12 @@ def superuser_ids(platform: str | None) -> tuple[str, ...]:
     )
     if not isinstance(configured, Mapping):
         return ()
-    values = (str(value).strip() for value in configured.get(platform, ()))
+    values = [str(value).strip() for value in configured.get(platform, ())]
+    if platform == QQ_PLATFORM:
+        # 旧配置写作 superusers = { onebot = [...] }。
+        values += (
+            str(value).strip() for value in configured.get(LEGACY_QQ_PLATFORM, ())
+        )
     return tuple(value for value in values if value)
 
 
@@ -37,7 +42,7 @@ def master_id_for_account(account: object, permission_checker: object) -> str | 
     configured_master = str(getattr(registry, "master_id", None) or "").strip()
     if configured_master:
         return configured_master
-    return next(iter(superuser_ids(getattr(account, "platform", "onebot"))), None)
+    return next(iter(superuser_ids(getattr(account, "platform", QQ_PLATFORM))), None)
 
 
 class Permission(IntEnum):

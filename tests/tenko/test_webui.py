@@ -217,7 +217,7 @@ async def test_webui_read_only_apis_expose_safe_account_and_feature_data(
     tenko_database,
 ):
     accounts = AccountRegistry()
-    first = SimpleNamespace(self_id="10001", platform="onebot")
+    first = SimpleNamespace(self_id="10001", platform="qq-client")
     second = SimpleNamespace(self_id="10002", platform="satori")
     accounts.register(first, available=True, groups=("40001", "40002"))
     accounts.register(second, available=False, groups=("40002",))
@@ -268,7 +268,7 @@ async def test_webui_read_only_apis_expose_safe_account_and_feature_data(
                 {
                     "id": "10001",
                     "ref": "10001",
-                    "platform": "onebot",
+                    "platform": "qq-client",
                     "name": None,
                     "online": True,
                     "group_count": 2,
@@ -293,7 +293,7 @@ async def test_webui_read_only_apis_expose_safe_account_and_feature_data(
                         {
                             "ref": "10001",
                             "id": "10001",
-                            "platform": "onebot",
+                            "platform": "qq-client",
                             "name": None,
                             "state": "muted",
                             "role": None,
@@ -310,7 +310,7 @@ async def test_webui_read_only_apis_expose_safe_account_and_feature_data(
                         {
                             "ref": "10001",
                             "id": "10001",
-                            "platform": "onebot",
+                            "platform": "qq-client",
                             "name": None,
                             "state": "available",
                             "role": None,
@@ -416,12 +416,12 @@ async def test_webui_overview_uses_status_data_metrics_and_counts(
     status = host_status
     accounts = AccountRegistry()
     accounts.register(
-        SimpleNamespace(self_id="10001", platform="onebot"),
+        SimpleNamespace(self_id="10001", platform="qq-client"),
         available=True,
         groups=("40001", "40002"),
     )
     accounts.register(
-        SimpleNamespace(self_id="10002", platform="onebot"),
+        SimpleNamespace(self_id="10002", platform="qq-client"),
         available=False,
         groups=("40002",),
     )
@@ -499,7 +499,7 @@ async def test_management_auth_persistence_and_failure_boundaries(
     management = AccountManagement(accounts, ActionService(registry=accounts))
     management.repository = ManagementRepository()
     await management.initialize({})
-    first = SimpleNamespace(self_id="10001", platform="onebot")
+    first = SimpleNamespace(self_id="10001", platform="qq-client")
     second = SimpleNamespace(self_id="10001", platform="telegram")
     accounts.register(first, available=True, groups=("40001",))
     accounts.register(second, available=True)
@@ -521,7 +521,7 @@ async def test_management_auth_persistence_and_failure_boundaries(
     async with httpx.AsyncClient(
         transport=transport, base_url="http://testserver"
     ) as client:
-        path = "/webui/api/manage/accounts/onebot/10001/disable"
+        path = "/webui/api/manage/accounts/qq-client/10001/disable"
         anonymous = await client.post(path, json={"confirm": True})
         assert anonymous.status_code == 401
         await _login(client)
@@ -553,7 +553,7 @@ async def test_management_auth_persistence_and_failure_boundaries(
         assert accounts.is_available(second)
         accounts.register(first, available=True)
         assert not accounts.is_available(first)
-        assert not management.can_connect("onebot", "10001")
+        assert not management.can_connect("qq-client", "10001")
         assert accounts.get(("telegram", "10001")) is second
         rows = (await client.get("/webui/api/manage/accounts")).json()["data"][
             "accounts"
@@ -700,7 +700,7 @@ async def test_plugin_and_group_switches_use_host_state_and_protect_control_plan
     config = TenkoConfig.from_mapping({"webui": {"enabled": True}})
     accounts = AccountRegistry()
     accounts.register(
-        SimpleNamespace(self_id="10001", platform="onebot"), groups=("40001",)
+        SimpleNamespace(self_id="10001", platform="qq-client"), groups=("40001",)
     )
     features = FeatureService(repositories["feature"])
     await features.initialize()
@@ -810,10 +810,10 @@ async def test_plugin_and_group_switches_use_host_state_and_protect_control_plan
 async def test_group_response_strategy_can_be_set_from_panel(tenko_database):
     accounts = AccountRegistry()
     accounts.register(
-        SimpleNamespace(self_id="10001", platform="onebot"), groups=("40001",)
+        SimpleNamespace(self_id="10001", platform="qq-client"), groups=("40001",)
     )
     accounts.register(
-        SimpleNamespace(self_id="10002", platform="onebot"), groups=("40001",)
+        SimpleNamespace(self_id="10002", platform="qq-client"), groups=("40001",)
     )
     server, _service_instance = _service(WebUIConfig(enabled=True), accounts=accounts)
     url = "/webui/api/manage/groups/40001/response"
@@ -851,10 +851,10 @@ async def test_capability_import_is_once_even_after_forgetting_account(tenko_dat
     preferences.repository = ManagementRepository()
     old = {"10001": {"set_group_ban": False}}
     await preferences.initialize(old)
-    assert preferences.preferences[("onebot", "10001")]["capabilities"] == {
+    assert preferences.preferences[("qq-client", "10001")]["capabilities"] == {
         "member_mute": False
     }
-    await preferences.forget(("onebot", "10001"))
+    await preferences.forget(("qq-client", "10001"))
     await preferences.initialize(old)
     assert not preferences.preferences
 
@@ -993,7 +993,7 @@ async def test_external_plugin_toggle_uses_state_file_and_reports_restart(
 async def test_webui_features_apply_plugin_declared_default_off(tenko_database):
     accounts = AccountRegistry()
     accounts.register(
-        SimpleNamespace(self_id="10001", platform="onebot"),
+        SimpleNamespace(self_id="10001", platform="qq-client"),
         available=True,
         groups=("40001", "40002"),
     )
@@ -1031,7 +1031,7 @@ async def test_inbox_decisions_run_the_plugin_callback(tenko_database):
     async def expired(approved, comment):
         raise ActionServiceError("请求已失效")
 
-    account = SimpleNamespace(self_id="10001", platform="onebot")
+    account = SimpleNamespace(self_id="10001", platform="qq-client")
     friend = inbox.add(
         InboxItem("friend", "f-1", account, "20001", "甲", "你好", record)
     )

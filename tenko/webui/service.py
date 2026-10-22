@@ -52,6 +52,7 @@ from ..host.metrics import MessageMetrics, message_metrics
 from . import core_config
 from .live import MAX_STREAMS, TOPICS, LiveStreams
 from ..host.inbox import Inbox, inbox as default_inbox
+from ..context import QQ_PLATFORM
 from ..host.accounts import AccountRegistry, account_reference, account_registry
 from ..host.features import FeatureService, feature_service as default_feature_service
 from ..host.plugins.runtime import PluginRuntime
@@ -679,7 +680,7 @@ class WebUIService(Service):
                     groups=list(self.accounts.groups_for_account(key)),
                     connected=bool(
                         self.connection
-                        and key[0] == "onebot"
+                        and key[0] == QQ_PLATFORM
                         and key[1] in self.connection.adapter.connections
                     ),
                     name=str(
@@ -688,7 +689,7 @@ class WebUIService(Service):
                     )
                     if getattr(getattr(account, "self_info", None), "user", None)
                     else row["id"],
-                    manageable=key[0] == "onebot",
+                    manageable=key[0] == QQ_PLATFORM,
                 )
             from ..host.actions import ActionCapability
 
@@ -714,7 +715,8 @@ class WebUIService(Service):
             key = (platform, identifier)
             if not management.contains(key):
                 raise KeyError(key)
-            if platform != "onebot" or self.connection is None:
+            # shortcut: QQ 号目前只经 OneBot 反向连接接入；接入 Milky 等协议端时改为按 adapter 判断。
+            if platform != QQ_PLATFORM or self.connection is None:
                 raise RuntimeError("当前协议适配器尚未提供账户管理能力")
             body = await read_json(request)
             if action == "preferences":

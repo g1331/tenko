@@ -34,7 +34,7 @@ from satori.element import (
     Video,
 )
 
-from ..context import MessageContext, is_message_created
+from ..context import QQ_PLATFORM, MessageContext, is_message_created
 from .sandbox import is_sandbox
 
 _FLUSH_DELAY = 0.5
@@ -301,7 +301,7 @@ class ChatLog:
         self_user = getattr(getattr(account, "self_info", None), "user", None)
         content = segments(getattr(response, "message", None) or ())
         fields = dict(
-            platform=str(getattr(account, "platform", "") or "onebot"),
+            platform=str(getattr(account, "platform", "") or QQ_PLATFORM),
             account_id=str(account.self_id),
             chat_type=chat_type,
             channel_id=channel_id,
