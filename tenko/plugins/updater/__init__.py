@@ -37,7 +37,6 @@ plugin.metadata(
     "宿主升级",
     PluginRole.NORMAL,
     author=["13"],
-    version="0.1.0",
     description="检查、准备并通过外部重启流程升级 Tenko 宿主。",
     classifier=["required", "host"],
 )

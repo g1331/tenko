@@ -57,7 +57,6 @@ plugin.metadata(
     "插件管理",
     PluginRole.NORMAL,
     author=["13"],
-    version="0.1.0",
     description="浏览插件目录，安装、更新、卸载、回滚第三方插件，并恢复插件环境。",
     classifier=["required", "host"],
 )

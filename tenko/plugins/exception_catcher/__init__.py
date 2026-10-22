@@ -29,7 +29,6 @@ plugin.metadata(
     "异常捕获",
     PluginRole.UTILITY,
     author=["13"],
-    version="0.1.0",
     description="捕获 Entari 全局异常并向超级用户发送带上下文的取证报告。",
     classifier=["required"],
 )

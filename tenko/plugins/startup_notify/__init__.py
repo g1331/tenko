@@ -16,7 +16,6 @@ plugin.metadata(
     "启动通知",
     PluginRole.NORMAL,
     author=["13"],
-    version="0.1.0",
     description="在 Tenko 与账号服务就绪后播报启动耗时。",
     classifier=["required"],
 )

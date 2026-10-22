@@ -28,7 +28,6 @@ plugin.metadata(
     "帮助系统",
     PluginRole.NORMAL,
     author=["13"],
-    version="0.1.0",
     description="根据 Entari 当前注册命令生成帮助文本。",
     classifier=["required"],
 )

@@ -46,7 +46,6 @@ plugin.metadata(
     "公告",
     PluginRole.NORMAL,
     author=["13"],
-    version="0.1.0",
     description="向开启指定功能的群推送公告，并逐条报告结果。",
     classifier=["required"],
 )

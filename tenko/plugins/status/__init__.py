@@ -19,7 +19,6 @@ plugin.metadata(
     "状态查询",
     PluginRole.NORMAL,
     author=["13"],
-    version="0.1.0",
     description="查询 Tenko 当前会话、资源、消息统计和账号路由状态。",
     classifier=["required"],
 )

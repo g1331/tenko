@@ -17,7 +17,6 @@ plugin.metadata(
     "功能开关",
     PluginRole.NORMAL,
     author=["13"],
-    version="0.1.0",
     description="管理群内插件功能开关。",
     classifier=["required", "host"],
 )

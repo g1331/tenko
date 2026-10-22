@@ -32,7 +32,6 @@ plugin.metadata(
     "群管理",
     PluginRole.NORMAL,
     author=["13"],
-    version="0.1.0",
     description="查询群设置并通过宿主动作服务执行群管理操作。",
     classifier=["required"],
 )

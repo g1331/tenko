@@ -17,7 +17,6 @@ plugin.metadata(
     "响应管理查询",
     PluginRole.NORMAL,
     author=["13"],
-    version="0.1.0",
     description="查询并管理 Tenko 多账号在线、群绑定、响应策略和禁言状态。",
     classifier=["required"],
 )

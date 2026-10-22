@@ -33,7 +33,6 @@ plugin.metadata(
     "权限管理",
     PluginRole.NORMAL,
     author=["13"],
-    version="0.1.0",
     description="管理 Tenko 的成员权限、群权限和权限同步。",
     classifier=["required"],
 )
