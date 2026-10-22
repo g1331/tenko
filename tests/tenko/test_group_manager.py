@@ -34,6 +34,7 @@ from tenko.host.accounts import AccountRegistry
 from tenko.host.guards import REQUIRES_ATTR
 from tenko.host.perm import Permission, PermissionChecker, PermissionRegistry
 from tenko.plugins._common import NotifyGroupConfig, action_error_message
+from tenko.render import RenderService
 
 
 def make_session(user_id: str, role: str, elements=None):
@@ -82,6 +83,10 @@ def make_private_session(user_id: str):
     )
 
 
+# 渲染返回空结果，命令回退到文字。
+TEXT_ONLY = SimpleNamespace(render_template=AsyncMock(return_value=b""))
+
+
 def make_query(path: str, result):
     query = Query(path, result)
     query.available = True
@@ -103,11 +108,21 @@ async def test_group_setting_trigger_is_read_only(loaded_plugin) -> None:
     )
 
     result = await loaded_plugin.group_setting.callable_target(
-        make_session("20001", "admin"), Query("group.group_id", None)
+        make_session("20001", "admin"),
+        Query("group.group_id", None),
+        render_service=TEXT_ONLY,
     )
 
     assert "权限类型: admin" in str(result)
     loaded_plugin.read_group_settings.assert_awaited_once_with("40001")
+    # 图片版走 list.html（StrictUndefined），数据缺键会静默退回文字。
+    html = RenderService()._render_html(
+        "list.html",
+        loaded_plugin.group_settings_data(
+            "40001", await loaded_plugin.read_group_settings("40001")
+        ),
+    )
+    assert "新成员自动设为群管理权限" in html and "随机" in html
 
 
 @pytest.mark.asyncio
@@ -119,7 +134,9 @@ async def test_group_setting_permission_filter_blocks_normal_member(
     loaded_plugin.read_group_settings = AsyncMock()
 
     result = await loaded_plugin.group_setting.callable_target(
-        make_session("20001", "member"), Query("group.group_id", None)
+        make_session("20001", "member"),
+        Query("group.group_id", None),
+        render_service=TEXT_ONLY,
     )
 
     assert str(result) == "权限不足"
@@ -137,7 +154,9 @@ async def test_group_setting_rejects_cross_group_target_in_group(
     loaded_plugin.read_group_settings = AsyncMock()
 
     result = await loaded_plugin.group_setting.callable_target(
-        make_session("20001", "member"), make_query("group.group_id", 40002)
+        make_session("20001", "member"),
+        make_query("group.group_id", 40002),
+        render_service=TEXT_ONLY,
     )
 
     assert str(result) == "群内只能查询当前群"
@@ -163,7 +182,9 @@ async def test_master_private_group_setting_can_query_requested_group(
     )
 
     result = await loaded_plugin.group_setting.callable_target(
-        make_private_session("90001"), make_query("group.group_id", 40002)
+        make_private_session("90001"),
+        make_query("group.group_id", 40002),
+        render_service=TEXT_ONLY,
     )
 
     assert "群40002设置" in str(result)
@@ -177,7 +198,9 @@ async def test_non_master_private_group_setting_is_denied(loaded_plugin) -> None
     loaded_plugin.read_group_settings = AsyncMock()
 
     result = await loaded_plugin.group_setting.callable_target(
-        make_private_session("20001"), make_query("group.group_id", 40002)
+        make_private_session("20001"),
+        make_query("group.group_id", 40002),
+        render_service=TEXT_ONLY,
     )
 
     assert str(result) == "权限不足"

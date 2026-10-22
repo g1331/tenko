@@ -25,9 +25,12 @@ from tenko.plugins._common import (
     NotifyGroupConfig,
     action_errors,
     context_from_session,
+    list_data,
     master_id_for_account,
+    render_or_text,
     report_action_error,
 )
+from tenko.render import RenderService
 
 
 plugin.metadata(
@@ -623,6 +626,36 @@ def format_group_settings(group_id: str, settings: dict[str, object]) -> str:
     )
 
 
+_STRATEGY = {"random": "随机", "deterministic": "定向"}
+_PERMISSION_TYPE = {
+    "default": "按群身份同步成员权限",
+    "admin": "新成员自动设为群管理权限",
+}
+
+
+def group_settings_data(
+    group_id: str, settings: dict[str, object]
+) -> dict[str, object]:
+    """``list.html`` 的渲染数据，内容与 :func:`format_group_settings` 一致。"""
+
+    strategy = str(settings["response_type"])
+    permission_type = str(settings["permission_type"])
+    rows = (
+        ("群状态", "启用" if settings["active"] else "停用", ""),
+        ("群权限", f"等级 {settings['permission']}", ""),
+        ("频率限制", "开启" if settings["frequency_limitation"] else "关闭", ""),
+        ("响应账号策略", _STRATEGY.get(strategy, strategy), strategy),
+        ("权限类型", permission_type, _PERMISSION_TYPE.get(permission_type, "")),
+    )
+    items = tuple(
+        {"number": number, "name": name, "meta": value, "detail": detail, "badge": ""}
+        for number, (name, value, detail) in enumerate(rows, 1)
+    )
+    return list_data(
+        "群设置", "只读查询", f"群 {group_id}", f"群{group_id}", items, "暂无设置"
+    )
+
+
 group_setting_command = Alconna(
     "群设置",
     Option(
@@ -645,6 +678,8 @@ group_setting_command = Alconna(
 async def group_setting(
     session: Session,
     group: Query[int] = Query("group.group_id"),
+    *,
+    render_service: RenderService,
 ):
     context = context_from_session(session)
     if context.chat_type == "group":
@@ -662,7 +697,12 @@ async def group_setting(
     else:
         return "该指令仅支持群聊或 Master 私聊执行"
     settings = await read_group_settings(target_group)
-    return format_group_settings(target_group, settings)
+    return await render_or_text(
+        render_service,
+        "list.html",
+        group_settings_data(target_group, settings),
+        format_group_settings(target_group, settings),
+    )
 
 
 frequency_limit_command = Alconna(
