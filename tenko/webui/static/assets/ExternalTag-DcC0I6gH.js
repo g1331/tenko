@@ -1,1 +1,0 @@
-import{Mr as e,Qn as t,er as n,qn as r,vr as i}from"./css-DxJ-_Oev.js";import{n as a}from"./css-BNRtQXA0.js";var o=n({__name:`ExternalTag`,setup(n){return(n,o)=>{let s=a;return i(),r(s,{size:`small`,effect:`plain`,type:`warning`,"disable-transitions":``},{default:e(()=>[...o[0]||=[t(`第三方`,-1)]]),_:1})}}});export{o as t};

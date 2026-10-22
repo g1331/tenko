@@ -1,0 +1,457 @@
+<script setup lang="ts">
+import { computed, onMounted, onScopeDispose, ref, shallowRef } from 'vue'
+import {
+  api,
+  ApiError,
+  type UpgradeAction,
+  type UpgradeHistoryEntry,
+  type UpgradeJob,
+  type UpgradeStatus,
+} from '@/api'
+import PageContainer from '@/components/PageContainer.vue'
+import PagePanel from '@/components/PagePanel.vue'
+import StatusTag from '@/components/StatusTag.vue'
+import { confirmAction } from '@/composables/confirm'
+import { relativeText, timeText } from '@/composables/format'
+import { usePanelData } from '@/composables/usePanelData'
+import type { StatusKind } from '@/composables/status'
+
+const POLL_MS = 2000
+// 重启超过这个时间仍连不上，提示去看宿主进程。
+const SLOW_RESTART_MS = 180_000
+
+const CHANNELS: Record<string, string> = { stable: '正式版', prerelease: '预发布（含正式版）' }
+const POLICIES: Record<string, string> = {
+  check: '只检查',
+  download: '自动下载',
+  install: '自动安装',
+}
+
+const { refresh } = usePanelData()
+const status = shallowRef<UpgradeStatus | null>(null)
+const loadError = ref<string | null>(null)
+const checking = ref(false)
+const starting = ref(false)
+/** 等待重启期间连不上面板的起始时间。 */
+const offlineSince = ref<number | null>(null)
+const now = ref(Date.now())
+const outcome = ref<{ type: 'success' | 'warning'; text: string } | null>(null)
+
+let alive = true
+let following = false
+onScopeDispose(() => {
+  alive = false
+})
+
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
+const errorText = (error: unknown) => (error instanceof ApiError ? error.message : String(error))
+const isActive = (job: UpgradeJob | null | undefined) =>
+  job?.state === 'running' || job?.state === 'restarting'
+
+const job = computed(() => status.value?.job ?? null)
+const busy = computed(() => starting.value || isActive(job.value) || offlineSince.value !== null)
+const candidate = computed(() => status.value?.last_check?.candidate ?? null)
+const incompatible = computed(() => Object.entries(job.value?.incompatible ?? {}))
+const comboConflict = computed(() => !!job.value?.incompatible['*'])
+const slow = computed(
+  () => offlineSince.value !== null && now.value - offlineSince.value > SLOW_RESTART_MS,
+)
+
+async function load() {
+  try {
+    status.value = await api.manage.upgrade()
+    loadError.value = null
+  } catch (error) {
+    loadError.value = errorText(error)
+  }
+  if (isActive(job.value)) void follow()
+}
+onMounted(load)
+
+/**
+ * 升级任务进行中时轮询状态。进入重启后旧进程一直报告 restarting，随后连不上；
+ * 新进程没有这个任务，据此判断重启已完成。
+ */
+async function follow() {
+  if (following) return
+  following = true
+  const before = status.value?.current_version
+  let restarting = false
+  try {
+    while (alive) {
+      await sleep(POLL_MS)
+      now.value = Date.now()
+      let next: UpgradeStatus
+      try {
+        next = await api.manage.upgrade()
+      } catch {
+        if (restarting) offlineSince.value ??= Date.now()
+        continue
+      }
+      offlineSince.value = null
+      status.value = next
+      if (next.job?.state === 'restarting') restarting = true
+      if (!isActive(next.job)) break
+    }
+  } finally {
+    following = false
+    offlineSince.value = null
+  }
+  const current = status.value
+  if (!alive || !restarting || !current || current.job) return
+  void refresh() // 侧栏的版本号等共享数据也来自旧进程
+  outcome.value =
+    current.current_version !== before
+      ? { type: 'success', text: `已重启，当前版本 ${current.current_version}` }
+      : {
+          type: 'warning',
+          text: `已重启，但版本仍是 ${current.current_version}；新版本可能未通过启动检查并已自动回滚，请查看下方升级记录。`,
+        }
+}
+
+async function check() {
+  if (!status.value) return
+  checking.value = true
+  try {
+    const result = await api.manage.checkUpgrade()
+    status.value = { ...status.value, last_check: result }
+    if (!result.candidate) ElMessage.success('当前已是最新版本')
+  } catch (error) {
+    ElMessage.error(`检查失败：${errorText(error)}`)
+  } finally {
+    checking.value = false
+  }
+}
+
+async function start(action: UpgradeAction, dropIncompatible = false) {
+  if (!status.value || busy.value) return
+  const text =
+    action === 'rollback'
+      ? [
+          `将重启并回到上一个版本 ${status.value.previous_version}。`,
+          '回滚后插件环境也会恢复到当时的状态。',
+        ]
+      : [
+          `将下载并校验 ${candidate.value?.tag ?? '新版本'}，通过后自动重启进入新版本；新版本启动失败会自动回滚。`,
+          dropIncompatible ? '会先卸载上面列出的不兼容插件，插件数据保留。' : '',
+        ]
+  const ok = await confirmAction(
+    text.filter(Boolean).join(''),
+    action === 'rollback' ? '回滚宿主' : '升级宿主',
+    action === 'rollback' ? '回滚' : '升级',
+  )
+  if (!ok) return
+  starting.value = true
+  outcome.value = null
+  try {
+    const started = await api.manage.startUpgrade({
+      action,
+      confirm: true,
+      drop_incompatible: dropIncompatible,
+    })
+    status.value = { ...status.value, job: started }
+    void follow()
+  } catch (error) {
+    ElMessage.error(`${action === 'rollback' ? '回滚' : '升级'}失败：${errorText(error)}`)
+  } finally {
+    starting.value = false
+  }
+}
+
+const jobTitle = computed(() => {
+  const current = job.value
+  if (!current) return ''
+  const verb = current.action === 'rollback' ? '回滚' : '升级'
+  if (offlineSince.value !== null || current.state === 'restarting') return '正在重启'
+  if (current.state === 'running') return current.stage || `正在${verb}`
+  return current.state === 'failed' ? `${verb}失败` : `${verb}完成`
+})
+const jobType = computed(() =>
+  job.value?.state === 'failed' ? 'error' : job.value?.state === 'succeeded' ? 'success' : 'info',
+)
+
+const HISTORY: Record<string, [string, StatusKind]> = {
+  'install:success': ['升级成功', 'on'],
+  'install:failed': ['升级失败', 'danger'],
+  'rollback:success': ['回滚成功', 'on'],
+  'rollback:failed': ['回滚失败', 'danger'],
+  'startup:failed': ['新版本启动失败', 'danger'],
+  'download:failed': ['下载失败', 'danger'],
+  'restart:requested': ['重启', 'off'],
+}
+function historyTag(entry: UpgradeHistoryEntry): [string, StatusKind] {
+  const [label, kind] = HISTORY[`${entry.action}:${entry.result}`] ?? [entry.result, 'off']
+  return [entry.automatic && entry.action === 'rollback' ? `自动${label}` : label, kind]
+}
+const versions = (entry: UpgradeHistoryEntry) =>
+  entry.from && entry.to && entry.from !== entry.to
+    ? `${entry.from} → ${entry.to}`
+    : (entry.to ?? entry.from ?? '')
+</script>
+
+<template>
+  <PageContainer>
+    <el-alert v-if="loadError && !status" type="error" :closable="false" show-icon>
+      <template #title>读取升级状态失败：{{ loadError }}</template>
+      <el-button size="small" @click="load">重试</el-button>
+    </el-alert>
+    <el-skeleton v-else-if="!status" :rows="6" animated />
+
+    <div v-else class="upgrade">
+      <el-alert
+        v-if="!status.enabled"
+        type="warning"
+        :closable="false"
+        show-icon
+        title="升级系统未启用"
+      >
+        在
+        <RouterLink :to="{ name: 'settings' }">设置 › 宿主配置 › 升级</RouterLink>
+        中开启后，可以在这里检查更新、升级和回滚。
+      </el-alert>
+
+      <el-alert v-if="outcome" :type="outcome.type" show-icon @close="outcome = null">
+        <template #title>{{ outcome.text }}</template>
+      </el-alert>
+
+      <el-alert v-if="job" :type="jobType" :closable="false" show-icon class="job">
+        <template #title>
+          <span class="job-title">
+            <span
+              v-if="isActive(job) || offlineSince !== null"
+              class="spinner"
+              aria-hidden="true"
+            />
+            {{ jobTitle }}
+          </span>
+        </template>
+        <p v-if="offlineSince !== null">
+          面板暂时无法连接，恢复后会自动刷新。
+          <template v-if="slow">已经等了较长时间，请检查宿主进程和日志。</template>
+        </p>
+        <p v-else-if="job.message">{{ job.message }}</p>
+        <p v-else-if="job.state === 'running'">期间不能安装或更新插件，也不能重启。</p>
+        <template v-if="incompatible.length">
+          <ul class="incompatible">
+            <li v-for="[plugin, reason] in incompatible" :key="plugin">
+              <strong class="tk-mono">{{ plugin === '*' ? '插件组合' : plugin }}</strong>
+              <span>{{ reason }}</span>
+            </li>
+          </ul>
+          <p v-if="comboConflict">插件之间的依赖冲突需要手动处理：先卸载其中一部分插件再升级。</p>
+          <el-button
+            v-else
+            size="small"
+            type="warning"
+            :disabled="busy"
+            @click="start('upgrade', true)"
+          >
+            卸载这些插件后升级
+          </el-button>
+        </template>
+      </el-alert>
+
+      <PagePanel title="当前版本">
+        <div class="current">
+          <div>
+            <div class="version tk-mono">{{ status.current_version }}</div>
+            <dl class="facts">
+              <div>
+                <dt>通道</dt>
+                <dd>{{ CHANNELS[status.channel] ?? status.channel }}</dd>
+              </div>
+              <div>
+                <dt>自动化</dt>
+                <dd>
+                  {{ POLICIES[status.policy] ?? status.policy }}，每
+                  {{ status.check_interval_hours }} 小时
+                </dd>
+              </div>
+              <div v-if="status.previous_version">
+                <dt>上一个版本</dt>
+                <dd class="tk-mono">{{ status.previous_version }}</dd>
+              </div>
+            </dl>
+          </div>
+          <div class="actions">
+            <el-button
+              type="primary"
+              :loading="checking"
+              :disabled="!status.enabled || busy"
+              @click="check"
+            >
+              检查更新
+            </el-button>
+            <el-button
+              v-if="status.previous_version"
+              :disabled="!status.enabled || busy"
+              @click="start('rollback')"
+            >
+              回滚到 {{ status.previous_version }}
+            </el-button>
+          </div>
+        </div>
+      </PagePanel>
+
+      <PagePanel v-if="status.last_check" title="可用更新">
+        <template #extra>检查于 {{ relativeText(status.last_check.checked_at) }}</template>
+        <div v-if="candidate" class="candidate">
+          <div class="candidate-head">
+            <strong class="tk-mono">{{ candidate.tag }}</strong>
+            <StatusTag v-if="candidate.prerelease" kind="pending">预发布</StatusTag>
+            <span class="muted">来源：{{ candidate.source }}</span>
+            <el-button
+              type="primary"
+              class="upgrade-button"
+              :disabled="!status.enabled || busy"
+              @click="start('upgrade')"
+            >
+              升级到 {{ candidate.tag }}
+            </el-button>
+          </div>
+          <pre v-if="candidate.notes" class="notes">{{ candidate.notes }}</pre>
+        </div>
+        <p v-else class="muted">当前已是最新版本</p>
+      </PagePanel>
+
+      <PagePanel title="升级记录">
+        <el-empty v-if="!status.history.length" :image-size="48" description="还没有升级记录" />
+        <ol v-else class="history">
+          <li v-for="(entry, index) in status.history" :key="index">
+            <StatusTag :kind="historyTag(entry)[1]">{{ historyTag(entry)[0] }}</StatusTag>
+            <span class="tk-mono">{{ versions(entry) }}</span>
+            <time class="muted">{{ timeText(entry.timestamp) }}</time>
+            <p v-if="entry.error" class="history-error">{{ entry.error }}</p>
+          </li>
+        </ol>
+      </PagePanel>
+    </div>
+  </PageContainer>
+</template>
+
+<style scoped>
+.upgrade {
+  display: grid;
+  gap: 16px;
+}
+.muted {
+  color: var(--tk-muted);
+  font-size: 12px;
+}
+.job p {
+  margin: 4px 0 0;
+}
+.job-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+.spinner {
+  width: 12px;
+  height: 12px;
+  border: 2px solid currentColor;
+  border-right-color: transparent;
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+.incompatible {
+  display: grid;
+  gap: 2px;
+  margin: 6px 0 8px;
+  padding-left: 18px;
+}
+.incompatible li span {
+  margin-left: 8px;
+}
+.current {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 16px;
+}
+.version {
+  color: var(--tk-heading);
+  font-size: 28px;
+  font-weight: 700;
+  line-height: 1.2;
+}
+.facts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 24px;
+  margin: 8px 0 0;
+  font-size: 13px;
+}
+.facts div {
+  display: flex;
+  gap: 6px;
+}
+.facts dt {
+  color: var(--tk-muted);
+}
+.facts dd {
+  margin: 0;
+}
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.actions .el-button + .el-button {
+  margin-left: 0;
+}
+.candidate-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 10px;
+}
+.candidate-head strong {
+  color: var(--tk-heading);
+  font-size: 16px;
+}
+.upgrade-button {
+  margin-left: auto;
+}
+.notes {
+  max-height: 320px;
+  margin: 12px 0 0;
+  padding: 12px 14px;
+  overflow: auto;
+  border-radius: 8px;
+  background: var(--tk-surface-2);
+  color: var(--tk-text);
+  font-family: var(--tk-font);
+  font-size: 13px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.history {
+  display: grid;
+  gap: 10px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.history li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 10px;
+  font-size: 13px;
+}
+.history-error {
+  flex-basis: 100%;
+  margin: 0;
+  color: var(--el-color-danger);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+</style>

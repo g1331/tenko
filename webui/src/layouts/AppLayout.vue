@@ -1,7 +1,15 @@
 <script setup lang="ts">
 import { computed, type Component } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { Connection, Odometer, Setting, Switch, Tickets, User } from '@element-plus/icons-vue'
+import {
+  Connection,
+  Odometer,
+  Setting,
+  Switch,
+  Tickets,
+  Upload,
+  User,
+} from '@element-plus/icons-vue'
 import GithubLink from '@/components/GithubLink.vue'
 import ThemeSwitch from '@/components/ThemeSwitch.vue'
 import tenshi from '@/assets/tenshi.webp'
@@ -22,6 +30,7 @@ const icons: Record<string, Component> = {
   accounts: User,
   plugins: Connection,
   switches: Switch,
+  upgrade: Upload,
   logs: Tickets,
   settings: Setting,
 }

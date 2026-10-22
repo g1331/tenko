@@ -75,6 +75,16 @@ export const router = createRouter({
           },
         },
         {
+          path: 'upgrade',
+          name: 'upgrade',
+          component: () => import('@/views/UpgradeView.vue'),
+          meta: {
+            title: '版本与升级',
+            subtitle: '检查更新、升级和回滚 Tenko 宿主',
+            nav: { label: '版本与升级', short: '升级', group: '运维' },
+          },
+        },
+        {
           path: 'logs',
           name: 'logs',
           component: () => import('@/views/LogsView.vue'),

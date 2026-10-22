@@ -33,6 +33,10 @@ import type {
   SessionsData,
   SettingsBody,
   SettingsData,
+  UpgradeCheck,
+  UpgradeJob,
+  UpgradeStartBody,
+  UpgradeStatus,
 } from './types'
 
 export { ApiError, notifyUnauthorized, setUnauthorizedHandler } from './client'
@@ -84,6 +88,9 @@ export const api = {
         body: { values, confirm: true },
       }),
     restart: () => request<{ restarting: boolean }>('/manage/restart', { body: { confirm: true } }),
+    upgrade: () => request<UpgradeStatus>('/manage/upgrade'),
+    checkUpgrade: () => request<UpgradeCheck>('/manage/upgrade/check', { body: {} }),
+    startUpgrade: (body: UpgradeStartBody) => request<UpgradeJob>('/manage/upgrade', { body }),
     config: () => request<CoreConfigData>('/manage/config'),
     saveConfig: (values: Record<string, unknown>) =>
       request<CoreConfigData>('/manage/config', { body: { values } }),

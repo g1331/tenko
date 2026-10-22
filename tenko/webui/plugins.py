@@ -39,6 +39,7 @@ from ..host.plugins.registry import (
 )
 from ..host.startup import _project_version
 from .auth import WEBUI_PATH, error_response, read_json
+from .upgrade import HostUpgrade
 
 if TYPE_CHECKING:
     from .service import WebUIService
@@ -155,6 +156,7 @@ class PluginMarket:
         self.tasks: dict[str, PluginTask] = {}
         self._running: asyncio.Task | None = None
         self._restarting = False
+        self.upgrade = HostUpgrade(self)
 
     @property
     def registry(self) -> Registry:
@@ -183,6 +185,7 @@ class PluginMarket:
             ("/api/manage/plugin-tasks/{id}", ["GET"], self.task_view),
             ("/api/manage/plugin-config/{plugin}", ["GET", "POST"], self.plugin_config),
             ("/api/manage/restart", ["POST"], self.restart),
+            *self.upgrade.routes(),
         )
 
     # ------------------------------------------------------------------ 只读
@@ -457,6 +460,8 @@ class PluginMarket:
                 raise ValueError("包含未知字段")
             if self._latest_running() is not None:
                 raise RuntimeError("已有插件任务正在执行，请稍后再试")
+            if self.upgrade.busy or self._restarting:
+                raise RuntimeError("宿主正在升级或重启，请稍后再试")
             request.state.webui_action = f"plugin-{action}"
             operation = await self._operation(action, body)
             task = PluginTask(uuid.uuid4().hex[:12], action, body.get("plugin_id"))
@@ -582,6 +587,20 @@ class PluginMarket:
 
     # ------------------------------------------------------------------ 重启
 
+    @property
+    def restarting(self) -> bool:
+        return self._restarting
+
+    def schedule_restart(self) -> None:
+        """启动重启接管并在响应发出后退出；接管未能启动时抛出 RuntimeError。"""
+
+        updater = self.updater
+        if not updater.spawn_restart_watcher():
+            raise RuntimeError("自动重启未能启动，请手动重启")
+        self._restarting = True
+        # 先把响应发回去，再退出。
+        asyncio.get_running_loop().call_later(1.0, updater.request_graceful_shutdown)
+
     async def restart(self, request: Request) -> JSONResponse:
         async def action():
             body = await read_json(request)
@@ -594,14 +613,10 @@ class PluginMarket:
                 raise RuntimeError("已在重启中")
             if self._latest_running() is not None:
                 raise RuntimeError("插件任务正在执行，完成后再重启")
-            if not updater.spawn_restart_watcher():
-                raise RuntimeError("自动重启未能启动，请手动重启")
-            self._restarting = True
+            if self.upgrade.busy:
+                raise RuntimeError("宿主正在升级，请稍后再试")
+            self.schedule_restart()
             request.state.webui_action = "restart"
-            # 先把响应发回去，再退出。
-            asyncio.get_running_loop().call_later(
-                1.0, updater.request_graceful_shutdown
-            )
             return {"restarting": True}
 
         return await self.service._manage(request, action)

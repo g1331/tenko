@@ -452,3 +452,53 @@ export interface PluginConfigData {
   read_only_reason?: string | null
   restart_required?: boolean
 }
+
+/** 宿主升级页；时间均为 ISO 8601 UTC。 */
+export interface UpgradeCheck {
+  checked_at: string
+  status: string
+  current_version: string
+  channel: string
+  candidate: {
+    tag: string
+    version: string
+    prerelease: boolean
+    source: string
+    notes: string | null
+  } | null
+}
+export type UpgradeAction = 'upgrade' | 'rollback'
+export interface UpgradeJob {
+  action: UpgradeAction
+  state: 'running' | 'restarting' | 'succeeded' | 'failed'
+  stage: string
+  message: string
+  target: string | null
+  /** 与目标版本不兼容的插件及原因；"*" 表示插件组合冲突。 */
+  incompatible: Record<string, string>
+}
+export interface UpgradeHistoryEntry {
+  timestamp: string | null
+  action: 'install' | 'rollback' | 'startup' | 'download' | 'restart'
+  result: string
+  from: string | null
+  to: string | null
+  automatic: boolean
+  error: string | null
+}
+export interface UpgradeStatus {
+  enabled: boolean
+  current_version: string
+  channel: 'stable' | 'prerelease'
+  policy: 'check' | 'download' | 'install'
+  check_interval_hours: number
+  previous_version: string | null
+  last_check: UpgradeCheck | null
+  job: UpgradeJob | null
+  history: UpgradeHistoryEntry[]
+}
+export interface UpgradeStartBody {
+  action: UpgradeAction
+  confirm: true
+  drop_incompatible: boolean
+}

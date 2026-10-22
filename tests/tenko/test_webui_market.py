@@ -16,6 +16,14 @@ from test_webui import _login
 from tenko.config import TenkoConfig
 from tenko.host.plugins.manager import PluginChange, PluginManagerError
 from tenko.host.plugins.registry import Registry
+from tenko.host.updater import (
+    CheckResult,
+    PluginCompatibilityError,
+    Release,
+    UpdateChannel,
+    UpdatePolicy,
+    parse_version,
+)
 from tenko.webui import WebUIService
 
 
@@ -235,3 +243,127 @@ async def test_plugin_detail_drops_unsafe_links_and_serves_icons(
     assert detail["icon"]["glyph"] is True
     icon = await client.get(detail["icon"]["url"])
     assert icon.headers["content-type"].startswith("image/svg+xml")
+
+
+class FakeUpdater:
+    enabled = True
+    current_version = parse_version("1.0.0")
+    channel = UpdateChannel.STABLE
+    policy = UpdatePolicy.CHECK_ONLY
+    check_interval_hours = 6
+
+    def __init__(self, tmp_path, reasons) -> None:
+        self.layout = SimpleNamespace(
+            audit_file=tmp_path / "audit.jsonl", read_previous=lambda: None
+        )
+        self.reasons = dict(reasons)
+        self.calls = []
+
+    async def check(self):
+        release = Release(parse_version("1.1.0"), "v1.1.0", notes="修复")
+        return CheckResult(self.current_version, self.channel, "memory", "ok", release)
+
+    async def prepare(self, release):
+        self.calls.append("prepare")
+        if self.reasons:
+            raise PluginCompatibilityError(release.version, self.reasons)
+
+    async def request_install(self):
+        self.calls.append("install")
+
+    def spawn_restart_watcher(self):
+        self.calls.append("arm")
+        return True
+
+    def request_graceful_shutdown(self):
+        self.calls.append("exit")
+        return True
+
+
+async def wait_upgrade(client, *states) -> dict:
+    for _ in range(100):
+        job = (await client.get("/webui/api/manage/upgrade")).json()["data"]["job"]
+        if job["state"] in states:
+            return job
+        await asyncio.sleep(0.01)
+    raise AssertionError(job)
+
+
+@pytest.mark.asyncio
+async def test_upgrade_stops_on_incompatible_plugins_until_told_to_drop_them(
+    market, tmp_path
+) -> None:
+    client, plugins = market.client, market.service.market
+    updater = FakeUpdater(tmp_path, {"old": "需要 tenko<1.1"})
+    plugins._updater = updater
+    removed = []
+
+    async def uninstall(plugin_id, *, actor):
+        removed.append(plugin_id)
+        updater.reasons.pop(plugin_id)
+
+    plugins._manager.uninstall = uninstall
+    url = "/webui/api/manage/upgrade"
+    body = {"action": "upgrade", "confirm": True}
+
+    assert (await client.post(url, json=body)).status_code == 200
+    job = await wait_upgrade(client, "failed")
+    assert job["incompatible"] == {"old": "需要 tenko<1.1"}
+    assert removed == [] and updater.calls == ["prepare"]
+
+    await client.post(url, json={**body, "drop_incompatible": True})
+    job = await wait_upgrade(client, "restarting")
+    assert removed == ["old"] and job["target"] == "v1.1.0"
+    assert updater.calls == ["prepare", "prepare", "prepare", "install", "arm"]
+    # 重启前不能再开插件任务或第二次升级。
+    assert (await client.post(url, json=body)).status_code == 409
+    task = await client.post(
+        "/webui/api/manage/plugin-tasks",
+        json={"action": "sync", "confirm": True},
+    )
+    assert task.status_code == 409
+    await asyncio.sleep(1.1)
+    assert updater.calls[-1] == "exit"
+
+
+@pytest.mark.asyncio
+async def test_upgrade_history_lists_final_results_newest_first(
+    market, tmp_path
+) -> None:
+    updater = FakeUpdater(tmp_path, {})
+    market.service.market._updater = updater
+    records = [
+        {"action": "install", "result": "started", "target_version": "1.1.0"},
+        {
+            "action": "install",
+            "result": "success",
+            "current_version": "1.0.0",
+            "target_version": "1.1.0",
+        },
+        "{broken",
+        {
+            "action": "startup",
+            "result": "failed",
+            "target_version": "1.2.0",
+            "reason": "\x1b[31mImportError\x1b[0m",
+        },
+        {
+            "action": "rollback",
+            "result": "success",
+            "automatic": True,
+            "target_version": "1.1.0",
+        },
+    ]
+    updater.layout.audit_file.write_text(
+        "\n".join(r if isinstance(r, str) else json.dumps(r) for r in records)
+    )
+
+    data = (await market.client.get("/webui/api/manage/upgrade")).json()["data"]
+
+    assert [(e["action"], e["result"]) for e in data["history"]] == [
+        ("rollback", "success"),
+        ("startup", "failed"),
+        ("install", "success"),
+    ]
+    assert data["history"][0]["automatic"] is True
+    assert data["history"][1]["error"] == "ImportError"
