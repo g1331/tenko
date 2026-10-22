@@ -38,10 +38,13 @@ class LogReader:
         # logger.exception 的堆栈在 record["exception"] 里，message 只有一句提示。
         exception = record.get("exception")
         if exception is not None and exception.type is not None:
+            tb = exception.traceback
+            # Entari 记录插件异常时在最前面接一个只为显示的 FakeTraceback，标准库
+            # 格式化不了它；跳过这一帧，后面是真正的堆栈。
+            if tb is not None and not hasattr(tb, "tb_lasti"):
+                tb = tb.tb_next
             text += "\n" + "".join(
-                traceback.format_exception(
-                    exception.type, exception.value, exception.traceback
-                )
+                traceback.format_exception(exception.type, exception.value, tb)
             ).rstrip("\n")
         text = self.redact(text)
         if len(text) > 4000:  # 保留开头的提示和结尾真正的异常行

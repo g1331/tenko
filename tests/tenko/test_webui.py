@@ -685,6 +685,30 @@ def test_management_logs_redact_credentials_and_restrict_history(tmp_path):
         logs.history(tmp_path, "../latest.log", "")
 
 
+def test_management_logs_keep_entari_handler_exceptions() -> None:
+    from loguru import logger
+
+    from tenko.webui.logs import LogReader
+
+    try:
+        raise RuntimeError("发送超时")
+    except RuntimeError as caught:
+        error, real = caught, caught.__traceback__
+
+    class FakeTraceback:  # Entari 的 loguru_print_trace 给插件异常加的显示帧
+        tb_frame = real.tb_frame
+        tb_lineno = 1
+        tb_next = real
+
+    logs = LogReader(lambda: ())
+    sink = logger.add(logs.sink, catch=False)
+    try:
+        logger.opt(exception=(RuntimeError, error, FakeTraceback())).error("Exception:")
+    finally:
+        logger.remove(sink)
+    assert "RuntimeError: 发送超时" in logs.live(0, "", "")["records"][0]["message"]
+
+
 @pytest.mark.asyncio
 async def test_plugin_and_group_switches_use_host_state_and_protect_control_plane(
     repositories, monkeypatch
