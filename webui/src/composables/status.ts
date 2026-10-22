@@ -16,7 +16,7 @@ export function accountStatus(account: Pick<AccountSummary, 'online'>): StatusIn
 export function featureStatus(feature: FeatureInfo): StatusInfo {
   if (feature.protected) return { kind: 'prot', label: '受保护' }
   if (!feature.loaded) {
-    // 第三方插件默认不加载；已启用的要等重启后才会加载。
+    // 扩展插件默认不加载；已启用的要等重启后才会加载。
     if (feature.source === 'external')
       return feature.enabled
         ? { kind: 'pending', label: '待重启' }
@@ -42,7 +42,7 @@ export function isSwitchable(feature: FeatureInfo): boolean {
   )
 }
 
-/** 已安装但未启用（因而未加载）的第三方插件：总览不把它算作运行统计，也不是需要处理的异常。 */
+/** 已安装但未启用（因而未加载）的扩展插件：总览不把它算作运行统计，也不是需要处理的异常。 */
 export function isInactiveExternal(feature: FeatureInfo): boolean {
   return feature.source === 'external' && !feature.loaded && !feature.enabled
 }
@@ -74,7 +74,7 @@ export function pluginStats(features: FeatureInfo[]): PluginStats {
   }
 }
 
-/** 第三方插件默认未加载，启用开关必须在未加载时也可用。 */
+/** 扩展插件默认未加载，启用开关必须在未加载时也可用。 */
 export function toggleLocked(feature: FeatureInfo): boolean {
   return feature.protected || (!feature.loaded && feature.source !== 'external')
 }

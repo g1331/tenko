@@ -36,7 +36,7 @@ BUILTIN_ICONS = {
 
 
 def plugin_icon_path(name: str, source: str, registry: Registry | None = None) -> Path:
-    """内置插件用自带图标，第三方插件用 registry 缓存里的图标，都没有时用默认图标。
+    """内置插件用自带图标，扩展插件用 registry 缓存里的图标，都没有时用默认图标。
 
     内置图标是单色 SVG（``fill="currentColor"``），registry 图标是 PNG。
     """

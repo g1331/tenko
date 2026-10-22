@@ -28,7 +28,7 @@ permission_checker = PermissionChecker()
 
 
 def _plugin_count() -> int:
-    """与 /帮助 一致：统计已加载的业务插件，未启用的第三方插件不计入。"""
+    """与 /帮助 一致：统计已加载的业务插件，未启用的扩展插件不计入。"""
 
     from tenko.host.plugins.runtime import PluginRuntime  # 局部导入避免插件加载顺序耦合
 

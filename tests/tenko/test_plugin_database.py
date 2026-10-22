@@ -1,4 +1,4 @@
-"""第三方插件的独立 SQLite 库：Model 绑定、自动迁移和绑定主库的拒绝。"""
+"""扩展插件的独立 SQLite 库：Model 绑定、自动迁移和绑定主库的拒绝。"""
 
 from __future__ import annotations
 

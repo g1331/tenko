@@ -1,4 +1,4 @@
-"""第三方插件测试的公共辅助：伪造 tenko.plugins 入口，并在临时目录写插件模块。"""
+"""扩展插件测试的公共辅助：伪造 tenko.plugins 入口，并在临时目录写插件模块。"""
 
 from __future__ import annotations
 

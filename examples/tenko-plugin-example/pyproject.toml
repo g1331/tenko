@@ -1,7 +1,7 @@
 [project]
 name = "tenko-plugin-example"
 version = "0.2.0"
-description = "Tenko 第三方插件示例与模板"
+description = "Tenko 扩展插件示例与模板"
 readme = "README.md"
 license = "GPL-3.0-only"
 requires-python = ">=3.11,<3.14"

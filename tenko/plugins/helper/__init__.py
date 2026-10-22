@@ -39,8 +39,8 @@ _HELP_SECTIONS = (
     ("required", "系统插件", "系统必需功能"),
     ("available", "运行插件", "当前可用功能"),
     ("unavailable", "维护插件", "暂不可用功能"),
-    # 仅在有已加载的第三方插件时显示。
-    ("third_party", "第三方", "第三方插件包"),
+    # 仅在有已加载的扩展插件时显示。
+    ("third_party", "扩展插件", "独立安装的插件包"),
 )
 
 help_command = Alconna(
@@ -146,7 +146,7 @@ def build_help_data(group_id: str | int | None = None) -> dict[str, Any]:
     for number, (info, native_plugin) in enumerate(_help_plugins(), 1):
         classifiers = _classifiers(native_plugin)
         if info.source == "external":
-            # 第三方插件自带的 classifier 不可信，不能借 host/required 进入系统区。
+            # 扩展插件自带的 classifier 不可信，不能借 host/required 进入系统区。
             key = "third_party"
             state_label = (
                 "维护中"

@@ -193,7 +193,7 @@ async def test_feature_numbers_match_help_and_external_cannot_claim_protection(
         SimpleNamespace(
             id="mod_local", metadata=SimpleNamespace(name="本地", classifier=())
         ),
-        # 第三方插件自带 classifier=host 也不能让它变成受保护插件。
+        # 扩展插件自带 classifier=host 也不能让它变成受保护插件。
         SimpleNamespace(
             id="mod_ext_on",
             metadata=SimpleNamespace(name="外部", classifier=("required", "host")),

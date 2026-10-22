@@ -337,7 +337,7 @@ async def test_failing_external_load_does_not_abort_startup(
         "ext_bad",
         "ext_ok",
     ]
-    assert "第三方插件加载失败: bad" in "".join(log_lines)
+    assert "扩展插件加载失败: bad" in "".join(log_lines)
 
 
 @pytest.mark.asyncio
@@ -537,7 +537,7 @@ async def test_invalid_plugin_config_fails_only_that_plugin(
     try:
         await runtime.load_all(external_configs={"cfg3": {"limit": "不是数字"}})
         assert not runtime.is_loaded("cfg3")
-        assert "第三方插件加载失败: cfg3" in "".join(log_lines)
+        assert "扩展插件加载失败: cfg3" in "".join(log_lines)
     finally:
         unload_plugin("tenko_t_cfg3")
         sys.modules.pop("tenko_t_cfg3", None)

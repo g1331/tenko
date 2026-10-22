@@ -1,4 +1,4 @@
-"""第三方插件的独立存储：数据目录和带版本的 JSON Store。"""
+"""扩展插件的独立存储：数据目录和带版本的 JSON Store。"""
 
 from __future__ import annotations
 
@@ -50,7 +50,7 @@ def test_data_dir_is_created_per_plugin_and_covers_submodules(plugin) -> None:
 
 
 def test_data_dir_rejects_callers_outside_external_plugins(plugin) -> None:
-    # 本测试模块不属于任何第三方插件。
+    # 本测试模块不属于任何扩展插件。
     with pytest.raises(PluginStorageError, match="tenko.plugins 入口"):
         data_dir()
     namespace = run_in_module(

@@ -525,7 +525,7 @@ class DebugConfig:
 
 @dataclass(frozen=True, slots=True)
 class RegistryConfig:
-    """第三方插件目录地址，按顺序回退。"""
+    """扩展插件目录地址，按顺序回退。"""
 
     urls: tuple[str, ...] = (
         "https://g1331.github.io/tenko-registry/index.json",
@@ -855,7 +855,7 @@ class TenkoConfig:
     chat_log: ChatLogConfig = field(default_factory=ChatLogConfig)
     database: DatabaseConfig = field(default_factory=DatabaseConfig)
     notify_group: str | None = None
-    # 第三方插件配置 ``[plugin_config.<id>]``，加载时按 ID 传给 load_plugin。
+    # 扩展插件配置 ``[plugin_config.<id>]``，加载时按 ID 传给 load_plugin。
     plugin_config: Mapping[str, Mapping[str, Any]] = field(default_factory=dict)
 
     def __post_init__(self) -> None:

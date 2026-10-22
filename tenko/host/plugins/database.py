@@ -1,4 +1,4 @@
-"""第三方插件的独立 SQLite 库：``Model`` 基类、绑定校验和引擎登记。
+"""扩展插件的独立 SQLite 库：``Model`` 基类、绑定校验和引擎登记。
 
 每个插件的模型绑定到自己的库 ``.tenko/plugin-data/<id>/data.db``，绑定键为
 ``plugin:<id>``。引擎在插件模块导入、第一个模型类创建时登记到官方
@@ -40,7 +40,7 @@ def _owner(module_name: str) -> str:
     found = external_plugin_for_module(module_name)
     if found is None:
         raise PluginStorageError(
-            f"无法确定 {module_name!r} 所属的第三方插件：Model 只能在插件自己的模块里"
+            f"无法确定 {module_name!r} 所属的扩展插件：Model 只能在插件自己的模块里"
             "定义，且包必须在 pyproject 的 tenko.plugins 入口中声明"
         )
     return found

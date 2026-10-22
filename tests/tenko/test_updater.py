@@ -1822,7 +1822,7 @@ async def test_import_check_failure_blocks_post_switch_only(tmp_path: Path) -> N
 
 @pytest.mark.asyncio
 async def test_import_check_runs_on_older_release_api(tmp_path: Path) -> None:
-    # 回滚目标是旧版本：它的 PluginRuntime 没有第三方插件接口，PluginInfo 没有 source。
+    # 回滚目标是旧版本：它的 PluginRuntime 没有扩展插件接口，PluginInfo 没有 source。
     candidate = tmp_path / "candidate"
     (candidate / "tenko" / "host").mkdir(parents=True)
     for name in ("tenko/__init__.py", "tenko/runtime.py", "tenko/host/__init__.py"):
@@ -1863,7 +1863,7 @@ def test_uv_dependency_sync_is_inexact_and_targets_running_environment(
     sync._sync(release)
     environment, *arguments = (tmp_path / "fake-uv.args").read_text().split()
     assert environment == str(tmp_path / "venv")
-    # --inexact 保留第三方插件装在同一环境里的依赖。
+    # --inexact 保留扩展插件装在同一环境里的依赖。
     assert arguments == [
         "sync",
         "--frozen",

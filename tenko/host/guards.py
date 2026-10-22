@@ -27,7 +27,7 @@ from .perm import Permission, PermissionChecker
 from .plugins.runtime import external_plugin_for_module
 
 REQUIRES_ATTR = "__tenko_requires__"
-# 测试可以替换它；内置和第三方插件共用同一个检查器（数据库 + Entari superusers）。
+# 测试可以替换它；内置和扩展插件共用同一个检查器（数据库 + Entari superusers）。
 permission_checker = PermissionChecker()
 
 _USER_LABELS = {
@@ -216,7 +216,7 @@ def feature_required(*, notify: bool = False) -> Callable[[Any], Any]:
         plugin_id = external_plugin_for_module(getattr(target, "__module__", ""))
         if plugin_id is None:
             raise RuntimeError(
-                "feature_required 只能用于第三方插件自己的模块，且包必须在 "
+                "feature_required 只能用于扩展插件自己的模块，且包必须在 "
                 "pyproject 的 tenko.plugins 入口中声明"
             )
         native = get_plugin(optional=True)

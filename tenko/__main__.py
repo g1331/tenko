@@ -36,7 +36,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--config", type=Path, default=argparse.SUPPRESS, help="TOML 配置文件路径"
     )
     passwd.add_argument("--username", help="同时修改面板用户名（默认保持不变）")
-    plugins = subcommands.add_parser("plugins", help="第三方插件环境管理")
+    plugins = subcommands.add_parser("plugins", help="扩展插件环境管理")
     plugins.add_argument(
         "--config", type=Path, default=argparse.SUPPRESS, help="TOML 配置文件路径"
     )

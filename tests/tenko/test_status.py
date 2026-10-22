@@ -549,7 +549,7 @@ def test_get_version_details_collects_git_metadata_once(
 
 @pytest.mark.parametrize("loaded_plugin", ["status"], indirect=True)
 def test_plugin_count_only_counts_loaded_plugins(loaded_plugin, monkeypatch) -> None:
-    """未启用（未加载）的第三方插件不计入“已加载插件”。"""
+    """未启用（未加载）的扩展插件不计入“已加载插件”。"""
 
     from tenko.host.plugins.runtime import PluginInfo, PluginRuntime
 

@@ -12,8 +12,8 @@
 ## 代码约定
 
 - 插件位于 tenko/plugins/，遵循 Entari 插件生命周期，命令统一 / 前缀；
-  第三方插件通过 `tenko.plugins` 入口提供，默认关闭，在 WebUI 插件页启用后加载
-  （个别需要重启）（规则见 AGENTS.md「第三方插件」）。写第三方插件请从
+  扩展插件通过 `tenko.plugins` 入口提供，默认关闭，在 WebUI 插件页启用后加载
+  （个别需要重启）（规则见 AGENTS.md「扩展插件」）。写扩展插件请从
   [examples/tenko-plugin-example](../examples/tenko-plugin-example) 开始，它只依赖
   [tenko-api](../packages/tenko-api)；
 - 数据库访问集中在 tenko/db/，宿主服务在 tenko/host/；

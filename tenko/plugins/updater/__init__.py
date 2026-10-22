@@ -62,7 +62,7 @@ upgrade_command = Alconna(
     Args["drop?", "卸载不兼容插件"],
     meta=CommandMeta(
         "下载并准备经过校验的 Tenko 宿主版本；带“卸载不兼容插件”时先卸载"
-        "与新版本不兼容的第三方插件（数据保留）",
+        "与新版本不兼容的扩展插件（数据保留）",
         usage="升级 [卸载不兼容插件]",
         example="/升级\n/升级 卸载不兼容插件",
         compact=True,

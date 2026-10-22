@@ -1,6 +1,6 @@
 # tenko-plugin-example
 
-[Tenko](https://github.com/g1331/tenko) 第三方插件的示例与起步模板。它演示：
+[Tenko](https://github.com/g1331/tenko) 扩展插件的示例与起步模板。它演示：
 
 - 用 `tenko_api.features.declare` 声明按群开关、默认状态、限流权重和群等级；
 - 用 `[plugin_config.example]` 配置插件（Entari 的 `BasicConfModel`）；
@@ -59,7 +59,7 @@ uv run ruff check .
 2. 如有配置，在 `config/tenko.toml` 里添加 `[plugin_config.<插件 ID>]`，见仓库中
    `config/tenko.toml.example` 末尾的说明。运行中的 Tenko 只认启动时读到的配置，改了配置
    要重启。
-3. 打开 WebUI 的插件页，启用该插件（带“第三方”标记）。第三方插件默认关闭，启用后写入
+3. 打开 WebUI 的插件页，启用该插件（带“扩展”标记）。扩展插件默认关闭，启用后写入
    `.tenko/plugins/state.json` 并直接加载。
 4. 本示例定义了数据库模型，运行中加载会被拒绝，面板会提示重启（聊天里的 `/重启` 或重新
    运行进程）。没有数据库模型的插件不需要这一步。

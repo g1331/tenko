@@ -1,4 +1,4 @@
-"""插件市场与第三方插件页的浏览器验证；后端为路由替身，任务由替身按需完成。"""
+"""插件市场与扩展插件页的浏览器验证；后端为路由替身，任务由替身按需完成。"""
 
 import copy
 
@@ -200,7 +200,7 @@ def test_install_failure_reports_restored_environment(open_panel):
 def test_uninstall_loaded_plugin_cannot_clear_data(open_panel):
     panel = MarketPanel()
     panel.outcome = {"state": "succeeded", "message": "完成，重启后生效"}
-    page = open_market(open_panel, panel, "第三方插件")
+    page = open_market(open_panel, panel, "扩展插件")
     page.get_by_text("可更新到 1.2.0").wait_for()
     page.get_by_role("button", name="卸载").click()
     dialog = page.get_by_role("dialog", name="卸载插件")

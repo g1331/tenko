@@ -138,7 +138,7 @@ export interface FeatureInfo {
   /** 未在插件目录登记的残留开关记录没有图标。 */
   icon: PluginIconRef | null
   scope: FeatureScope
-  /** builtin 内置；external 第三方（tenko.plugins 入口，默认关闭）。 */
+  /** builtin 内置；external 扩展插件（tenko.plugins 入口，默认关闭）。 */
   source: 'builtin' | 'external' | 'unmanaged'
   /** 控制平面插件，不能通过面板停用或改开关。 */
   protected: boolean
@@ -172,7 +172,7 @@ export interface PluginDetail {
   name: string
   source: FeatureInfo['source']
   description: string
-  /** 内置插件为 Tenko 版本，第三方为已安装版本。 */
+  /** 内置插件为 Tenko 版本，扩展插件为已安装版本。 */
   version: string | null
   authors: string[]
   license: string | null
@@ -248,9 +248,9 @@ export interface PluginToggleBody {
 export interface PluginToggleResult {
   plugin: string
   enabled: boolean
-  /** 第三方插件已启用但尚未加载，需重启后生效。 */
+  /** 扩展插件已启用但尚未加载，需重启后生效。 */
   restart_required: boolean
-  /** 首次启用的第三方插件没能直接加载的原因。 */
+  /** 首次启用的扩展插件没能直接加载的原因。 */
   restart_reason?: string | null
 }
 

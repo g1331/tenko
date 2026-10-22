@@ -1,4 +1,4 @@
-"""第三方插件的独立数据存储：数据目录和带版本的 JSON 存储。
+"""扩展插件的独立数据存储：数据目录和带版本的 JSON 存储。
 
 所有入口按调用方（或模型）所在的模块归属到插件 ID，规则见
 :func:`tenko.host.plugins.runtime.external_plugin_for_module`：模块必须属于某个
@@ -42,7 +42,7 @@ def _plugin_of(module_name: str) -> str:
     found = external_plugin_for_module(module_name)
     if found is None:
         raise PluginStorageError(
-            f"无法确定 {module_name!r} 所属的第三方插件：存储接口只能在插件自己的"
+            f"无法确定 {module_name!r} 所属的扩展插件：存储接口只能在插件自己的"
             "模块里调用，且包必须在 pyproject 的 tenko.plugins 入口中声明"
         )
     return found

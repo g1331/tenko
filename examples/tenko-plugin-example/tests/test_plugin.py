@@ -9,7 +9,7 @@ from tenko.host.plugins import PluginRuntime
 
 
 def test_entry_point_is_discovered_but_disabled_by_default(tmp_path):
-    """第三方插件默认关闭：没有状态文件时只被发现，不被加载。"""
+    """扩展插件默认关闭：没有状态文件时只被发现，不被加载。"""
 
     runtime = PluginRuntime(tmp_path / "no-builtin", state_file=tmp_path / "none.json")
     info = next(item for item in runtime.discover() if item.name == "example")

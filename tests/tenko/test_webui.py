@@ -438,7 +438,7 @@ async def test_webui_overview_uses_status_data_metrics_and_counts(
     monkeypatch.setattr(status, "collect_process_info", lambda: process)
     monkeypatch.setattr(status, "collect_system_resources", lambda: resources)
     monkeypatch.setattr(status, "get_version_details", lambda: version_details)
-    # 概览只统计已加载的插件，未启用的第三方插件不计入。
+    # 概览只统计已加载的插件，未启用的扩展插件不计入。
     plugin_runtime = SimpleNamespace(loaded_plugins={"demo": object()})
     server, _service_instance = _service(
         WebUIConfig(enabled=True),
@@ -1016,7 +1016,7 @@ async def test_external_plugin_toggle_uses_state_file_and_reports_restart(
         assert json.loads(state_file.read_text(encoding="utf-8")) == {
             "enabled": ["ext_demo"]
         }
-        # 内置插件的停用列表不会被第三方插件污染。
+        # 内置插件的停用列表不会被扩展插件污染。
         assert await management.repository.setting("disabled-plugins") is None
 
         response = await client.post(

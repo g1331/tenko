@@ -1,4 +1,4 @@
-"""第三方插件的目录、安装、更新、卸载与回滚命令（Master，群聊和私聊都可用）。
+"""扩展插件的目录、安装、更新、卸载与回滚命令（Master，群聊和私聊都可用）。
 
 新装插件首次启用时多数可直接加载，更新、卸载和回滚在 ``/重启`` 后生效。插件目录里的插件直接安装；不在目录里的来源
 安装前要二次确认，确认只接受发起命令的同一个人在同一个会话里的回复。目录每小时刷新
@@ -57,7 +57,7 @@ plugin.metadata(
     "插件管理",
     PluginRole.NORMAL,
     author=["13"],
-    description="浏览插件目录，安装、更新、卸载、回滚第三方插件，并恢复插件环境。",
+    description="浏览插件目录，安装、更新、卸载、回滚扩展插件，并恢复插件环境。",
     classifier=["required", "host"],
 )
 
@@ -107,7 +107,7 @@ install_command = Alconna(
     "安装插件",
     Args["source", str],
     meta=CommandMeta(
-        "安装第三方插件：插件目录里的 ID（可带 @版本），或未收录的 PyPI 包名、"
+        "安装扩展插件：插件目录里的 ID（可带 @版本），或未收录的 PyPI 包名、"
         "带 tag/提交号的 Git URL；重启后生效",
         usage="安装插件 <插件ID[@版本]|包名|Git URL@tag>",
         example="/安装插件 example\n/安装插件 example@0.1.0\n"
@@ -219,7 +219,7 @@ uninstall_command = Alconna(
     "卸载插件",
     Args["plugin_id", str]["clear?", "清除数据"],
     meta=CommandMeta(
-        "卸载第三方插件；数据目录默认保留，带“清除数据”时一并永久删除",
+        "卸载扩展插件；数据目录默认保留，带“清除数据”时一并永久删除",
         usage="卸载插件 <插件ID> [清除数据]",
         example="/卸载插件 example\n/卸载插件 example 清除数据",
         compact=False,
@@ -318,7 +318,7 @@ async def sync_environment(session: Session):
 list_command = Alconna(
     "插件列表",
     meta=CommandMeta(
-        "列出由插件管理器安装的第三方插件及状态",
+        "列出由插件管理器安装的扩展插件及状态",
         usage="插件列表",
         example="/插件列表",
         compact=True,
@@ -332,7 +332,7 @@ async def list_plugins(session: Session, *, render_service: RenderService):
     manager = get_plugin_manager()
     rows = manager.status()
     if not rows:
-        return "没有已安装的第三方插件"
+        return "没有已安装的扩展插件"
     index = get_registry().cached()  # 不联网；目录每小时刷新
     lines, items, updates = [], [], 0
     for row in rows:
@@ -388,13 +388,13 @@ async def list_plugins(session: Session, *, render_service: RenderService):
     data = {
         "eyebrow": "TENKO · PLUGINS",
         "title": "插件列表",
-        "subtitle": "由插件管理器安装的第三方插件",
+        "subtitle": "由插件管理器安装的扩展插件",
         "stats": [
             (len(rows), "已安装"),
             (sum(r.enabled for r in rows), "已启用"),
             (updates, "可更新"),
         ],
-        "section": "第三方插件",
+        "section": "扩展插件",
         "section_note": "",
         "items": items,
         "more": "",
@@ -421,7 +421,7 @@ enable_command = Alconna(
     "启用插件",
     Args["plugin_id", str],
     meta=CommandMeta(
-        "启用已安装的第三方插件；首次启用时多数可直接加载",
+        "启用已安装的扩展插件；首次启用时多数可直接加载",
         usage="启用插件 <插件ID>",
         example="/启用插件 example",
         compact=False,
@@ -431,7 +431,7 @@ disable_command = Alconna(
     "停用插件",
     Args["plugin_id", str],
     meta=CommandMeta(
-        "停用第三方插件；已加载的立即停用",
+        "停用扩展插件；已加载的立即停用",
         usage="停用插件 <插件ID>",
         example="/停用插件 example",
         compact=False,
@@ -459,7 +459,7 @@ async def _toggle(plugin_id: str, enabled: bool) -> str:
         None,
     )
     if info is None:
-        return f"没有已安装的第三方插件 {plugin_id}，见 /插件列表"
+        return f"没有已安装的扩展插件 {plugin_id}，见 /插件列表"
     if enabled and (reason := api_incompatibility(plugin_id)):
         return f"无法启用插件<{plugin_id}>：{reason}"
     index = get_registry().cached()
@@ -732,7 +732,7 @@ async def refresh_registry() -> None:
         return
     if stopped := await enforce_blocklist(index):
         text = (
-            "以下第三方插件已被插件目录封禁，已自动停用（未卸载，数据保留）：\n"
+            "以下扩展插件已被插件目录封禁，已自动停用（未卸载，数据保留）：\n"
             + "\n".join(stopped)
             + "\n确认后可用 /卸载插件 移除。"
         )

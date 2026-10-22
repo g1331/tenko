@@ -141,7 +141,7 @@ def test_overview_ignores_installed_but_disabled_external_plugins(open_panel):
     page = open_panel(panel, "overview")
     page.locator(".hero-stats").wait_for()
     main = page.locator("main")
-    # 未启用的第三方插件不算“未加载”，也不进入待关注列表和总数。
+    # 未启用的扩展插件不算“未加载”，也不进入待关注列表和总数。
     assert "演示插件" not in main.inner_text()
     assert f"/ {total}" in page.locator(".hero-stats").inner_text()
     assert not page.errors

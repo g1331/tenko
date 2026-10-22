@@ -135,7 +135,7 @@ class DependencySyncError(UpdaterError):
 
 
 class PluginCompatibilityError(UpdaterError):
-    """已安装的第三方插件与新版本的宿主依赖不兼容；``reasons`` 是插件 ID 到原因。"""
+    """已安装的扩展插件与新版本的宿主依赖不兼容；``reasons`` 是插件 ID 到原因。"""
 
     def __init__(self, version: Version, reasons: Mapping[str, str]):
         self.reasons = dict(reasons)
@@ -1478,8 +1478,8 @@ class DefaultHealthChecker:
     def _import_check_sync(
         self, candidate: Path, plugin_ids: Sequence[str] = ()
     ) -> HealthCheckResult:
-        """子进程导入宿主、内置插件和已启用的第三方插件；``plugin_ids`` 额外导入
-        这些尚未启用的第三方插件（安装、更新插件时用）。"""
+        """子进程导入宿主、内置插件和已启用的扩展插件；``plugin_ids`` 额外导入
+        这些尚未启用的扩展插件（安装、更新插件时用）。"""
 
         try:
             completed = subprocess.run(
@@ -1526,10 +1526,10 @@ class DefaultHealthChecker:
 
 
 _IMPORT_CHECK_MIN_TIMEOUT = 120
-# 在子进程里用候选代码导入宿主，并通过 Entari 加载全部内置插件和已启用的第三方
+# 在子进程里用候选代码导入宿主，并通过 Entari 加载全部内置插件和已启用的扩展
 # 插件。load_plugin 失败只返回错误而不抛异常，所以要逐个检查结果。
 # 脚本由当前版本提供，却在候选版本的代码和依赖上运行（回滚时是更旧的版本），
-# 所以只能用各版本都有的接口：旧版没有第三方插件和 source 字段，Entari 0.18 的
+# 所以只能用各版本都有的接口：旧版没有扩展插件和 source 字段，Entari 0.18 的
 # load_plugin 失败时返回 None 而不是带 error 的结果。
 _IMPORT_CHECK_SCRIPT = """
 import sys
@@ -1544,7 +1544,7 @@ runtime = PluginRuntime()
 enabled = getattr(runtime, "_enabled_external_ids", set)() | set(sys.argv[2:])
 infos = runtime.discover()
 failed = [
-    f"{name}: 没有发现这个第三方插件"
+    f"{name}: 没有发现这个扩展插件"
     for name in sys.argv[2:]
     if name not in {info.name for info in infos}
 ]
@@ -1580,7 +1580,7 @@ def find_uv(explicit: str | None = None) -> str:
 class UvDependencySync:
     """按版本目录的 ``uv.lock`` 把依赖同步到当前运行的虚拟环境。
 
-    第三方插件与宿主共用同一个虚拟环境，所以不用 ``uv sync`` 默认的精确同步
+    扩展插件与宿主共用同一个虚拟环境，所以不用 ``uv sync`` 默认的精确同步
     （会卸载锁文件之外的插件依赖），而是 ``--inexact``：只安装、升级或降级锁文件
     里的包，不删除多余的包。``--no-editable`` 把 ``tenko-api`` 作为普通包装入：
     环境里登记的版本要跟随宿主，插件解析依赖时看到的才是真实版本；可编辑安装又会

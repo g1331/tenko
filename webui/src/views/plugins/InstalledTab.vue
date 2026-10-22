@@ -12,7 +12,7 @@ import PluginConfigDrawer from './PluginConfigDrawer.vue'
 import PluginIcon from './PluginIcon.vue'
 import TierTag from './TierTag.vue'
 
-// 通过插件管理器安装的第三方插件：启停、更新、配置、卸载，以及整体的更新、回滚和环境同步。
+// 通过插件管理器安装的扩展插件：启停、更新、配置、卸载，以及整体的更新、回滚和环境同步。
 const ops = usePluginOps()
 const { refresh } = usePanelData()
 
@@ -107,7 +107,7 @@ async function remove() {
   <ResourceBoundary :resource="ops.installed" label="已安装插件" :retry="ops.loadInstalled">
     <template #default="{ data }">
       <div class="toolbar">
-        <span class="summary">共 {{ data.plugins.length }} 个第三方插件</span>
+        <span class="summary">共 {{ data.plugins.length }} 个扩展插件</span>
         <div class="bulk">
           <el-button
             v-if="data.rollback_available"
@@ -143,7 +143,7 @@ async function remove() {
       <el-empty
         v-if="!data.plugins.length"
         :image-size="64"
-        description="还没有通过插件管理器安装的第三方插件，可以到“插件市场”看看。"
+        description="还没有通过插件管理器安装的扩展插件，可以到“插件市场”看看。"
       />
       <div v-else class="grid">
         <article

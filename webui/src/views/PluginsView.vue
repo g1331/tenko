@@ -85,7 +85,7 @@ const summary = computed(() => {
       <el-tab-pane label="插件市场" name="market" lazy>
         <MarketTab />
       </el-tab-pane>
-      <el-tab-pane label="第三方插件" name="installed" lazy>
+      <el-tab-pane label="扩展插件" name="installed" lazy>
         <InstalledTab />
       </el-tab-pane>
     </el-tabs>

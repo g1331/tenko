@@ -1,18 +1,18 @@
-# 第三方插件
+# 扩展插件
 
 ## 编写插件
 
-第三方插件是普通的 Python 包，通过 `pyproject.toml` 的 `tenko.plugins` 入口点向 Tenko 注册。
+扩展插件是普通的 Python 包，通过 `pyproject.toml` 的 `tenko.plugins` 入口点向 Tenko 注册。
 从 [examples/tenko-plugin-example](../examples/tenko-plugin-example) 开始：它只依赖
 [tenko-api](../packages/tenko-api)，演示了命令、功能声明、插件配置和独立数据库，可以直接作为模板。
-开发约定见 [AGENTS.md](../AGENTS.md)「第三方插件（外部包）」一节。
+开发约定见 [AGENTS.md](../AGENTS.md)「扩展插件（外部包）」一节。
 
 ## 安装与管理
 
 除了下面的聊天命令，Master 也可以在 WebUI 的「插件」页浏览插件市场、安装和管理插件，
 见 [WebUI 管理面板](webui.md)。
 
-第三方插件装进与宿主共用的虚拟环境，由 Master 在聊天里管理（群聊或私聊均可）。新装的插件
+扩展插件装进与宿主共用的虚拟环境，由 Master 在聊天里管理（群聊或私聊均可）。新装的插件
 默认未启用，`/启用插件 <ID>` 后直接加载；插件使用了独立数据库、启动以来已有的插件包有变动，
 或插件模块在本次运行中导入过时，改为提示 `/重启` 后加载。更新、卸载和回滚都在 `/重启` 后生效。
 

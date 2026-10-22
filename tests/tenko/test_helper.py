@@ -423,12 +423,12 @@ def test_help_lists_loaded_external_plugins_in_their_own_section(
         "系统插件",
         "运行插件",
         "维护插件",
-        "第三方",
+        "扩展插件",
     ]
     assert data["total"] == 2 and data["enabled_count"] == 2
     text = loaded_plugin.format_help_text(data)
-    assert text.index("运行插件：") < text.index("第三方：")
-    assert "2. ext_on plugin（运行中）" in text.split("第三方：")[1]
+    assert text.index("运行插件：") < text.index("扩展插件：")
+    assert "2. ext_on plugin（运行中）" in text.split("扩展插件：")[1]
 
 
 @pytest.mark.parametrize("loaded_plugin", ["helper"], indirect=True)
@@ -447,7 +447,7 @@ def test_help_hides_third_party_section_when_none_loaded(monkeypatch, loaded_plu
         "available",
         "unavailable",
     ]
-    assert "第三方" not in loaded_plugin.format_help_text(data)
+    assert "扩展插件" not in loaded_plugin.format_help_text(data)
 
 
 @pytest.mark.parametrize("loaded_plugin", ["helper"], indirect=True)

@@ -896,7 +896,7 @@ class WebUIService(Service):
             if info.source == "external":
                 if enabled and (reason := self.market.blocked_reason(info.name)):
                     raise PermissionError(f"插件已被插件目录封禁：{reason}")
-                # 第三方插件默认关闭，状态由 PluginRuntime 写入状态文件。
+                # 扩展插件默认关闭，状态由 PluginRuntime 写入状态文件。
                 if not await self.plugin_runtime.set_enabled(info, enabled):
                     raise RuntimeError("插件当前未能切换状态")
                 if enabled:

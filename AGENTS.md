@@ -25,12 +25,12 @@ tenko/
 ├── events.py                # 事件入口：过滤、去重、群路由维护
 ├── db/                      # 模型、迁移、数据库启动和 repositories
 ├── host/                    # 宿主服务：账号、权限、功能、限流、动作、渲染、统计、状态、升级
-│   └── plugins/             # 第三方插件生态：运行时加载、安装管理、插件目录、独立存储、说明资料
+│   └── plugins/             # 扩展插件生态：运行时加载、安装管理、插件目录、独立存储、说明资料
 ├── plugins/                 # Tenko 原生插件；_common.py 只放插件之间共用的小工具
 ├── templates/               # 离线渲染模板和资源
 └── webui/                   # WebUI 后端；static/ 是前端构建产物（勿手改）
-packages/tenko-api/          # 第三方插件的稳定接口（uv workspace 成员，发布为 tenko-api）
-examples/tenko-plugin-example/  # 第三方插件示例与模板
+packages/tenko-api/          # 扩展插件的稳定接口（uv workspace 成员，发布为 tenko-api）
+examples/tenko-plugin-example/  # 扩展插件示例与模板
 webui/                        # WebUI 前端工程（Vue 3 + TS + Vite + Element Plus）
 tests/tenko/                  # 单元测试和集成式调用点测试
 config/tenko.toml.example    # 配置模板
@@ -51,7 +51,7 @@ config/tenko.toml.example    # 配置模板
   服务器上的既有环境名为 `.venv-entari`，两种方式并存时以 uv 为准。
   自更新（`/升级`、`/回滚`）按目标版本目录的 `uv.lock` 执行
   `uv sync --frozen --inexact --no-editable`，实现见 `UvDependencySync`。
-  第三方插件装在同一个环境里，所以不能手动或在更新器里用默认的精确 `uv sync`
+  扩展插件装在同一个环境里，所以不能手动或在更新器里用默认的精确 `uv sync`
   （会卸载插件依赖）；手工同步生产环境时同样加 `--inexact`。
 
 - 提交前至少执行：
@@ -90,7 +90,7 @@ config/tenko.toml.example    # 配置模板
    并通过 `plugin.metadata` 声明名称、版本、作者和能力。
 2. 对外命令统一使用 `/` 前缀。命令解析、帮助内容和权限检查应复用现有的
    command manager、`tenko.context` 以及 `tenko.host` 服务。
-   命令权限用 `tenko.host.guards` 的装饰器声明（第三方从 `tenko_api.perm` 导入）：
+   命令权限用 `tenko.host.guards` 的装饰器声明（扩展插件从 `tenko_api.perm` 导入）：
    `@require(Permission.X)`、`@require_group(...)`、`@group_only()`、`@private_only()`，
    放在 `@command.on(...)` 之下（之上也生效）。要求登记在处理函数的
    `__tenko_requires__` 上，`/帮助 <编号>` 据此显示；回复措辞统一由装饰器给出。
@@ -122,31 +122,31 @@ config/tenko.toml.example    # 配置模板
 5. 插件加载和卸载都必须释放自己创建的资源。渲染、网络和定时任务应遵循宿主
    生命周期，不在模块导入阶段启动副作用。
 
-## 第三方插件（外部包）
+## 扩展插件（外部包）
 
 完整方案见 issue #200；示例与模板见 `examples/tenko-plugin-example/`。
 
-- 第三方插件是标准 Python 包，在 `pyproject.toml` 声明 `tenko.plugins` 入口：
+- 扩展插件是标准 Python 包，在 `pyproject.toml` 声明 `tenko.plugins` 入口：
   `[project.entry-points."tenko.plugins"]` 下写 `<id> = "<module>"`。`<id>` 匹配
   `[a-z][a-z0-9_]*`，不能与内置插件重名；值必须是纯模块路径，不能带 `:属性`。
   非法、重名的入口会被跳过并记录错误。
 - **不要声明 `entari.plugin` 入口**：Entari 会无视 Tenko 的启用状态自动加载它。
-- 第三方插件默认关闭。在 WebUI 插件页启用后写入 `.tenko/plugins/state.json`
+- 扩展插件默认关闭。在 WebUI 插件页启用后写入 `.tenko/plugins/state.json`
   （`{"enabled": ["<id>"]}`），随后 `PluginManager.load_now` 尝试运行中加载：要求启动以来插件锁
   只新增过条目、插件模块未在本进程导入过，配置沿用启动时的 `[plugin_config.<id>]`；定义了数据库模型
   等加载失败时提示重启。状态文件缺失或损坏时视为全部未启用。
-  `/状态`、总览只统计已加载的插件；`/帮助` 把已加载的第三方插件单列为“第三方”区，
+  `/状态`、总览只统计已加载的插件；`/帮助` 把已加载的扩展插件单列为“扩展插件”区，
   编号与 `/开启`、`/关闭` 一致。
-- 第三方插件的命令与内置插件走同一套维护模式、功能开关和限流，功能开关以插件 ID 为键。
+- 扩展插件的命令与内置插件走同一套维护模式、功能开关和限流，功能开关以插件 ID 为键。
   这套策略（`CommandPolicy`）挂在 Entari 的 `CommandParse` 事件上：Entari 去掉 @bot、前导
   空白、前缀和昵称并匹配出命令后，按 `get_plugin_commands` 把命令映射到所属插件，返回
   `False` 即阻断；不要再按消息原文判断命令归属。限流（冷却或临时拉黑）静默，只记调试日志；
   `GroupSetting.frequency_limitation` 为假的群不限流（`/频率限制` 修改）。
-  群等级低于插件要求（`declare(level=...)`，默认 `ActiveGroup`）时同样静默忽略，对内置和第三方
+  群等级低于插件要求（`declare(level=...)`，默认 `ActiveGroup`）时同样静默忽略，对内置和扩展插件
   插件一视同仁；检查在维护、开关和限流之前。不经过命令的监听器（例如响应 @bot 的消息）用
   `tenko_api.features.feature_required` 装饰，检查所属插件的开关和维护模式。
-  Entari 里已注册命令、但未登记为内置或第三方的插件，其群聊命令会被拒绝执行。
-  第三方插件不能自封“受保护”：`classifier` 里的 `host`/`required` 对它无效。
+  Entari 里已注册命令、但未登记为内置或扩展的插件，其群聊命令会被拒绝执行。
+  扩展插件不能自封“受保护”：`classifier` 里的 `host`/`required` 对它无效。
 - **插件只依赖 `tenko-api`**（`packages/tenko-api/`，uv workspace 成员，发布到 PyPI 为
   `tenko-api`，导入名 `tenko_api`），不要导入 `tenko.*` 内部模块。它没有运行时依赖，
   只是转发到宿主；新增接口放在 `tenko_api` 的对应子模块，并写进 `tests/tenko/test_tenko_api.py`
@@ -203,7 +203,7 @@ config/tenko.toml.example    # 配置模板
   测试用本地 wheel 目录加 `UV_FIND_LINKS` / `UV_NO_INDEX`（`external_plugin_support.build_wheel`），不访问网络。
 - 插件不得删除表、删除列或修改列类型：宿主在官方迁移器上安装了“Schema 只前进”
   保护，遇到这类变更会回滚该模块的结构迁移并拒绝删表（实现见 `tenko/db/migration.py`）。
-- 开发第三方插件时可用 `pip install "tenko @ git+https://github.com/g1331/tenko@<tag>"`
+- 开发扩展插件时可用 `pip install "tenko @ git+https://github.com/g1331/tenko@<tag>"`
   安装宿主本体（`pyproject.toml` 提供 `[build-system]`；生产环境仍用 `uv sync`，
   不安装本项目）。
 - 示例插件的测试由 `tests/tenko/test_example_plugin.py` 在子进程里对当前检出运行

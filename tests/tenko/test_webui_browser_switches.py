@@ -344,18 +344,17 @@ def test_external_plugins_are_tagged_like_on_the_plugins_page(open_panel):
             enabled=True,
         )
     )
-    # 群视图：该群里的第三方功能行带标签，内置功能没有。
+    # 群视图：该群里的扩展插件功能行带标签，内置功能没有。
     page = open_switches(open_panel, panel)
     detail = page.locator("#sw-detail")
     assert (
-        detail.locator(".sw-item", has_text="演示插件").inner_text().count("第三方")
-        == 1
+        detail.locator(".sw-item", has_text="演示插件").inner_text().count("扩展") == 1
     )
-    assert "第三方" not in detail.locator(".sw-item", has_text="群管理").inner_text()
+    assert "扩展" not in detail.locator(".sw-item", has_text="群管理").inner_text()
 
     # 插件视图：列表行和详情头都带标签。
     page = open_switches(open_panel, panel, "?view=plugin&id=ext_demo")
-    assert "第三方" in rows(page).filter(has_text="演示插件").inner_text()
-    assert "第三方" not in rows(page).filter(has_text="群管理").inner_text()
-    assert "第三方" in page.locator(".sw-head").inner_text()
+    assert "扩展" in rows(page).filter(has_text="演示插件").inner_text()
+    assert "扩展" not in rows(page).filter(has_text="群管理").inner_text()
+    assert "扩展" in page.locator(".sw-head").inner_text()
     assert not page.errors

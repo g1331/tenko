@@ -128,7 +128,7 @@ async function install() {
       <p v-else class="note">目录里还没有版本。</p>
 
       <p v-if="plugin.installed_version" class="note">
-        已安装 {{ plugin.installed_version }}。更新、停用或卸载请到“第三方插件”标签页。
+        已安装 {{ plugin.installed_version }}。更新、停用或卸载请到“扩展插件”标签页。
       </p>
       <p class="note">目录之外的来源不能在面板安装，需要 Master 在聊天里使用 /安装插件。</p>
     </template>

@@ -3,7 +3,7 @@ import type { FeatureInfo } from '@/api'
 import ExternalTag from '@/components/ExternalTag.vue'
 import StatusTag from '@/components/StatusTag.vue'
 
-// 插件本身的运行状态（未加载 / 已在插件页停用）和第三方来源标记。
+// 插件本身的运行状态（未加载 / 已在插件页停用）和扩展插件来源标记。
 defineProps<{ feature: FeatureInfo }>()
 </script>
 

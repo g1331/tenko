@@ -2,7 +2,7 @@
 
 配置读取自 tenko/config.py。未写出的配置项使用代码中的默认值；配置表中的
 路径相对于启动目录解析。WebUI 的 `[webui]` 配置见 [WebUI 管理面板](webui.md)，
-插件目录的 `[registry]` 见 [第三方插件](plugins.md)。
+插件目录的 `[registry]` 见 [扩展插件](plugins.md)。
 
 ## 最小配置
 

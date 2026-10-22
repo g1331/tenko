@@ -192,7 +192,7 @@ async def test_declare_sets_host_metadata_and_cannot_grant_protection(
         assert metadata.rate_weight == 7
         info = runtime.discover()[0]
         assert info.rate_weight == 7
-        # 第三方插件自带的 classifier=host 不会让它成为受保护插件。
+        # 扩展插件自带的 classifier=host 不会让它成为受保护插件。
         assert not runtime.is_protected(info)
         assert feature_service.plugin_defaults == {"decl": False}
     finally:
@@ -262,5 +262,5 @@ async def test_declare_rejects_bad_values_and_foreign_callers(
         declare(default_enabled="no")  # type: ignore[arg-type]
     with pytest.raises(ValueError):
         declare(level=16)  # type: ignore[arg-type]
-    with pytest.raises(RuntimeError, match="第三方插件"):
+    with pytest.raises(RuntimeError, match="扩展插件"):
         declare()

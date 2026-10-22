@@ -72,7 +72,7 @@ async function restart() {
         </p>
         <p v-else-if="task.state === 'failed' && task.restored === false" class="text">
           环境没能自动恢复，可能处于不一致的状态。请在聊天里发送
-          /同步插件环境，或到“第三方插件”标签页同步。
+          /同步插件环境，或到“扩展插件”标签页同步。
         </p>
       </template>
     </el-alert>

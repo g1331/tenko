@@ -285,12 +285,12 @@ def declare_feature(
     rate_weight: int = 1,
     level: int = Permission.ActiveGroup,
 ) -> None:
-    """为正在加载的第三方插件登记 Tenko 专有元数据（``tenko_api.features.declare``）。
+    """为正在加载的扩展插件登记 Tenko 专有元数据（``tenko_api.features.declare``）。
 
     写入宿主已有的 ``feature_scope`` 元数据属性，以及 ``CommandPolicy`` 使用的
     ``rate_weight`` 和 ``group_level``（插件要求的群等级）；``default_enabled`` 记入功能服务。
     内置插件没有这个入口，直接在 ``plugin.get_plugin().metadata`` 上设置同名属性，
-    与 ``feature_scope`` 的写法一致。不提供 ``classifier``：第三方插件不能把自己
+    与 ``feature_scope`` 的写法一致。不提供 ``classifier``：扩展插件不能把自己
     标记为受保护的宿主插件。
     """
 
@@ -307,7 +307,7 @@ def declare_feature(
     native = get_plugin(optional=True)
     found = None if native is None else external_plugin_for_module(native.id)
     if native is None or found is None:
-        raise RuntimeError("declare() 只能在第三方插件的模块导入期间调用")
+        raise RuntimeError("declare() 只能在扩展插件的模块导入期间调用")
     metadata = native.metadata
     metadata.feature_scope = scope
     metadata.rate_weight = rate_weight
@@ -426,7 +426,7 @@ class CommandPolicy:
         if not await self.permission_checker.require_group_perm(
             context, required_level
         ):
-            # 群等级不足静默忽略（Graia v3 的 if_noticed=False），内置和第三方一视同仁。
+            # 群等级不足静默忽略（Graia v3 的 if_noticed=False），内置和扩展插件一视同仁。
             logger.debug(
                 "Ignore command from group below plugin level: plugin={} group={} "
                 "level={} command={}",

@@ -32,7 +32,7 @@ from packaging.requirements import InvalidRequirement, Requirement
 from ...context import MessageContext
 
 _DEFAULT_PLUGIN_DIR = Path(__file__).resolve().parents[2] / "plugins"
-# 第三方插件入口组；不能用 Entari 的 ``entari.plugin``，它会被无条件自动加载。
+# 扩展插件入口组；不能用 Entari 的 ``entari.plugin``，它会被无条件自动加载。
 EXTERNAL_ENTRY_POINT_GROUP = "tenko.plugins"
 _DEFAULT_STATE_FILE = Path(".tenko/plugins/state.json")
 # ``[plugin_config.<id>]``：启动时读入，面板保存后由 ``apply_config`` 更新。
@@ -57,10 +57,10 @@ __all__ = [
 
 
 def external_plugin_for_module(module_name: str) -> str | None:
-    """按模块名返回所属第三方插件的 ID。
+    """按模块名返回所属扩展插件的 ID。
 
     插件的入口模块及其子模块都归它所有；多个入口互为前缀时取最长的。
-    不属于任何第三方插件（包括被发现阶段拒绝的入口）时返回 ``None``。
+    不属于任何扩展插件（包括被发现阶段拒绝的入口）时返回 ``None``。
     """
 
     best: Any = None
@@ -79,7 +79,7 @@ def external_plugin_for_module(module_name: str) -> str | None:
 
 
 def external_plugin_version(plugin_id: str) -> str:
-    """返回第三方插件所在分发包的版本；无法确定时为 ``"unknown"``。"""
+    """返回扩展插件所在分发包的版本；无法确定时为 ``"unknown"``。"""
 
     for entry in entry_points(group=EXTERNAL_ENTRY_POINT_GROUP):
         if entry.name == plugin_id:
@@ -119,12 +119,12 @@ class PluginInfo:
     """插件目录项及其可传给 Entari 的导入名。"""
 
     name: str
-    # 第三方插件在发现阶段不导入模块，不提供路径。
+    # 扩展插件在发现阶段不导入模块，不提供路径。
     path: Path | None
     is_package: bool
     qualified_name: str
     # builtin: tenko/plugins 下的内置插件；external: tenko.plugins 入口声明的
-    # 第三方包；unmanaged: Entari 里已注册命令但未在 Tenko 登记的原生插件。
+    # 扩展插件包；unmanaged: Entari 里已注册命令但未在 Tenko 登记的原生插件。
     source: Literal["builtin", "external", "unmanaged"] = "builtin"
 
     @property
@@ -173,7 +173,7 @@ class PluginInfo:
 
 
 class PluginRuntime:
-    """把 Tenko 插件目录和第三方插件入口适配到 Entari 原生插件机制。"""
+    """把 Tenko 插件目录和扩展插件入口适配到 Entari 原生插件机制。"""
 
     def __init__(
         self,
@@ -184,13 +184,13 @@ class PluginRuntime:
     ) -> None:
         self.plugin_dir = Path(plugin_dir or _DEFAULT_PLUGIN_DIR)
         self.namespace = namespace
-        # 第三方插件默认关闭，启用状态保存在这个 JSON 文件里：加载插件发生在
+        # 扩展插件默认关闭，启用状态保存在这个 JSON 文件里：加载插件发生在
         # 数据库可用之前，所以不能放进数据库设置。
         self.state_file = Path(state_file or _DEFAULT_STATE_FILE)
         self._discovered: dict[str, PluginInfo] = {}
 
     def discover(self) -> tuple[PluginInfo, ...]:
-        """发现内置插件和第三方插件入口，不导入任何插件模块。"""
+        """发现内置插件和扩展插件入口，不导入任何插件模块。"""
 
         discovered = self._discover_builtin()
         discovered.update(self._discover_external(discovered))
@@ -219,27 +219,27 @@ class PluginRuntime:
 
     @staticmethod
     def _discover_external(builtin: Mapping[str, PluginInfo]) -> dict[str, PluginInfo]:
-        """按入口名登记第三方插件；非法、与内置冲突或重复的入口一律跳过。"""
+        """按入口名登记扩展插件；非法、与内置冲突或重复的入口一律跳过。"""
 
         candidates: dict[str, list[Any]] = {}
         for entry in entry_points(group=EXTERNAL_ENTRY_POINT_GROUP):
             dist = getattr(getattr(entry, "dist", None), "name", None) or "未知"
             if not _PLUGIN_ID.fullmatch(entry.name):
                 logger.error(
-                    "忽略第三方插件入口 {!r}（分发包 {}）：插件 ID 须匹配 [a-z][a-z0-9_]*",
+                    "忽略扩展插件入口 {!r}（分发包 {}）：插件 ID 须匹配 [a-z][a-z0-9_]*",
                     entry.name,
                     dist,
                 )
             elif not _MODULE_PATH.fullmatch(entry.value):
                 logger.error(
-                    "忽略第三方插件 {}（分发包 {}）：入口值 {!r} 必须是纯模块路径",
+                    "忽略扩展插件 {}（分发包 {}）：入口值 {!r} 必须是纯模块路径",
                     entry.name,
                     dist,
                     entry.value,
                 )
             elif entry.name in builtin:
                 logger.error(
-                    "忽略第三方插件 {}（分发包 {}）：与内置插件同名", entry.name, dist
+                    "忽略扩展插件 {}（分发包 {}）：与内置插件同名", entry.name, dist
                 )
             else:
                 candidates.setdefault(entry.name, []).append(entry)
@@ -249,12 +249,12 @@ class PluginRuntime:
         for name, entries in candidates.items():
             if len(entries) > 1:
                 dists = [getattr(e.dist, "name", None) or "未知" for e in entries]
-                logger.error("忽略重复的第三方插件 ID {}（分发包 {}）", name, dists)
+                logger.error("忽略重复的扩展插件 ID {}（分发包 {}）", name, dists)
                 continue
             module = entries[0].value
             if module in entari_modules:
                 logger.warning(
-                    "第三方插件 {} 同时声明了 entari.plugin 入口，Entari 会无视 "
+                    "扩展插件 {} 同时声明了 entari.plugin 入口，Entari 会无视 "
                     "Tenko 的启用状态自动加载它",
                     name,
                 )
@@ -276,7 +276,7 @@ class PluginRuntime:
             return {"enabled": []}
         except (OSError, ValueError, KeyError, TypeError) as error:
             logger.error(
-                "第三方插件状态文件无效，视为全部未启用: {} ({}: {})",
+                "扩展插件状态文件无效，视为全部未启用: {} ({}: {})",
                 self.state_file,
                 type(error).__name__,
                 error,
@@ -305,7 +305,7 @@ class PluginRuntime:
         self.write_state(state)
 
     def builtin_names(self) -> frozenset[str]:
-        """内置插件的 ID；第三方插件不能与它们重名。"""
+        """内置插件的 ID；扩展插件不能与它们重名。"""
 
         return frozenset(self._discover_builtin())
 
@@ -337,14 +337,14 @@ class PluginRuntime:
         info = self._info(plugin)
         native_plugin = info.native_plugin
         if native_plugin is None:
-            # 第三方插件默认关闭；未加载时以状态文件里的意愿为准。
+            # 扩展插件默认关闭；未加载时以状态文件里的意愿为准。
             return (
                 info.source != "external" or info.name in self._enabled_external_ids()
             )
         return native_plugin.is_available
 
     def restart_required(self, plugin: str | PluginInfo) -> bool:
-        """第三方插件已被启用但尚未加载，需要重启后才会生效。"""
+        """扩展插件已被启用但尚未加载，需要重启后才会生效。"""
 
         info = self._info(plugin)
         return (
@@ -415,7 +415,7 @@ class PluginRuntime:
                 continue
             if all(str(name) != command for _prefixes, name in registered):
                 continue
-            # 运行中首次加载的第三方插件不在启动时的发现结果里，再发现一次。
+            # 运行中首次加载的扩展插件不在启动时的发现结果里，再发现一次。
             for attempt in range(2):
                 if attempt:
                     self.discover()
@@ -463,7 +463,7 @@ class PluginRuntime:
     ) -> Mapping[str, Plugin]:
         """发现并加载插件，可为指定插件传入 Entari 配置。
 
-        第三方插件只加载状态文件里已启用的，配置取 ``external_configs``（即
+        扩展插件只加载状态文件里已启用的，配置取 ``external_configs``（即
         ``[plugin_config.<id>]``）；加载失败只记录日志，不影响启动。
         显式配置的插件先于其他插件加载，避免某个插件的依赖导入以默认
         配置抢先创建它，之后无法再替换已注册的 Entari 服务实例。
@@ -489,7 +489,7 @@ class PluginRuntime:
             if info.source != "external" or info.name not in enabled:
                 continue
             if reason := api_incompatibility(info.name):
-                logger.error("第三方插件 {} 未加载：{}", info.name, reason)
+                logger.error("扩展插件 {} 未加载：{}", info.name, reason)
                 continue
             config = external_configs.get(info.name)
             try:
@@ -497,15 +497,15 @@ class PluginRuntime:
                     info, config=None if config is None else dict(config)
                 )
             except Exception:
-                logger.exception("第三方插件加载失败: {}", info.name)
+                logger.exception("扩展插件加载失败: {}", info.name)
             else:
                 # Entari 导入失败（含配置校验失败）时 ``load`` 记录原因并返回 None。
                 if loaded is None:
-                    logger.error("第三方插件加载失败: {}", info.name)
+                    logger.error("扩展插件加载失败: {}", info.name)
         return self.loaded_plugins
 
     async def load_external(self, plugin: str | PluginInfo) -> Plugin:
-        """运行中加载第三方插件，配置沿用启动时的 ``[plugin_config.<id>]``。
+        """运行中加载扩展插件，配置沿用启动时的 ``[plugin_config.<id>]``。
 
         是否可以不重启就加载由 ``PluginManager.load_now`` 判断；加载失败时抛出原因。
         """
@@ -525,7 +525,7 @@ class PluginRuntime:
     async def apply_config(
         self, plugin: str | PluginInfo, config: Mapping[str, Any]
     ) -> None:
-        """让第三方插件改用新配置；未加载的插件留到加载时使用。
+        """让扩展插件改用新配置；未加载的插件留到加载时使用。
 
         与 Entari 的配置热重载相同：先向插件发 ``ConfigReload``，插件自己处理了就到此为止，
         否则原子重载插件。重载失败时旧插件按旧配置继续运行，并抛出原因。
@@ -570,9 +570,9 @@ class PluginRuntime:
         return await disable_plugin(self._info(plugin).qualified_name)
 
     async def set_enabled(self, plugin: str | PluginInfo, enabled: bool) -> bool:
-        """启停插件；第三方插件的意愿同时写入状态文件。
+        """启停插件；扩展插件的意愿同时写入状态文件。
 
-        第三方插件未加载时只更新状态文件；调用方随后用 ``PluginManager.load_now``
+        扩展插件未加载时只更新状态文件；调用方随后用 ``PluginManager.load_now``
         尝试直接加载，再用 ``restart_required`` 判断是否还需要提示重启。
         """
 

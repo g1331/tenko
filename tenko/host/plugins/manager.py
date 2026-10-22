@@ -1,4 +1,4 @@
-"""第三方插件的安装、更新、卸载与回滚（设计见 issue #200 第 4 节）。
+"""扩展插件的安装、更新、卸载与回滚（设计见 issue #200 第 4 节）。
 
 共享虚拟环境 = 宿主锁（``uv.lock``）∪ 插件锁（``.tenko/plugins/plugins.lock``）。
 
@@ -60,7 +60,7 @@ LOCK_NAME = "plugins.lock"
 HISTORY_KEEP = 5
 _UV_TIMEOUT = 600
 _PROCESS_START = datetime.now(UTC).isoformat()
-# 运行中加载的第三方插件及加载时间：之后的变更才需要重启。
+# 运行中加载的扩展插件及加载时间：之后的变更才需要重启。
 _live_loaded: dict[str, str] = {}
 _LOCK_HEADER = (
     "# Tenko 插件锁：由 uv pip compile 生成，已排除宿主锁里的包，请勿手工编辑。\n"
@@ -1217,7 +1217,7 @@ class PluginManager:
             return problems
 
     async def load_now(self, runtime: PluginRuntime, info: PluginInfo) -> str | None:
-        """已启用但未加载的第三方插件尝试不重启直接加载；返回仍需重启的原因。
+        """已启用但未加载的扩展插件尝试不重启直接加载；返回仍需重启的原因。
 
         只在不会新旧代码混用时加载：启动以来插件锁只新增过包（已导入的依赖版本
         都没变），且插件模块从未在本进程导入过。插件定义了数据库模型等运行中
@@ -1242,14 +1242,14 @@ class PluginManager:
         except Exception as error:  # noqa: BLE001 - 插件代码的任何错误都只意味着要重启
             # Entari 把插件抛出的异常包成 ImportError，原异常在 __context__ 上。
             cause = error.__cause__ or error.__context__ or error
-            logger.warning("第三方插件 {} 无法在运行中加载: {}", info.name, cause)
+            logger.warning("扩展插件 {} 无法在运行中加载: {}", info.name, cause)
             if isinstance(cause, plugin_storage.PluginStorageError):
                 return "插件使用了独立数据库"
             return f"运行中加载失败（{cause}）"
         finally:
             self._busy.release()
         _live_loaded[info.name] = _now()
-        logger.info("第三方插件 {} 已在运行中加载", info.name)
+        logger.info("扩展插件 {} 已在运行中加载", info.name)
         return None
 
     # ------------------------------------------------------------ 查询

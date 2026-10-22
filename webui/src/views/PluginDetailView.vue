@@ -73,7 +73,7 @@ const sourceText = computed(() => {
   if (data.source === 'builtin') return '内置'
   if (data.source === 'unmanaged') return '未登记的原生插件'
   const trust = data.installed?.trust ?? data.tier
-  return trust ? `第三方 · ${TRUST[trust] ?? trust}` : '第三方'
+  return trust ? `扩展 · ${TRUST[trust] ?? trust}` : '扩展'
 })
 const groupStats = computed(() => {
   const values = Object.values(feature.value?.groups ?? {})

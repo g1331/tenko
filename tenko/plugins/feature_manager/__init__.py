@@ -33,7 +33,7 @@ def resolve_plugin(value: str) -> PluginInfo | None:
     normalized = str(value)
     infos = plugin_runtime.discover()
     if normalized.isdigit():
-        # 编号与 /帮助 一致，只数已加载的插件（未启用的第三方插件不在其中）。
+        # 编号与 /帮助 一致，只数已加载的插件（未启用的扩展插件不在其中）。
         loaded = [info for info in infos if info.native_plugin is not None]
         index = int(normalized)
         if 1 <= index <= len(loaded):
@@ -52,7 +52,7 @@ def _is_protected(info: PluginInfo) -> bool:
     classifiers = getattr(getattr(native, "metadata", None), "classifier", ())
     # ``required`` 只表示插件应随宿主加载并在帮助中归入系统区域；普通
     # 功能插件仍然需要支持群级开关。``host`` 才是不能由群管理员关闭的
-    # 控制平面标记，只对内置插件有效，第三方插件不能自封受保护。
+    # 控制平面标记，只对内置插件有效，扩展插件不能自封受保护。
     return info.source == "builtin" and "host" in classifiers
 
 
@@ -139,7 +139,7 @@ clear_data_command = Alconna(
     "清除插件数据",
     Args["plugin_id", str],
     meta=CommandMeta(
-        "删除第三方插件的数据目录（JSON 存储、数据库和备份），不可恢复",
+        "删除扩展插件的数据目录（JSON 存储、数据库和备份），不可恢复",
         usage="清除插件数据 <插件ID>",
         example="/清除插件数据 example",
         compact=False,
@@ -161,7 +161,7 @@ async def clear_data(session: Session, plugin_id: Match[str]):
         and (PLUGIN_DATA_ROOT / name).is_dir()
     )
     if not uninstalled and (info is None or info.source != "external"):
-        return "只能清除已安装的第三方插件的数据"
+        return "只能清除已安装的扩展插件的数据"
     if info is not None and info.native_plugin is not None:
         # 已加载的插件仍持有数据库连接；先停用并重启，让它在本次运行里不再加载。
         return f"插件<{info.name}>正在运行，请先在 WebUI 停用并重启 Tenko 后再清除"
