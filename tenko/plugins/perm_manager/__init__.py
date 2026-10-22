@@ -24,7 +24,6 @@ from tenko.plugins._common import (
     list_data,
     normalize_targets,
     render_or_text,
-    send_private_message,
 )
 from tenko.context import context_from_session
 from tenko.host.render import RenderService
@@ -179,7 +178,10 @@ async def _notify_permission_demotion(
         return
 
     for reviewer_id in superuser_ids(event.account.platform):
-        await send_private_message(session, reviewer_id, notice)
+        try:
+            await session.send_private_message(notice, user_id=reviewer_id)
+        except Exception:
+            logger.exception("管理员降级提示私聊发送失败: user={}", reviewer_id)
 
 
 def _database_error_message(error: BaseException, *, action: str) -> object:

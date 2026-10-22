@@ -10,6 +10,7 @@ from arclet.alconna import Alconna, Args, CommandMeta, MultiVar, Option
 from arclet.entari import MessageChain, Session, command, plugin
 from arclet.entari.command import Match
 from arclet.entari.plugin import PluginRole
+from loguru import logger
 from satori import Text
 from satori.element import At
 
@@ -29,7 +30,6 @@ from tenko.host.perm import Permission, PermissionChecker
 from tenko.host.plugins.runtime import PluginInfo, PluginRuntime
 from tenko.host.action_errors import action_error_message, report_action_error
 from tenko.context import context_from_session
-from tenko.plugins._common import send_private_message
 
 """公告插件。
 
@@ -266,6 +266,15 @@ def format_diagnostic_results(results: Iterable[PushResult]) -> str:
     return "\n".join(lines)
 
 
+async def _send_diagnostics(session: Session, results: Iterable[PushResult]) -> None:
+    """把完整推送结果私聊给发起公告的 Master；私聊失败不影响群内摘要。"""
+
+    try:
+        await session.send_private_message(format_diagnostic_results(results))
+    except Exception:
+        logger.exception("公告推送结果私聊发送失败: user={}", session.user.id)
+
+
 async def _confirm(session: Session, content: str, count: int, interval: int) -> bool:
     """使用 Entari 原生 prompt 保留旧公告的二次确认语义。"""
 
@@ -333,11 +342,7 @@ async def push_handle(
         if target_count:
             await _send_progress(session, target_count)
         if is_master:
-            await send_private_message(
-                session,
-                context.user_id,
-                format_diagnostic_results(results),
-            )
+            await _send_diagnostics(session, results)
         return format_results(results)
     if not await _confirm(session, announcement_content, len(targets), interval):
         return "未预期回复,操作退出"
@@ -352,11 +357,7 @@ async def push_handle(
     )
     results = (*preflight, *pushed)
     if is_master:
-        await send_private_message(
-            session,
-            context.user_id,
-            format_diagnostic_results(results),
-        )
+        await _send_diagnostics(session, results)
     return MessageChain([At(context.user_id), Text(format_results(results))])
 
 

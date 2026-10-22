@@ -304,6 +304,7 @@ async def send_error_report(
                         if image is not None
                         else [Text(report)]
                     )
+                    # 直接走协议：报告可能是图片，且 ActionService 自身出错时也要能送达。
                     await account.protocol.send_private_message(user_id, content)
                 except Exception:
                     delivery_failed = True

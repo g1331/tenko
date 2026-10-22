@@ -62,7 +62,7 @@ def make_context() -> MessageContext:
     )
 
 
-def make_session(protocol=None, answer="是"):
+def make_session(answer="是"):
     context = make_context()
     event = Event(
         type=EventType.MESSAGE_CREATED,
@@ -75,20 +75,12 @@ def make_session(protocol=None, answer="是"):
         message=MessageObject.from_elements(context.message_id, []),
     )
     return SimpleNamespace(
-        account=SimpleNamespace(protocol=protocol),
         event=SimpleNamespace(_origin=event),
+        user=User(context.user_id),
         send=AsyncMock(),
+        send_private_message=AsyncMock(),
         prompt=AsyncMock(return_value=answer),
     )
-
-
-class PrivateMessageProtocol:
-    def __init__(self) -> None:
-        self.calls: list[tuple[str, str]] = []
-
-    async def send_private_message(self, user_id, content):
-        self.calls.append((str(user_id), str(content[0])))
-        return []
 
 
 @pytest.mark.parametrize(
@@ -271,7 +263,6 @@ async def test_announcement_without_confirmation_is_not_pushed(
 async def test_master_group_announcement_receives_full_results_privately(
     loaded_plugin, monkeypatch
 ) -> None:
-    protocol = PrivateMessageProtocol()
     account = FakeAccount("10001")
     registry = AccountRegistry()
     registry.register(account, groups=["40001"])
@@ -287,8 +278,9 @@ async def test_master_group_announcement_receives_full_results_privately(
         registry=PermissionRegistry(master_id="20001")
     )
 
+    session = make_session()
     result = await loaded_plugin.push_handle.callable_target(
-        make_session(protocol),
+        session,
         Match("帮助系统", True),
         Match(("维护",), True),
         Match(None, False),
@@ -297,8 +289,11 @@ async def test_master_group_announcement_receives_full_results_privately(
     assert result.extract_plain_text() == (
         "公告推送完成：目标数 1；成功数 1；失败数 0；跳过数 0"
     )
-    assert protocol.calls and protocol.calls[0][0] == "20001"
-    assert "群40001: sent - 推送成功（账号10001）" in protocol.calls[0][1]
+    session.send_private_message.assert_awaited_once()
+    assert (
+        "群40001: sent - 推送成功（账号10001）"
+        in (session.send_private_message.await_args.args[0])
+    )
 
 
 @pytest.mark.asyncio

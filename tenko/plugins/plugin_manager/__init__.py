@@ -24,9 +24,9 @@ from arclet.entari.command import Match, Query
 from arclet.entari.plugin import PluginRole
 from loguru import logger
 from packaging.requirements import Requirement
-from satori import Text
 
 from tenko.host.accounts import account_registry
+from tenko.host.actions import action_service
 from tenko.host.guards import require
 from tenko.host.perm import Permission, superuser_ids
 from tenko.host.plugins.docs import plugin_icon_path
@@ -735,7 +735,7 @@ async def notify_masters(text: str) -> None:
         return
     for user_id in superuser_ids(getattr(account, "platform", "onebot")):
         try:
-            await account.protocol.send_private_message(user_id, [Text(text)])
+            await action_service.send_private_message(account, user_id, text)
         except Exception:
             logger.exception("通知 Master {} 失败", user_id)
 

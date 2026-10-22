@@ -419,7 +419,7 @@ async def test_platform_admin_demotion_falls_back_to_master_private_notice(
     loaded_plugin._write_member_permission = AsyncMock()
     monkeypatch.setattr(loaded_plugin, "superuser_ids", lambda _platform: ("90001",))
     private_sender = AsyncMock()
-    monkeypatch.setattr(loaded_plugin, "send_private_message", private_sender)
+    monkeypatch.setattr(Session, "send_private_message", private_sender)
 
     event = make_member_update_event(account, channel=False)
     await loaded_plugin.auto_change_member_permission.callable_target(
@@ -428,8 +428,10 @@ async def test_platform_admin_demotion_falls_back_to_master_private_notice(
 
     loaded_plugin._write_member_permission.assert_not_awaited()
     private_sender.assert_awaited_once()
-    assert "检测到群管理权限变动" in private_sender.await_args.args[2]
-    assert "群 40001" in private_sender.await_args.args[2]
+    notice = private_sender.await_args.args[0]
+    assert private_sender.await_args.kwargs == {"user_id": "90001"}
+    assert "检测到群管理权限变动" in notice
+    assert "群 40001" in notice
 
 
 @pytest.mark.asyncio
