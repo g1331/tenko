@@ -214,6 +214,14 @@ class ChatLog:
         self._task: asyncio.Task[None] | None = None
         self._fetching: set[asyncio.Task[None]] = set()
         self._last_prune = 0.0
+        # 不能写进聊天记录的文字（例如刚生成的面板密码），记录时换成占位符。
+        self._hidden: set[str] = set()
+
+    def hide(self, secret: str) -> None:
+        """之后记录的出站消息里，把这段文字换成“[已隐藏]”。"""
+
+        if secret:
+            self._hidden.add(secret)
 
     def configure(
         self,
@@ -300,6 +308,10 @@ class ChatLog:
             )
         self_user = getattr(getattr(account, "self_info", None), "user", None)
         content = segments(getattr(response, "message", None) or ())
+        for item in content:
+            if item["type"] == "text":
+                for secret in self._hidden:
+                    item["text"] = item["text"].replace(secret, "[已隐藏]")
         fields = dict(
             platform=str(getattr(account, "platform", "") or QQ_PLATFORM),
             account_id=str(account.self_id),

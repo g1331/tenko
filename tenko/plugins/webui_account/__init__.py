@@ -8,6 +8,7 @@ from arclet.alconna import Alconna, CommandMeta
 from arclet.entari import BasicConfModel, Session, command, plugin
 from arclet.entari.plugin import PluginRole, plugin_config
 
+from tenko.host.chat_log import chat_log
 from tenko.host.guards import private_only, require
 from tenko.host.perm import Permission
 from tenko.webui.auth import default_repository, reset_password
@@ -89,6 +90,7 @@ async def show_account(session: Session):
 @require(Permission.Master)
 async def reset_account_password(session: Session):
     username, password, revoked = await reset_password()
+    chat_log.hide(password)
     return (
         "面板密码已重置，所有登录会话已下线"
         f"（{revoked} 个）。\n"

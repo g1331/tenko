@@ -100,6 +100,10 @@ def verify_password(password: str, stored: str) -> bool:
     """校验密码；哈希格式不合法时按不匹配处理。"""
 
     try:
+        password.encode()
+    except UnicodeEncodeError:
+        return False
+    try:
         scheme, n, r, p, salt, expected = stored.split("$")
         if scheme != "scrypt":
             return False
@@ -131,6 +135,10 @@ def validate_username(value: object) -> str:
 def validate_new_password(value: object) -> str:
     if not isinstance(value, str) or len(value) < MIN_PASSWORD_LENGTH:
         raise ValueError(f"新密码至少需要 {MIN_PASSWORD_LENGTH} 个字符")
+    try:
+        value.encode()
+    except UnicodeEncodeError:
+        raise ValueError("新密码包含无法识别的字符") from None
     return value
 
 
@@ -336,6 +344,7 @@ class WebUIAuth:
         return response
 
     async def login(self, request: Request) -> JSONResponse:
+        request.state.webui_action = "login"
         ip = _client_ip(request)
         if retry_after := self.limiter.retry_after(ip):
             return self._too_many(retry_after)
@@ -353,12 +362,18 @@ class WebUIAuth:
                 "尚未设置面板密码，请由 Master 在 QQ 私聊发送 /面板重置密码",
                 409,
             )
+        # 检查和占用之间不能有 await：先记一次失败、验证通过再清零，并发请求
+        # 就不能趁第一个结果出来之前一起通过限流检查。
+        if retry_after := self.limiter.retry_after(ip):
+            return self._too_many(retry_after)
+        self.limiter.fail(ip)
         password_ok = await asyncio.to_thread(
             verify_password, password, account.password_hash
         )
-        username_ok = hmac.compare_digest(username.encode(), account.username.encode())
+        username_ok = hmac.compare_digest(
+            username.encode(errors="replace"), account.username.encode()
+        )
         if not (password_ok and username_ok):
-            self.limiter.fail(ip)
             return error_response("invalid_credentials", "用户名或密码错误", 401)
         self.limiter.reset(ip)
         from ..db.repositories import WebUISessionRecord
@@ -384,6 +399,7 @@ class WebUIAuth:
         return response
 
     async def logout(self, request: Request) -> JSONResponse:
+        request.state.webui_action = "logout"
         record = await self._current(request)
         await self.repository.delete_session(record.id)
         response = success_response({})
@@ -412,6 +428,7 @@ class WebUIAuth:
         )
 
     async def revoke(self, request: Request) -> JSONResponse:
+        request.state.webui_action = "session-revoke"
         current = await self._current(request)
         session_id = request.path_params["id"]
         if not await self.repository.delete_session(session_id):
@@ -422,11 +439,13 @@ class WebUIAuth:
         return response
 
     async def revoke_others(self, request: Request) -> JSONResponse:
+        request.state.webui_action = "session-revoke-others"
         current = await self._current(request)
         revoked = await self.repository.delete_sessions(except_id=current.id)
         return success_response({"revoked": revoked})
 
     async def account(self, request: Request) -> JSONResponse:
+        request.state.webui_action = "account-change"
         current = await self._current(request)
         try:
             body = await read_json(request)
@@ -442,13 +461,14 @@ class WebUIAuth:
         except ValueError as error:
             return error_response("invalid_request", str(error), 400)
         ip = _client_ip(request)
+        account = await self.repository.get_account()
+        # 同 login：检查后立即占用一次失败，验证通过再清零。
         if retry_after := self.limiter.retry_after(ip):
             return self._too_many(retry_after)
-        account = await self.repository.get_account()
+        self.limiter.fail(ip)
         if account is None or not await asyncio.to_thread(
             verify_password, password, account.password_hash
         ):
-            self.limiter.fail(ip)
             return error_response("invalid_credentials", "当前密码错误", 401)
         self.limiter.reset(ip)
         password_hash = account.password_hash

@@ -2,13 +2,16 @@
 
 from __future__ import annotations
 
+import asyncio
 import subprocess
 import sys
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from types import SimpleNamespace
 
 import httpx
 import pytest
+from satori import Text
 from satori.server import Server
 
 from test_perm_manager import make_private_session
@@ -166,6 +169,39 @@ async def test_wrong_password_is_rejected_and_sixth_attempt_is_rate_limited(
         assert 0 < error["retry_after"] <= 901
         assert limited.headers["retry-after"] == str(error["retry_after"])
         assert not client.cookies
+
+
+@pytest.mark.asyncio
+async def test_concurrent_guesses_cannot_slip_past_the_rate_limit(tenko_database):
+    await reset_password()
+    async with _client(_app()) as client:
+        responses = await asyncio.gather(
+            *(_login(client, f"guess-{index}") for index in range(10))
+        )
+    codes = sorted(response.status_code for response in responses)
+    assert codes == [401] * 5 + [429] * 5
+
+
+def test_reset_password_reply_is_hidden_from_chat_log(monkeypatch):
+    from tenko.host.chat_log import ChatLog
+
+    log = ChatLog()
+    log.enabled = True
+    added = []
+    monkeypatch.setattr(log, "_add", lambda **fields: added.append(fields))
+    log.hide("s3cret-pass")
+    response = SimpleNamespace(
+        account=SimpleNamespace(self_id="10001", platform="qq-client"),
+        channel="private:90001",
+        result=(),
+        message=[Text("用户名：master\n密码：s3cret-pass")],
+    )
+
+    log.record_send(response)
+
+    assert added[0]["content"] == [
+        {"type": "text", "text": "用户名：master\n密码：[已隐藏]"}
+    ]
 
 
 @pytest.mark.asyncio

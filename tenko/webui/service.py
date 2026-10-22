@@ -1056,6 +1056,7 @@ class WebUIService(Service):
         async def action():
             repository = self._management().repository
             if request.method == "POST":
+                request.state.webui_action = "settings"
                 body = await read_json(request)
                 if not body or not set(body) <= {
                     "default_enabled",
