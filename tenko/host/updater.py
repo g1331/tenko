@@ -255,6 +255,9 @@ _URL_CREDENTIALS_PATTERN = re.compile(
 _SCP_CREDENTIALS_PATTERN = re.compile(
     r"(?<![\w/@])[^/@\s:]+(?::[^/@\s]*)?@(?=[^/@\s:]+:)"
 )
+DATABASE_BACKUPS_KEEP = 3
+# 备份后至少还要剩下的空间，免得备份把磁盘写满、拖垮宿主和数据库写入。
+DATABASE_BACKUP_FREE_MARGIN = 1 << 30
 _FAILED_HANDOFF_RETENTION = 10
 _RESTART_WATCHER_TIMEOUT = 300
 _RESTART_WATCHER_INTERVAL = 0.2
@@ -2548,7 +2551,7 @@ class UpgradeManager:
         except OSError:
             logger.exception("Tenko database backup audit write failed")
 
-    def _prune_database_backups(self) -> str | None:
+    def _prune_database_backups(self, keep: int) -> str | None:
         source = self.database_path
         try:
             candidates = sorted(
@@ -2560,7 +2563,7 @@ class UpgradeManager:
                 key=lambda path: path.stat().st_mtime_ns,
                 reverse=True,
             )
-            for path in candidates[3:]:
+            for path in candidates[keep:]:
                 path.unlink()
         except OSError as exc:
             return str(exc) or exc.__class__.__name__
@@ -2585,6 +2588,31 @@ class UpgradeManager:
             )
             return None
 
+        # 先腾出位置再写新备份，磁盘上同时最多只有 DATABASE_BACKUPS_KEEP 份。
+        retention_error = self._prune_database_backups(DATABASE_BACKUPS_KEEP - 1)
+        if retention_error:
+            logger.error(
+                "Tenko database backup retention cleanup failed: {}",
+                retention_error,
+            )
+
+        try:
+            needed = source.stat().st_size + DATABASE_BACKUP_FREE_MARGIN
+            free = shutil.disk_usage(source.parent).free
+        except OSError:
+            needed = free = 0
+        if free < needed:
+            logger.error(
+                "Tenko database backup skipped: {} free, {} needed", free, needed
+            )
+            self._record_backup_audit(
+                target_version,
+                "skipped",
+                source_path=str(source),
+                reason=f"insufficient disk space: {free} bytes free, {needed} needed",
+            )
+            return None
+
         timestamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%S%fZ")
         destination = source.with_name(
             f"{source.name}.bak-{target_version}-{timestamp}"
@@ -2603,12 +2631,6 @@ class UpgradeManager:
             )
             return None
 
-        retention_error = self._prune_database_backups()
-        if retention_error:
-            logger.error(
-                "Tenko database backup retention cleanup failed: {}",
-                retention_error,
-            )
         details: dict[str, Any] = {
             "source_path": str(source),
             "backup_path": str(destination),

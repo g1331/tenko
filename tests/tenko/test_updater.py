@@ -4,6 +4,7 @@ import hashlib
 import io
 import json
 import os
+import shutil
 import sqlite3
 import subprocess
 import sys
@@ -1243,6 +1244,40 @@ async def test_database_backup_failure_is_audited_without_blocking_install(
         entry["action"] == "backup"
         and entry["result"] == "failed"
         and "backup unavailable" in entry["error"]
+        for entry in audit
+    )
+
+
+@pytest.mark.asyncio
+async def test_database_backup_is_skipped_when_disk_is_nearly_full(
+    monkeypatch, tmp_path: Path
+) -> None:
+    manager, _source, _checker, _config_path, _data_dir = make_manager(tmp_path)
+    manager.database_path.parent.mkdir(parents=True, exist_ok=True)
+    with sqlite3.connect(manager.database_path) as connection:
+        connection.execute("CREATE TABLE values_table (value TEXT NOT NULL)")
+
+    import tenko.host.updater as updater_module
+
+    monkeypatch.setattr(
+        updater_module.shutil,
+        "disk_usage",
+        lambda _path: shutil._ntuple_diskusage(1, 1, 0),
+    )
+
+    await manager.prepare()
+    result = await manager.request_install()
+
+    assert result.action == "activate"
+    assert not list(manager.database_path.parent.glob("tenko.db.bak-*"))
+    audit = [
+        json.loads(line)
+        for line in manager.layout.audit_file.read_text(encoding="utf-8").splitlines()
+    ]
+    assert any(
+        entry["action"] == "backup"
+        and entry["result"] == "skipped"
+        and "insufficient disk space" in entry["reason"]
         for entry in audit
     )
 
