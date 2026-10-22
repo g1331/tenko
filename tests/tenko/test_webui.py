@@ -113,7 +113,7 @@ async def test_webui_requires_session_cookie_and_allowed_ip(tenko_database):
     assert remote_api.status_code == 401
     assert "Tenko WebUI" in page.text
     assert page.headers["cache-control"] == "no-store"
-    assert allowed.json() == {"ok": True, "data": {"accounts": []}}
+    assert allowed.json() == {"ok": True, "data": {"accounts": [], "groups": []}}
     assert missing.json() == {
         "ok": False,
         "error": {"code": "unauthorized", "message": "Unauthorized"},
@@ -221,6 +221,7 @@ async def test_webui_read_only_apis_expose_safe_account_and_feature_data(
     second = SimpleNamespace(self_id="10002", platform="satori")
     accounts.register(first, available=True, groups=("40001", "40002"))
     accounts.register(second, available=False, groups=("40002",))
+    accounts.set_muted(first, "40001", True)
 
     class FeatureRepository:
         async def list_states(self):
@@ -270,18 +271,6 @@ async def test_webui_read_only_apis_expose_safe_account_and_feature_data(
                     "platform": "onebot",
                     "online": True,
                     "group_count": 2,
-                    "response_strategies": [
-                        {
-                            "group_id": "40001",
-                            "strategy": "random",
-                            "deterministic_account": "10001",
-                        },
-                        {
-                            "group_id": "40002",
-                            "strategy": "random",
-                            "deterministic_account": "10001",
-                        },
-                    ],
                 },
                 {
                     "id": "10002",
@@ -289,15 +278,54 @@ async def test_webui_read_only_apis_expose_safe_account_and_feature_data(
                     "platform": "satori",
                     "online": False,
                     "group_count": 1,
-                    "response_strategies": [
+                },
+            ],
+            "groups": [
+                {
+                    "group_id": "40001",
+                    "strategy": "random",
+                    "deterministic_account": "10001",
+                    # 唯一的账号在本群被禁言：群不会响应。
+                    "silent_reason": "no_account",
+                    "accounts": [
                         {
-                            "group_id": "40002",
-                            "strategy": "random",
-                            "deterministic_account": "10001",
+                            "ref": "10001",
+                            "id": "10001",
+                            "platform": "onebot",
+                            "name": None,
+                            "state": "muted",
+                            "role": None,
+                            "muted_until": None,
+                        }
+                    ],
+                },
+                {
+                    "group_id": "40002",
+                    "strategy": "random",
+                    "deterministic_account": "10001",
+                    "silent_reason": None,
+                    "accounts": [
+                        {
+                            "ref": "10001",
+                            "id": "10001",
+                            "platform": "onebot",
+                            "name": None,
+                            "state": "available",
+                            "role": None,
+                            "muted_until": None,
+                        },
+                        {
+                            "ref": '["satori", "10002"]',
+                            "id": "10002",
+                            "platform": "satori",
+                            "name": None,
+                            "state": "offline",
+                            "role": None,
+                            "muted_until": None,
                         },
                     ],
                 },
-            ]
+            ],
         },
     }
     features = feature_response.json()["data"]["features"]

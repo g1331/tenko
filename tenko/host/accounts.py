@@ -18,6 +18,8 @@ if TYPE_CHECKING:
     from ..db.repositories import AccountStateRepository
 
 ResponseType = Literal["random", "deterministic"]
+# 群当前不会响应的原因：没有可用账号，或定向指定的账号不可用。
+SilentReason = Literal["no_account", "target_unavailable"]
 _NO_MUTE = object()
 _MAX_EVENT_SELECTIONS = 4096
 _GROUP_PERMISSION_LEVELS = {
@@ -510,6 +512,13 @@ class AccountRegistry:
             if (account := self._accounts.get(account_id)) is not None
         )
 
+    def group_members(self, group_id: str | int) -> tuple[AccountKey, ...]:
+        """返回群绑定的全部账号键，包含本次运行尚未连接的账号。"""
+
+        if not self._route_available():
+            return ()
+        return tuple(self._groups.get(_key(group_id), ()))
+
     def online_accounts_for_group(self, group_id: str | int) -> tuple[Account, ...]:
         """返回群内在线账号，包含被禁言账号供管理动作候选使用。"""
 
@@ -682,6 +691,16 @@ class AccountRegistry:
         if source_id is None:
             return random.choice(available)
         return available[round(source_id) % len(available)]
+
+    def silent_reason(self, group_id: str | int) -> SilentReason | None:
+        """返回群当前不会响应的原因，能响应时返回 ``None``；判定沿用 :meth:`select_account`。"""
+
+        if not self.accounts_for_group(group_id):
+            return "no_account"
+        # 给定 source_id 时 select_account 不消耗随机数，只做判定。
+        if self.select_account(group_id, source_id=0) is None:
+            return "target_unavailable"
+        return None
 
     def select_for_event(
         self, group_id: str | int, *, source_id: object | None = None

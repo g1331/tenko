@@ -25,8 +25,36 @@ def managed(account_id, **overrides):
     }
 
 
-def strategy(group_id, kind, account):
-    return {"group_id": group_id, "strategy": kind, "deterministic_account": account}
+def summary(account_id, *, online=True, groups=0):
+    return {
+        "id": account_id,
+        "ref": account_id,
+        "platform": "onebot",
+        "online": online,
+        "group_count": groups,
+    }
+
+
+def member(account_id, state="available"):
+    return {
+        "ref": account_id,
+        "id": account_id,
+        "platform": "onebot",
+        "name": f"bot-{account_id}",
+        "state": state,
+        "role": None,
+        "muted_until": None,
+    }
+
+
+def group(group_id, kind, target, members, silent=None):
+    return {
+        "group_id": group_id,
+        "strategy": kind,
+        "deterministic_account": target,
+        "silent_reason": silent,
+        "accounts": members,
+    }
 
 
 class AccountsPanel(Panel):
@@ -34,38 +62,19 @@ class AccountsPanel(Panel):
 
     def __init__(self):
         super().__init__(authenticated=True)
+        both = [member("10001"), member("10003", "disabled")]
         self.data["/api/accounts"] = {
             "accounts": [
-                {
-                    "id": "10001",
-                    "ref": "10001",
-                    "platform": "onebot",
-                    "online": True,
-                    "group_count": 2,
-                    "response_strategies": [
-                        strategy("40001", "random", "10001"),
-                        strategy("40002", "deterministic", "10001"),
-                    ],
-                },
-                {
-                    "id": "10002",
-                    "ref": "10002",
-                    "platform": "onebot",
-                    "online": False,
-                    "group_count": 0,
-                    "response_strategies": [],
-                },
-                {
-                    "id": "10003",
-                    "ref": "10003",
-                    "platform": "onebot",
-                    "online": True,
-                    "group_count": 1,
-                    "response_strategies": [
-                        strategy("40002", "deterministic", "10001")
-                    ],
-                },
-            ]
+                summary("10001", groups=3),
+                summary("10002", online=False),
+                summary("10003", online=False, groups=2),
+            ],
+            "groups": [
+                group("40001", "random", "10001", [member("10001")]),
+                group("40002", "deterministic", "10001", both),
+                # 定向给了已停用的账号：这个群不会响应。
+                group("40003", "deterministic", "10003", both, "target_unavailable"),
+            ],
         }
         self.data["/api/features"] = {
             "features": [],
@@ -74,7 +83,9 @@ class AccountsPanel(Panel):
         self.data["/api/manage/accounts"] = {
             "accounts": [
                 managed("10001", alias="天子", capabilities={"member_mute": True}),
-                managed("10002", online=False, connected=False),
+                managed(
+                    "10002", online=False, connected=False, group_count=0, groups=[]
+                ),
                 managed("10003", enabled=False, online=False, connected=False),
                 managed("10004", platform="satori", manageable=False, online=False),
             ],
@@ -103,13 +114,12 @@ class AccountsPanel(Panel):
         ):
             body = json.loads(request.post_data)
             group_id = path.split("/")[-2]
-            for account in self.data["/api/accounts"]["accounts"]:
-                for item in account["response_strategies"]:
-                    if item["group_id"] == group_id:
-                        item["strategy"] = body["strategy"]
-                        item["deterministic_account"] = (
-                            body["account"] or item["deterministic_account"]
-                        )
+            for item in self.data["/api/accounts"]["groups"]:
+                if item["group_id"] == group_id:
+                    item["strategy"] = body["strategy"]
+                    item["deterministic_account"] = (
+                        body["account"] or item["deterministic_account"]
+                    )
             self.requests.append((request.method, path, request.headers, body))
             route.fulfill(json={"ok": True, "data": {}})
         else:
@@ -126,27 +136,33 @@ def test_accounts_render_stats_table_and_strategies(open_panel):
     panel = AccountsPanel()
     page = open_accounts(open_panel, panel)
     main = page.locator("main").inner_text()
-    assert page.locator(".kpi .num").all_inner_texts() == ["4", "1 / 4", "1", "1"]
+    assert page.locator(".kpi .num").all_inner_texts() == ["4", "1 / 4", "1", "2"]
     rows = page.locator(".account-table .el-table__row")
     assert rows.count() == 4
     first = rows.nth(0).inner_text()
     assert "天子" in first and "10001" in first and "在线" in first
-    assert "随机 1 群" in first and "定向 1 群" in first
-    assert "未设置" in rows.nth(1).inner_text() and "离线" in rows.nth(1).inner_text()
+    # 定向只算该账号被指定负责的群：40002 归 10001，40003 归已停用的 10003。
+    assert "随机 1 群" in first and "定向负责 1 群" in first
+    assert "未绑定群" in rows.nth(1).inner_text() and "离线" in rows.nth(1).inner_text()
+    assert "定向负责 1 群" in rows.nth(2).inner_text()
     assert "已停用" in rows.nth(2).inner_text()
     assert "适配器暂不支持管理" in rows.nth(3).inner_text()
     # 离线账号不能踢下线；在线账号不能移除记录。
     assert rows.nth(0).get_by_role("button", name="移除记录").is_disabled()
     assert rows.nth(1).get_by_role("button", name="踢下线").is_disabled()
     assert rows.nth(2).get_by_role("button", name="启用").is_enabled()
-    # 群响应策略：群名优先，缺名时显示群号。
+    # 群响应策略：不会响应的群排在最前并写明原因；群名优先，缺名时显示群号。
     strategy = page.locator(".strategy-table .el-table__row")
-    assert strategy.count() == 2
-    assert "测试群一" in strategy.nth(0).inner_text()
-    assert "40002" in strategy.nth(1).inner_text()
+    assert strategy.count() == 3
+    silent = strategy.nth(0).inner_text()
+    assert "40003" in silent and "定向账号 bot-10003 已停用" in silent
+    assert "测试群一" in strategy.nth(1).inner_text()
+    assert "共 3 个群" in main and "1 个群不会响应" in main
+    page.get_by_role("button", name="1 个群不会响应").click()
+    assert strategy.count() == 1
+    page.get_by_role("button", name="1 个群不会响应").click()
     page.get_by_placeholder("搜索群名 / 群号 / 账号").fill("测试群一")
     assert strategy.count() == 1
-    assert "共 2 个群" in main
     assert not page.errors
 
 

@@ -16,6 +16,28 @@
   font-size: 17px;
   overflow-wrap: anywhere;
 }
+.sw-title {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 12px;
+}
+.sw-silent {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  margin: 0;
+  padding: 10px 20px;
+  border-top: 1px solid var(--tk-line);
+  background: var(--el-color-danger-light-9);
+  color: var(--el-color-danger);
+  font-size: 13px;
+  line-height: 1.5;
+}
+.sw-silent .el-icon {
+  flex: none;
+  margin-top: 3px;
+}
 .sw-id {
   display: flex;
   flex-wrap: wrap;

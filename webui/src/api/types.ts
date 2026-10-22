@@ -87,12 +87,6 @@ export interface HostResources {
 
 /** 已知策略为 random / deterministic，其余值按“其他”展示。 */
 export type ResponseStrategyName = 'random' | 'deterministic' | (string & {})
-export interface AccountResponseStrategy {
-  group_id: string
-  strategy: ResponseStrategyName
-  /** 定向模式下负责应答的账号（ref）；各账号列表里同一个群的值相同。 */
-  deterministic_account: string | null
-}
 export interface AccountSummary {
   id: string
   /** 写接口里引用该账号的键；OneBot 下等于 id。 */
@@ -100,10 +94,34 @@ export interface AccountSummary {
   platform: string
   online: boolean
   group_count: number
-  response_strategies: AccountResponseStrategy[]
+}
+/** 账号在某群的状态，优先级：停用 > 离线 > 禁言。 */
+export type GroupAccountState = 'available' | 'muted' | 'offline' | 'disabled'
+export interface GroupAccount {
+  ref: string
+  id: string
+  platform: string
+  name: string | null
+  state: GroupAccountState
+  /** 只在执行过管理动作后才知道。 */
+  role: 'owner' | 'admin' | 'member' | null
+  /** 禁言到期时间；永久禁言或未禁言为 null。 */
+  muted_until: string | null
+}
+/** 群当前不会响应的原因：没有可用账号，或定向账号不可用。 */
+export type SilentReason = 'no_account' | 'target_unavailable'
+export interface GroupStatus {
+  group_id: string
+  strategy: ResponseStrategyName
+  /** 定向模式下负责应答的账号（ref）。 */
+  deterministic_account: string | null
+  silent_reason: SilentReason | null
+  /** 按绑定顺序排列，包含本次运行尚未连接的账号。 */
+  accounts: GroupAccount[]
 }
 export interface AccountsData {
   accounts: AccountSummary[]
+  groups: GroupStatus[]
 }
 
 export type FeatureScope = 'group' | 'global' | (string & {})

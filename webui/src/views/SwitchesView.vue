@@ -7,6 +7,7 @@ import ResourceBoundary from '@/components/ResourceBoundary.vue'
 import StatusTag from '@/components/StatusTag.vue'
 import { featureStatus, isSwitchable } from '@/composables/status'
 import { usePanelData } from '@/composables/usePanelData'
+import { silentText } from './accounts/helpers'
 import GroupDetail from './switches/GroupDetail.vue'
 import PluginDetail from './switches/PluginDetail.vue'
 import SwitchList from './switches/SwitchList.vue'
@@ -23,10 +24,20 @@ import {
 import { useSwitchState } from './switches/useSwitchState'
 import './switches/detail.css'
 
-const { features } = usePanelData()
+const { accounts, features } = usePanelData()
 const { state, setView, pick, openPlugin } = useSwitchState()
 
 const model = computed(() => (features.data.value ? buildModel(features.data.value) : null))
+
+/** 当前不会响应的群及原因，与账户页的群响应策略同源。 */
+const silentGroups = computed(
+  () =>
+    new Map(
+      (accounts.data.value?.groups ?? [])
+        .filter((group) => group.silent_reason)
+        .map((group) => [group.group_id, silentText(group)]),
+    ),
+)
 
 const viewOptions = [
   { label: '按群查看', value: 'group' },
@@ -100,6 +111,12 @@ async function pickAndReveal(id: string) {
                 <span v-if="item.name" class="row-sub tk-mono">{{ item.id }}</span>
               </span>
               <span class="row-side">
+                <StatusTag
+                  v-if="silentGroups.has(item.id)"
+                  kind="danger"
+                  :title="silentGroups.get(item.id)"
+                  >不会响应</StatusTag
+                >
                 <template v-if="groupStat(model, item.id).total">
                   <StatusTag v-if="!groupStat(model, item.id).on" kind="pending"
                     >全部关闭</StatusTag
@@ -156,6 +173,7 @@ async function pickAndReveal(id: string) {
                 v-if="selectedGroup"
                 :group="selectedGroup"
                 :model="model"
+                :silent="silentGroups.get(selectedGroup.id)"
                 @open-plugin="openPlugin"
               />
               <el-empty v-else description="暂无群组，接口尚未返回群级开关列。" :image-size="64" />

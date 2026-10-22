@@ -140,9 +140,15 @@ def test_deterministic_muted_account_returns_none_without_fallback() -> None:
 
     registry.set_muted(second, 100, True)
     assert registry.select_account(100) is None
+    # 第一个账号仍可用，群不响应是因为定向账号不可用；面板据此提示。
+    assert registry.silent_reason(100) == "target_unavailable"
 
     registry.set_muted(second, 100, False)
     assert registry.select_account(100) is second
+    assert registry.silent_reason(100) is None
+
+    registry.set_enabled(second, False)
+    assert registry.silent_reason(100) == "target_unavailable"
 
 
 def test_expired_mute_is_lazily_removed_and_routing_recovers() -> None:

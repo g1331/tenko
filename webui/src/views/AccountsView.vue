@@ -16,21 +16,13 @@ import { accountKey, accountName } from './accounts/helpers'
 
 const { accounts, features, managedAccounts, refresh } = usePanelData()
 
-const summaries = computed(() => accounts.data.value?.accounts ?? [])
 const groupNames = computed(() => features.data.value?.group_names ?? {})
 
-// 同一个群被多个账号配置时只计一次（取第一个），与总览口径一致。
-const strategyTotals = computed(() => {
-  const seen = new Map<string, string>()
-  for (const account of summaries.value)
-    for (const item of account.response_strategies)
-      if (!seen.has(item.group_id)) seen.set(item.group_id, item.strategy)
-  const values = [...seen.values()]
-  return {
-    random: values.filter((value) => value === 'random').length,
-    deterministic: values.filter((value) => value === 'deterministic').length,
-  }
-})
+const groups = computed(() => accounts.data.value?.groups ?? [])
+const strategyTotals = computed(() => ({
+  random: groups.value.filter((group) => group.strategy === 'random').length,
+  deterministic: groups.value.filter((group) => group.strategy === 'deterministic').length,
+}))
 
 const ACTIONS: Record<
   Exclude<AccountAction, 'preferences'>,
@@ -119,7 +111,7 @@ function editPreferences(account: ManagedAccount) {
       <PagePanel title="托管账户" class="list-panel">
         <AccountList
           :accounts="managedAccounts.data.value.accounts"
-          :summaries="summaries"
+          :groups="groups"
           :busy="busy"
           @preferences="editPreferences"
           @action="runAction"
@@ -137,7 +129,7 @@ function editPreferences(account: ManagedAccount) {
     </template>
 
     <ResourceBoundary :resource="accounts" label="响应策略数据">
-      <StrategyPanel :summaries="summaries" :group-names="groupNames" />
+      <StrategyPanel :groups="groups" :group-names="groupNames" />
     </ResourceBoundary>
   </PageContainer>
 </template>

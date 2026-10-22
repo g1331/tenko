@@ -1,17 +1,17 @@
 <script setup lang="ts">
 import { computed } from 'vue'
-import type { AccountAction, AccountSummary, ManagedAccount } from '@/api'
+import type { AccountAction, GroupStatus, ManagedAccount } from '@/api'
 import StatusTag from '@/components/StatusTag.vue'
 import { numberText, platformText } from '@/composables/format'
 import { useNarrow } from '@/composables/useNarrow'
 import type { StatusKind } from '@/composables/status'
 import AccountActions from './AccountActions.vue'
-import { accountKey, accountName, strategyCounts } from './helpers'
+import { accountKey, accountName } from './helpers'
 
 // 托管账户列表：桌面为 el-table，窄屏为卡片列表；操作通过事件交给页面处理。
 const props = defineProps<{
   accounts: ManagedAccount[]
-  summaries: AccountSummary[]
+  groups: GroupStatus[]
   /** 正在执行操作的账号（platform/id），其按钮暂时禁用。 */
   busy: string
 }>()
@@ -29,16 +29,27 @@ function status(account: ManagedAccount): { kind: StatusKind; label: string } {
 
 const rows = computed(() =>
   props.accounts.map((account) => {
-    const summary = props.summaries.find(
-      (item) => item.id === account.id && item.platform === account.platform,
+    const own = props.groups.filter((group) =>
+      group.accounts.some((item) => item.platform === account.platform && item.id === account.id),
     )
-    const counts = strategyCounts(summary)
-    const chips = [
-      counts.random && `随机 ${counts.random} 群`,
-      counts.deterministic && `定向 ${counts.deterministic} 群`,
-      counts.other && `其他 ${counts.other} 群`,
-    ].filter((item): item is string => !!item)
-    return { account, key: accountKey(account), status: status(account), chips }
+    const random = own.filter((group) => group.strategy === 'random').length
+    // 定向只统计由该账号负责的群；同群的其他账号在定向群里只是候补。
+    const leading = own.filter(
+      (group) =>
+        group.strategy === 'deterministic' &&
+        group.accounts.some(
+          (item) =>
+            item.ref === group.deterministic_account &&
+            item.platform === account.platform &&
+            item.id === account.id,
+        ),
+    ).length
+    const chips = [random && `随机 ${random} 群`, leading && `定向负责 ${leading} 群`].filter(
+      (item): item is string => !!item,
+    )
+    // 没有标签时：有群说明这些群都定向给了别的账号，本账号只是候补。
+    const idle = own.length ? '定向候补' : '未绑定群'
+    return { account, key: accountKey(account), status: status(account), chips, idle }
   }),
 )
 </script>
@@ -76,7 +87,7 @@ const rows = computed(() =>
             {{ chip }}
           </el-tag>
         </div>
-        <StatusTag v-else kind="pending">未设置</StatusTag>
+        <StatusTag v-else kind="off">{{ row.idle }}</StatusTag>
       </template>
     </el-table-column>
     <el-table-column label="操作" min-width="290">
@@ -128,7 +139,7 @@ const rows = computed(() =>
                 {{ chip }}
               </el-tag>
             </span>
-            <StatusTag v-else kind="pending">未设置</StatusTag>
+            <StatusTag v-else kind="off">{{ row.idle }}</StatusTag>
           </dd>
         </div>
       </dl>

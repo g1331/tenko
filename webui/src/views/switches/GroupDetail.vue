@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
-import { Lock } from '@element-plus/icons-vue'
+import { Lock, WarningFilled } from '@element-plus/icons-vue'
+import GroupAvatar from '@/components/GroupAvatar.vue'
 import PagePanel from '@/components/PagePanel.vue'
 import StatusTag from '@/components/StatusTag.vue'
 import FeaturePills from './FeaturePills.vue'
@@ -17,7 +18,7 @@ import {
 } from './model'
 import { useSwitchActions } from './useSwitchActions'
 
-const props = defineProps<{ group: GroupRef; model: SwitchModel }>()
+const props = defineProps<{ group: GroupRef; model: SwitchModel; silent?: string }>()
 const emit = defineEmits<{ openPlugin: [plugin: string] }>()
 
 const { isPending, locked, setGroup } = useSwitchActions()
@@ -42,17 +43,25 @@ function describe(feature: SwitchModel['features'][number]) {
 <template>
   <PagePanel class="sw-panel">
     <div class="sw-head">
-      <div>
-        <h2>{{ groupLabel(group) }}</h2>
-        <div class="sw-id">
-          <code v-if="group.name">{{ group.id }}</code>
-          <span class="sw-count">{{ model.groupFeatures.length }} 个群级功能</span>
+      <div class="sw-title">
+        <GroupAvatar :id="group.id" :name="group.name" :size="40" />
+        <div>
+          <h2>{{ groupLabel(group) }}</h2>
+          <div class="sw-id">
+            <code v-if="group.name">{{ group.id }}</code>
+            <span class="sw-count">{{ model.groupFeatures.length }} 个群级功能</span>
+          </div>
         </div>
       </div>
       <div class="sw-summary">
         <b>{{ stat.on }}</b> / {{ stat.total }}<br />可调功能已开启
       </div>
     </div>
+    <p v-if="silent" class="sw-silent" role="status">
+      <el-icon><WarningFilled /></el-icon>这个群当前不会响应：{{
+        silent
+      }}。开关照常保存，账号恢复后生效。
+    </p>
     <ul v-if="model.groupFeatures.length" class="sw-items">
       <SwitchItem
         v-for="feature in model.groupFeatures"

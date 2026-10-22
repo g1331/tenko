@@ -8,6 +8,7 @@ import tempfile
 import ipaddress
 import secrets
 from collections.abc import Callable, Iterable, Mapping
+from datetime import UTC
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -45,7 +46,7 @@ from .plugins import PluginMarket
 from ..host.metrics import MessageMetrics, message_metrics
 from . import core_config
 from .live import MAX_STREAMS, TOPICS, LiveStreams
-from ..host.accounts import AccountRegistry, account_registry
+from ..host.accounts import AccountRegistry, account_reference, account_registry
 from ..host.features import FeatureService, feature_service as default_feature_service
 from ..host.plugins.runtime import PluginRuntime
 from ..host.status import build_status_data
@@ -343,7 +344,60 @@ class WebUIService(Service):
         del request
         return await self._read("overview", self._overview_data)
 
+    @staticmethod
+    def _account_name(account: object) -> str | None:
+        user = getattr(getattr(account, "self_info", None), "user", None)
+        return str(user.name) if user is not None and user.name else None
+
+    def _account_state(self, key: tuple[str, str], group_id: str) -> str:
+        """账号在群内的状态，优先级与选路一致：停用 > 离线 > 禁言。"""
+
+        if not self.accounts.is_enabled(key):
+            return "disabled"
+        if not self.accounts.is_online(key):
+            return "offline"
+        if self.accounts.is_muted(key, group_id):
+            return "muted"
+        return "available"
+
+    def _group_role(self, key: tuple[str, str], group_id: str) -> str | None:
+        # 身份只在执行管理动作时查询过才知道。
+        level = self.accounts.group_permission(key, group_id)
+        if level is None:
+            return None
+        return "owner" if level >= 64 else "admin" if level >= 32 else "member"
+
     def _accounts_data(self) -> dict[str, Any]:
+        groups = []
+        for group_id in self.accounts.group_ids:
+            strategy = self.accounts.response_type_for_group(group_id)
+            target = self.accounts.deterministic_account_for_group(group_id)
+            members = []
+            for key in self.accounts.group_members(group_id):
+                ref = account_reference(key)
+                until = self.accounts.mute_until(key, group_id)
+                members.append(
+                    {
+                        "ref": ref,
+                        "id": key[1],
+                        "platform": key[0],
+                        "name": self._account_name(self.accounts.get(key)),
+                        "state": self._account_state(key, group_id),
+                        "role": self._group_role(key, group_id),
+                        "muted_until": until.astimezone(UTC).isoformat()
+                        if until
+                        else None,
+                    }
+                )
+            groups.append(
+                {
+                    "group_id": group_id,
+                    "strategy": strategy,
+                    "deterministic_account": target,
+                    "silent_reason": self.accounts.silent_reason(group_id),
+                    "accounts": members,
+                }
+            )
         accounts = []
         for account_id, account in self.accounts.accounts.items():
             platform = getattr(account, "platform", None)
@@ -351,30 +405,16 @@ class WebUIService(Service):
                 platform = getattr(
                     getattr(account, "self_info", None), "platform", None
                 )
-            groups = self.accounts.groups_for_account(account_id)
-            response_strategies = [
-                {
-                    "group_id": group_id,
-                    "strategy": strategy,
-                    "deterministic_account": (
-                        self.accounts.deterministic_account_for_group(group_id)
-                    ),
-                }
-                for group_id in groups
-                if (strategy := self.accounts.response_type_for_group(group_id))
-                is not None
-            ]
             accounts.append(
                 {
                     "id": str(account.self_id),
                     "ref": str(account_id),
                     "platform": str(platform or "unknown"),
                     "online": bool(self.accounts.is_available(account_id)),
-                    "group_count": len(groups),
-                    "response_strategies": response_strategies,
+                    "group_count": len(self.accounts.groups_for_account(account_id)),
                 }
             )
-        return {"accounts": accounts}
+        return {"accounts": accounts, "groups": groups}
 
     async def accounts_view(self, request: Request) -> JSONResponse:
         del request

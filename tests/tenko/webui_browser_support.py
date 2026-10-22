@@ -83,13 +83,6 @@ ACCOUNTS = {
             "platform": "onebot",
             "online": True,
             "group_count": 9,
-            "response_strategies": [
-                {
-                    "group_id": "40001",
-                    "strategy": "random",
-                    "deterministic_account": "10001",
-                }
-            ],
         },
         {
             "id": "10002",
@@ -97,9 +90,27 @@ ACCOUNTS = {
             "platform": "onebot",
             "online": False,
             "group_count": 5,
-            "response_strategies": [],
         },
-    ]
+    ],
+    "groups": [
+        {
+            "group_id": "40001",
+            "strategy": "random",
+            "deterministic_account": "10001",
+            "silent_reason": None,
+            "accounts": [
+                {
+                    "ref": "10001",
+                    "id": "10001",
+                    "platform": "onebot",
+                    "name": None,
+                    "state": "available",
+                    "role": None,
+                    "muted_until": None,
+                }
+            ],
+        }
+    ],
 }
 DATA = {
     "/api/overview": {
