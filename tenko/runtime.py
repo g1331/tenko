@@ -38,6 +38,7 @@ from .host.ratelimit import configure_rate_limiter
 from .host.startup import startup_history
 from .host.updater import UpgradeManager, configure_updater
 from .host.render import RenderService
+from .host.sandbox import SandboxAdapter, install as install_sandbox, is_sandbox
 from .webui import WebUIService
 
 
@@ -78,6 +79,12 @@ class TenkoRuntime:
         self.account_management = AccountManagement(self.accounts, self.actions)
         self.connection = OneBotConnection(config.onebot)
         self.connection.adapter.admission = self.account_management.can_connect
+        # 命令沙盒只给面板用；不开 WebUI 时不注册这个虚拟平台。
+        self.sandbox: SandboxAdapter | None = None
+        if config.webui.enabled:
+            self.sandbox = SandboxAdapter()
+            self.connection.server.apply(self.sandbox)
+        install_sandbox(self.sandbox)
         self.message_metrics = configure_message_metrics(
             config.exception.message_buffer_size
         )
@@ -268,6 +275,9 @@ class TenkoRuntime:
         return app
 
     async def _on_lifecycle(self, account: Account, state: LoginStatus) -> None:
+        if is_sandbox(account):
+            # 沙盒账号不进账号路由，也不发上线通知。
+            return
         if state in (LoginStatus.ONLINE, LoginStatus.CONNECT, LoginStatus.RECONNECT):
             self.accounts.register(account, available=state == LoginStatus.ONLINE)
             if state == LoginStatus.ONLINE:

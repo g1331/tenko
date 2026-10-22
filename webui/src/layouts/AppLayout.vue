@@ -2,6 +2,7 @@
 import { computed, type Component } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import {
+  Box,
   ChatDotRound,
   Connection,
   Message,
@@ -36,6 +37,7 @@ const icons: Record<string, Component> = {
   switches: Switch,
   upgrade: Upload,
   logs: Tickets,
+  sandbox: Box,
   settings: Setting,
 }
 

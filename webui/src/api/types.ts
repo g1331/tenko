@@ -574,6 +574,21 @@ export type ChatSendSegment =
   | { type: 'at'; id: string; name?: string }
   | { type: 'image'; src: string }
   | { type: 'quote'; id: string }
+export type SandboxChat = 'group' | 'private'
+export type SandboxIdentity = 'member' | 'admin' | 'owner' | 'master'
+/** 命令沙盒：面板扮演用户和 bot 对话，记录只在内存里。 */
+export interface SandboxData {
+  ready: boolean
+  bot: { id: string; name: string }
+  group: { id: string; name: string }
+  identities: { value: SandboxIdentity; user_id: string; name: string }[]
+  messages: ChatMessage[]
+}
+export interface SandboxSendBody {
+  chat: SandboxChat
+  identity: SandboxIdentity
+  content: ChatSendSegment[]
+}
 export interface ChatSendBody {
   platform: string
   account: string

@@ -14,6 +14,9 @@ import type {
   ChatConversationsData,
   ChatMessagesData,
   ChatSendBody,
+  SandboxChat,
+  SandboxData,
+  SandboxSendBody,
   CoreConfigData,
   FeaturesData,
   FeatureToggleBody,
@@ -121,5 +124,9 @@ export const api = {
         query: { platform, account, channel, ...cursor },
       }),
     chatSend: (body: ChatSendBody) => request<{ sent: boolean }>('/manage/chat/send', { body }),
+    sandbox: (chat: SandboxChat) => request<SandboxData>('/manage/sandbox', { query: { chat } }),
+    sandboxSend: (body: SandboxSendBody) =>
+      request<{ sent: boolean }>('/manage/sandbox/send', { body }),
+    sandboxClear: () => request<{ cleared: boolean }>('/manage/sandbox/clear', { body: {} }),
   },
 }

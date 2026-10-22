@@ -115,6 +115,16 @@ export const router = createRouter({
           },
         },
         {
+          path: 'sandbox',
+          name: 'sandbox',
+          component: () => import('@/views/SandboxView.vue'),
+          meta: {
+            title: '命令沙盒',
+            subtitle: '扮演群友和 bot 对话，测试命令，消息不经过真实协议',
+            nav: { label: '命令沙盒', short: '沙盒', group: '运维' },
+          },
+        },
+        {
           path: 'settings',
           name: 'settings',
           component: () => import('@/views/SettingsView.vue'),

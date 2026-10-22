@@ -42,9 +42,12 @@ from .auth import (
     success_response as _success_response,
 )
 from .chat import ChatPanel
+from .sandbox import SandboxPanel
 from .logs import LogReader
 from .plugins import PluginMarket
 from ..host.chat_log import chat_log
+from ..host import sandbox as sandbox_module
+from ..host.sandbox import SANDBOX_GROUP_ID
 from ..host.metrics import MessageMetrics, message_metrics
 from . import core_config
 from .live import MAX_STREAMS, TOPICS, LiveStreams
@@ -281,10 +284,12 @@ class WebUIService(Service):
         )
         self.market = PluginMarket(self)
         self.chat = ChatPanel(self)
+        self.sandbox = SandboxPanel(self)
         for path, methods, handler in (
             *routes,
             *self.market.routes(),
             *self.chat.routes(),
+            *self.sandbox.routes(),
         ):
             self.server.asgi_route(f"{WEBUI_PATH}{path}", methods=methods)(handler)
 
@@ -485,7 +490,8 @@ class WebUIService(Service):
         group_ids = list(self.accounts.group_ids)
         for state in states.values():
             for group_id in state["groups"]:
-                if group_id not in group_ids:
+                # 沙盒群的开关在沙盒里用 /开启、/关闭 调整，不出现在开关页。
+                if group_id not in group_ids and group_id != SANDBOX_GROUP_ID:
                     group_ids.append(group_id)
 
         default_enabled = bool(getattr(self.feature_service, "default_enabled", True))
@@ -1140,6 +1146,7 @@ class WebUIService(Service):
             "accounts": hash(json.dumps(self._accounts_data(), sort_keys=True)),
             "features": hash(json.dumps(features, sort_keys=True, default=str)),
             "chat": chat_log.sequence,
+            "sandbox": sandbox_module.sandbox.sequence if sandbox_module.sandbox else 0,
         }
 
     async def live_events(self, request: Request) -> Response:

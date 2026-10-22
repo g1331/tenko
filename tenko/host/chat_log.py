@@ -35,6 +35,7 @@ from satori.element import (
 )
 
 from ..context import MessageContext, is_message_created
+from .sandbox import is_sandbox
 
 _FLUSH_DELAY = 0.5
 _FETCH_TIMEOUT = 5.0
@@ -63,12 +64,21 @@ def _other(name: str) -> dict[str, str]:
     return {"type": "other", "name": name}
 
 
-def segments(elements: Iterable[Element | str]) -> list[dict[str, Any]]:
+def segments(
+    elements: Iterable[Element | str], *, inline_images: bool = False
+) -> list[dict[str, Any]]:
     """把 Satori 消息元素归一化为面板渲染用的消息段。
 
     只保留文字、@、表情、图片和引用；其他元素以名称占位，未知元素不会原样
-    进入数据库或前端。base64 图片（例如渲染出的状态图）不入库，只留占位。
+    进入数据库或前端。base64 图片（例如渲染出的状态图）不入库，只留占位；
+    只存在内存里的沙盒记录用 ``inline_images`` 保留 ``data:image/`` 图片。
     """
+
+    schemes = (
+        ("http://", "https://", "data:image/")
+        if inline_images
+        else ("http://", "https://")
+    )
 
     result: list[dict[str, Any]] = []
 
@@ -97,7 +107,7 @@ def segments(elements: Iterable[Element | str]) -> list[dict[str, Any]]:
                 {"type": "face", "id": str(element.id), "name": element.name or ""}
             )
         elif isinstance(element, Image):
-            src = element.src if element.src.startswith(("http://", "https://")) else ""
+            src = element.src if element.src.startswith(schemes) else ""
             result.append({"type": "image", "src": src})
         elif isinstance(element, Quote):
             author = next(
@@ -105,7 +115,8 @@ def segments(elements: Iterable[Element | str]) -> list[dict[str, Any]]:
                 None,
             )
             body = segments(
-                child for child in element.children if not isinstance(child, Author)
+                (child for child in element.children if not isinstance(child, Author)),
+                inline_images=inline_images,
             )
             result.append(
                 {
@@ -223,7 +234,7 @@ class ChatLog:
     def record_event(self, account: Any, event: Any) -> None:
         """记录一条收到的消息事件；不是消息、或缺少会话信息的事件忽略。"""
 
-        if not self.enabled or not is_message_created(event):
+        if not self.enabled or not is_message_created(event) or is_sandbox(event):
             return
         try:
             context = MessageContext.from_event(event)

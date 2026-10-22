@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onBeforeUnmount, ref, shallowRef, watch } from 'vue'
+import { computed, ref, shallowRef, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ArrowLeft, FullScreen, ScaleToOriginal, Search } from '@element-plus/icons-vue'
 import {
@@ -9,7 +9,6 @@ import {
   type ChatConversation,
   type ChatConversationsData,
   type ChatMessage,
-  type ChatSegment,
   type ChatSendSegment,
 } from '@/api'
 import PageContainer from '@/components/PageContainer.vue'
@@ -19,6 +18,7 @@ import { useNarrow } from '@/composables/useNarrow'
 import { usePanelData } from '@/composables/usePanelData'
 import ChatComposer, { type Mention, type ReplyTarget } from './chat/ChatComposer.vue'
 import ChatMessages from './chat/ChatMessages.vue'
+import { previewOf, useImmersive } from './chat/shared'
 
 // 以 bot 账号的身份聊天：左边是账号绑定的群和最近的私聊，右边是消息和输入区。
 // 新消息通过实时通道的 chat 信号触发增量拉取；窄屏时列表和消息分两屏。
@@ -133,18 +133,7 @@ const list = ref<InstanceType<typeof ChatMessages> | null>(null)
 /** 每次切换会话递增，使上一个会话的在途请求作废。 */
 let token = 0
 
-// 沉浸模式用 fixed 铺满窗口而不是 Fullscreen API：图片预览和 @ 菜单挂在 body 上，
-// 浏览器全屏时只渲染全屏元素内部，它们会看不见。
-const immersive = ref(false)
-function onKeydown(event: KeyboardEvent) {
-  if (event.key !== 'Escape' || !immersive.value || event.defaultPrevented) return
-  // Esc 先交给打开的图片预览。
-  if (document.querySelector('.el-image-viewer__wrapper')) return
-  immersive.value = false
-}
-// 捕获阶段：图片预览在 document 上处理 Esc 并立即卸载，冒泡到 window 时已经查不到它。
-window.addEventListener('keydown', onKeydown, true)
-onBeforeUnmount(() => window.removeEventListener('keydown', onKeydown, true))
+const immersive = useImmersive()
 
 function close() {
   token += 1
@@ -239,27 +228,6 @@ watch(chatSignal, () => {
 const composer = ref<InstanceType<typeof ChatComposer> | null>(null)
 const sending = ref(false)
 const reply = ref<ReplyTarget | null>(null)
-
-function previewOf(content: ChatSegment[]): string {
-  return content
-    .map((item) =>
-      item.type === 'text'
-        ? item.text
-        : item.type === 'at'
-          ? `@${item.name || item.id}`
-          : item.type === 'image'
-            ? '[图片]'
-            : item.type === 'face'
-              ? '[表情]'
-              : item.type === 'other'
-                ? `[${item.name}]`
-                : '',
-    )
-    .join('')
-    .replace(/\s+/g, ' ')
-    .trim()
-    .slice(0, 40)
-}
 
 function replyTo(message: ChatMessage) {
   if (!message.message_id) return

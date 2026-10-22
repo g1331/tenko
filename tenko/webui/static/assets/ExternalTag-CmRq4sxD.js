@@ -1,1 +1,0 @@
-import{Kr as e,Mr as t,fr as n,mr as r,sr as i}from"./css-Cm8idjKH.js";import{t as a}from"./css-d2xDU9d7.js";var o=r({__name:`ExternalTag`,setup(r){return(r,o)=>{let s=a;return t(),i(s,{size:`small`,effect:`plain`,type:`warning`,"disable-transitions":``},{default:e(()=>[...o[0]||=[n(`第三方`,-1)]]),_:1})}}});export{o as t};

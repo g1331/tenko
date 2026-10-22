@@ -1,1 +1,0 @@
-import{Fr as e,Mr as t,Wn as n,cr as r,lr as i,mr as a}from"./css-Cm8idjKH.js";var o={class:`page-container`},s={key:0,class:`page-actions`},c=n(a({__name:`PageContainer`,setup(n){return(n,a)=>(t(),i(`div`,o,[n.$slots.actions?(t(),i(`div`,s,[e(n.$slots,`actions`,{},void 0,!0)])):r(``,!0),e(n.$slots,`default`,{},void 0,!0)]))}}),[[`__scopeId`,`data-v-a21689dd`]]);export{c as t};

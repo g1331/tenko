@@ -15,6 +15,7 @@ from satori.model import Event
 from .config import DebugConfig
 from .context import MessageContext, is_message_created
 from .host.accounts import AccountRegistry, account_key
+from .host.sandbox import is_sandbox
 from .host.chat_log import ChatLog
 from .host.metrics import MessageMetrics, message_metrics
 
@@ -133,6 +134,9 @@ class MessageEventHandler:
     def should_skip(self, account: Account, event: Event) -> bool:
         """判断事件是否应在进入消息和插件处理前被跳过。"""
 
+        # 沙盒是面板发起的测试对话：不登记账号、不参与群选路，也不受调试白名单限制。
+        if is_sandbox(account):
+            return False
         if self.account_registry is not None and not self.account_registry.is_enabled(
             account
         ):
@@ -382,7 +386,7 @@ class MessageEventHandler:
     def _record_received_event(
         self, event: Event, context: MessageContext | None = None
     ) -> None:
-        if self.metrics is None or not is_message_created(event):
+        if self.metrics is None or not is_message_created(event) or is_sandbox(event):
             return
         origin = getattr(event, "_origin", None)
         if origin is None:

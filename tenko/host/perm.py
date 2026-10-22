@@ -9,12 +9,16 @@ from arclet.entari.config import EntariConfig
 
 from ..context import MessageContext
 from ..db.errors import is_database_unavailable
+from .sandbox import SANDBOX_MASTER_ID, SANDBOX_PLATFORM
 from loguru import logger
 
 
 def superuser_ids(platform: str | None) -> tuple[str, ...]:
     """返回 Entari ``basic.superusers`` 中该平台配置的用户 ID（去空白、去空值）。"""
 
+    if platform == SANDBOX_PLATFORM:
+        # 沙盒选择 Master 身份时使用的虚拟 ID。
+        return (SANDBOX_MASTER_ID,)
     if platform is None or not getattr(EntariConfig, "_inited", False):
         return ()
     configured = getattr(
