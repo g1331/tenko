@@ -20,9 +20,12 @@ from arclet.entari.plugin import (
     get_plugin_commands,
     get_plugins,
     load_plugin,
+    reload_plugin,
     unload_plugin,
     plugin_service,
 )
+from arclet.entari.event.config import ConfigReload
+from arclet.letoderea import post
 from loguru import logger
 from packaging.requirements import InvalidRequirement, Requirement
 
@@ -32,8 +35,7 @@ _DEFAULT_PLUGIN_DIR = Path(__file__).resolve().parents[2] / "plugins"
 # 第三方插件入口组；不能用 Entari 的 ``entari.plugin``，它会被无条件自动加载。
 EXTERNAL_ENTRY_POINT_GROUP = "tenko.plugins"
 _DEFAULT_STATE_FILE = Path(".tenko/plugins/state.json")
-# 启动时的 ``[plugin_config.<id>]``，运行中首次加载第三方插件时沿用。
-# shortcut: 启动后才写的配置要重启才生效；常见到需要时改为加载前重读配置文件。
+# ``[plugin_config.<id>]``：启动时读入，面板保存后由 ``apply_config`` 更新。
 _external_configs: Mapping[str, Mapping[str, Any]] = {}
 _PLUGIN_ID = re.compile(r"[a-z][a-z0-9_]*")
 _MODULE_PATH = re.compile(r"[A-Za-z_]\w*(\.[A-Za-z_]\w*)*")
@@ -519,6 +521,30 @@ class PluginRuntime:
         if not result:
             raise result.error
         return result.plugin
+
+    async def apply_config(
+        self, plugin: str | PluginInfo, config: Mapping[str, Any]
+    ) -> None:
+        """让第三方插件改用新配置；未加载的插件留到加载时使用。
+
+        与 Entari 的配置热重载相同：先向插件发 ``ConfigReload``，插件自己处理了就到此为止，
+        否则原子重载插件。重载失败时旧插件按旧配置继续运行，并抛出原因。
+        """
+
+        global _external_configs
+        info = self._info(plugin)
+        new = dict(config)
+        if info.native_plugin is not None:
+            old = dict(_external_configs.get(info.name, {}))
+            # 只发给这个插件自己的作用域，别的插件不必等各自的依赖就绪。传对象而非
+            # ID：重载过的插件作用域 ID 仍是 ``<id>@staging``，按 ID 找不到会退化为广播。
+            event = ConfigReload("plugin", info.qualified_name, new, old)
+            handled = await post(event, scope=info.native_plugin._scope)
+            if not (handled and handled.value):
+                result = await reload_plugin(info.qualified_name, dict(new))
+                if not result:
+                    raise result.error
+        _external_configs = {**_external_configs, info.name: new}
 
     def unload(self, plugin: str | PluginInfo) -> bool:
         """通过 Entari 卸载插件。"""

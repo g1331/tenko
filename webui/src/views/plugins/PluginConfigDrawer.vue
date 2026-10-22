@@ -2,12 +2,10 @@
 import { computed, ref, watch } from 'vue'
 import { api, type ConfigField, type PluginConfigData } from '@/api'
 import { confirmAction } from '@/composables/confirm'
-import { usePluginOps } from '@/composables/usePluginOps'
 
 // 插件配置表单：按 JSON Schema 的 properties 生成，只有简单类型可以在面板里改。
 const props = defineProps<{ pluginId: string | null; name: string }>()
 const visible = defineModel<boolean>({ required: true })
-const ops = usePluginOps()
 
 const config = ref<PluginConfigData | null>(null)
 // 表单值的类型随字段变化，由模板按 schema 的 type 选择控件。
@@ -42,7 +40,7 @@ watch(visible, (open) => open && load())
 async function save() {
   if (!props.pluginId || !config.value) return
   const ok = await confirmAction(
-    `将保存 ${props.name}（${props.pluginId}）的配置，写入配置文件，重启后生效。`,
+    `将保存 ${props.name}（${props.pluginId}）的配置并立即生效；已启用的插件会重新加载，插件内存里的临时状态（如计数、冷却）会清空。`,
     '保存插件配置',
     '保存',
   )
@@ -51,8 +49,7 @@ async function save() {
   saving.value = true
   try {
     await api.manage.savePluginConfig(props.pluginId, values)
-    ops.markChanged()
-    ElMessage.success('已保存，重启后生效')
+    ElMessage.success('已保存并生效')
     visible.value = false
   } catch (reason) {
     ElMessage.error(`保存配置失败：${(reason as Error).message}`)

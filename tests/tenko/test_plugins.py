@@ -473,6 +473,36 @@ async def test_external_plugin_receives_its_plugin_config_table(
 
 
 @pytest.mark.asyncio
+async def test_apply_config_reloads_running_plugin_and_keeps_it_on_failure(
+    entari_plugin_host, monkeypatch, tmp_path: Path
+) -> None:
+    import asyncio
+
+    from arclet.entari.plugin import unload_plugin
+    from arclet.letoderea.utils import _EventSystem
+
+    # 会话级 Entari 绑定的是别的事件循环；生产环境只有一个循环。
+    monkeypatch.setattr(_EventSystem, "loop", asyncio.get_running_loop())
+    (tmp_path / "tenko_t_cfg4.py").write_text(CONFIG_PLUGIN, encoding="utf-8")
+    monkeypatch.syspath_prepend(tmp_path)
+    patch_entry_points(monkeypatch, tenko=[_entry("cfg4", "tenko_t_cfg4")])
+    state_file = tmp_path / "state.json"
+    state_file.write_text(json.dumps({"enabled": ["cfg4"]}), encoding="utf-8")
+    runtime = PluginRuntime(tmp_path / "no_builtin", state_file=state_file)
+    try:
+        await runtime.load_all(external_configs={"cfg4": {"limit": 1}})
+        await runtime.apply_config("cfg4", {"limit": 7})
+        assert runtime.loaded_plugins["cfg4"].module.config.limit == 7
+
+        with pytest.raises(ImportError, match="limit"):
+            await runtime.apply_config("cfg4", {"limit": "不是数字"})
+        assert runtime.loaded_plugins["cfg4"].module.config.limit == 7
+    finally:
+        unload_plugin("tenko_t_cfg4")
+        sys.modules.pop("tenko_t_cfg4", None)
+
+
+@pytest.mark.asyncio
 async def test_external_plugin_without_config_table_uses_model_defaults(
     entari_plugin_host, monkeypatch, tmp_path: Path
 ) -> None:

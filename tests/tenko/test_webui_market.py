@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 from types import SimpleNamespace
+from unittest.mock import AsyncMock
 
 import httpx
 import pytest
@@ -79,6 +80,7 @@ async def market(tmp_path, tenko_database):
         ],
         is_protected=lambda _info: False,
         is_enabled=lambda _info: False,
+        apply_config=AsyncMock(),
     )
     from satori.server import Server
 
@@ -159,8 +161,18 @@ async def test_plugin_config_form_validates_and_writes_toml(market) -> None:
         assert (await client.post(url, json=bad)).status_code == 400
     saved = await client.post(url, json={"values": {"limit": 5}, "confirm": True})
 
-    assert saved.json()["data"]["restart_required"] is True
+    assert saved.json()["data"]["values"]["limit"] == 5
+    apply = market.service.plugin_runtime.apply_config
+    apply.assert_awaited_once_with("example", {"greeting": "嗨", "limit": 5})
     # 只追加改动的键，注释和其他内容逐字保留。
+    assert market.path.read_text() == CONFIG + "limit = 5\n"
+
+    # 插件按新配置加载失败：旧插件继续运行，配置文件改回去。
+    apply.side_effect = ValueError("limit 太大")
+    failed = await client.post(url, json={"values": {"limit": 9}, "confirm": True})
+    assert (
+        failed.status_code == 409 and "limit 太大" in failed.json()["error"]["message"]
+    )
     assert market.path.read_text() == CONFIG + "limit = 5\n"
 
 

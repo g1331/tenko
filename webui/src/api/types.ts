@@ -452,7 +452,6 @@ export interface PluginConfigData {
   values?: Record<string, unknown>
   editable?: string[]
   read_only_reason?: string | null
-  restart_required?: boolean
 }
 
 /** 宿主升级页；时间均为 ISO 8601 UTC。 */

@@ -559,14 +559,28 @@ class PluginMarket:
                 request.state.webui_action = "plugin-config"
                 merged = {**raw, **values}
 
-                def mutate(data) -> None:
-                    section = data.setdefault("plugin_config", {}).setdefault(
-                        plugin_id, {}
-                    )
-                    for key, value in values.items():
-                        section[key] = value
+                def write(changes: dict[str, Any]):
+                    def mutate(data) -> None:
+                        section = data.setdefault("plugin_config", {}).setdefault(
+                            plugin_id, {}
+                        )
+                        for key in values:
+                            if key in changes:
+                                section[key] = changes[key]
+                            else:
+                                section.pop(key, None)
 
-                self.service.update_config(mutate)
+                    self.service.update_config(mutate)
+
+                write(values)
+                try:
+                    await self.service.plugin_runtime.apply_config(plugin_id, merged)
+                except Exception as error:
+                    # 新配置让插件加载失败：文件改回去，免得下次启动时插件起不来。
+                    write(raw)
+                    raise RuntimeError(
+                        f"新配置未能生效，已恢复原配置：{error}"
+                    ) from error
                 current = {key: merged.get(key, current[key]) for key in properties}
             return {
                 "plugin_id": plugin_id,
@@ -579,7 +593,6 @@ class PluginMarket:
                 "read_only_reason": "该插件配置引用了环境变量，请在配置文件里修改"
                 if env_backed
                 else None,
-                "restart_required": request.method == "POST",
             }
 
         # GET 也要把“插件不存在”映射成 404，所以同样走 _manage。
