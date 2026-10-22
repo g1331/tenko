@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
@@ -62,3 +63,33 @@ def test_only_local_satori_api_access_lines_are_hidden() -> None:
     # 外部访问内部接口、以及 WebUI 等其他路径照常记录。
     assert _hide_local_api_access(access("8.8.8.8:4339", "/satori/v1/message.create"))
     assert _hide_local_api_access(access("127.0.0.1:4339", "/webui/api/overview"))
+
+
+@pytest.mark.asyncio
+async def test_back_to_back_events_each_reach_the_server_once() -> None:
+    from tenko.connection import _ManagedConnection
+
+    frames = [
+        {"self_id": 10001, "post_type": "notice", "notice_type": "first"},
+        {"self_id": 10001, "post_type": "notice", "notice_type": "second"},
+    ]
+    queue = [{"type": "websocket.receive", "text": json.dumps(f)} for f in frames]
+    queue.append({"type": "websocket.disconnect"})
+
+    async def receive():
+        return queue.pop(0)  # 不让出事件循环，模拟同一批到达的帧
+
+    posted = []
+
+    async def post(event):
+        posted.append(event._data["notice_type"])
+
+    adapter = SimpleNamespace(
+        logins={"10001": SimpleNamespace()}, server=SimpleNamespace(post=post)
+    )
+    connection = _ManagedConnection(adapter, SimpleNamespace(receive=receive), "10001")
+
+    await connection.message_handle()
+    await asyncio.sleep(0.01)
+
+    assert sorted(posted) == ["first", "second"]

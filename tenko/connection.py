@@ -10,13 +10,15 @@ from datetime import datetime
 from launart import Launart
 from loguru import logger
 from satori import EventType, LoginStatus
+from satori.adapters.onebot11.events.base import events as _EVENT_PARSERS
 from satori.adapters.onebot11.reverse import (
     OneBot11ReverseAdapter,
     OneBot11ReverseConfig,
     _Connection,
 )
+from satori.adapters.onebot11.utils import USER_AVATAR_URL, onebot11_event_type
 from satori.client import Account, ApiInfo, App
-from satori.model import Event
+from satori.model import Event, Login, User
 from satori.server import Server
 from starlette.websockets import WebSocket, WebSocketState
 
@@ -103,6 +105,67 @@ class _ManagedConnection(_Connection):
                 await self.ws.close(1008, "Event self_id does not match X-Self-ID")
                 return
             yield connection, data
+
+    async def message_handle(self) -> None:
+        """替换 satori-python-adapter-onebot11 0.5.0 的同名方法。
+
+        原实现在循环里定义解析任务的闭包，任务真正运行时才读取 ``data`` 等循环
+        变量：同一批到达的两条事件，前一条会被后一条覆盖（前一条丢失、后一条
+        处理两次）。这里把每条事件的数据作为参数交给任务。
+        """
+
+        async for _connection, data in self.message_receive():
+            if echo := data.get("echo"):
+                if future := self.response_waiters.get(echo):
+                    future.set_result(data)
+                continue
+            event_type = onebot11_event_type(data)
+            if event_type in {"meta_event.lifecycle.connect", "meta_event.heartbeat"}:
+                if self.account_id not in self.adapter.logins:
+                    asyncio.create_task(self._login_add())
+            elif event_type in {
+                "meta_event.lifecycle.enable",
+                "meta_event.lifecycle.disable",
+            }:
+                logger.warning("反向 WebSocket 不支持 {} 事件，断开连接", event_type)
+                return
+            elif (login := self.adapter.logins.get(self.account_id)) is None:
+                # 原实现在这里结束整个接收循环；登录完成前的事件丢弃即可。
+                logger.warning("账号 {} 登录完成前收到事件，已丢弃", self.account_id)
+            else:
+                asyncio.create_task(self._post_event(login, event_type, data))
+
+    async def _login_add(self) -> None:
+        info = await self.call_api("get_login_info")
+        login = Login(
+            sn=0,
+            status=LoginStatus.ONLINE,
+            adapter="onebot",
+            platform="onebot",
+            user=User(
+                self.account_id,
+                (info or {})["nickname"],
+                avatar=USER_AVATAR_URL.format(uin=self.account_id),
+            ),
+            features=["guild.plain"],
+        )
+        self.adapter.logins[self.account_id] = login
+        await self.adapter.server.post(
+            Event(EventType.LOGIN_ADDED, datetime.now(), login)
+        )
+
+    async def _post_event(self, login: Login, event_type: str, data: dict) -> None:
+        event = None
+        if parser := _EVENT_PARSERS.get(event_type):
+            try:
+                event = await parser(login, self, data)
+            except Exception as error:
+                logger.exception("failed to handle event {}: {!r}", event_type, error)
+        if not event:
+            event = Event(EventType.INTERNAL, datetime.now(), login)
+        event._type = event_type
+        event._data = data
+        await self.adapter.server.post(event)
 
     async def call_api(self, action: str, params: dict | None = None) -> dict:
         result = await super().call_api(action, params)
