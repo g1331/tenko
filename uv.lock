@@ -1034,14 +1034,14 @@ wheels = [
 
 [[package]]
 name = "satori-python-adapter-onebot11"
-version = "0.5.1"
+version = "0.5.2"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "satori-python-server" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/2d/e0/64fd7a2589750c98bc9babbdcda34740ccbf2fcd95954bc8c05aa64c9264/satori_python_adapter_onebot11-0.5.1.tar.gz", hash = "sha256:cd1109e4a5d5e77d188af72865ec1634c0dcc41b7749cc2db4604f85bc13f97a", size = 17547, upload-time = "2026-10-22T09:39:38.698Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/34/e5/11e55305fb42a687295aa14c07425d07ecd8523212ecf51cb29b829ead9f/satori_python_adapter_onebot11-0.5.2.tar.gz", hash = "sha256:40e4d9a6a25981ea2d9b102df2fc8920887e96aee79781dbd8e06d2053764599", size = 17551, upload-time = "2026-10-22T12:40:01.515Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/47/67/5fa85c7fe288d91a102a39938f7ef954b3d39f8cd5d009cb21369150fb60/satori_python_adapter_onebot11-0.5.1-py3-none-any.whl", hash = "sha256:054f1cb0ddbb282f4f262546a0a3736efe9c599731a0dfa1c7c45c8fb4715711", size = 22413, upload-time = "2026-10-22T09:39:37.8Z" },
+    { url = "https://files.pythonhosted.org/packages/c5/d4/2b230c76ad0b9bb4aaf99f46e59c8e9e4aea45be9b554c037a7d237bdeca/satori_python_adapter_onebot11-0.5.2-py3-none-any.whl", hash = "sha256:17dfe61301c09a82f378844fa183d6eb0edc40c2f711823c67e2da1fcf5fb5e9", size = 22423, upload-time = "2026-10-22T12:40:00.538Z" },
 ]
 
 [[package]]
@@ -1294,7 +1294,7 @@ requires-dist = [
     { name = "psutil", specifier = ">=5.9.8" },
     { name = "pygments", specifier = ">=2.19.1" },
     { name = "pyyaml", specifier = ">=6.0.1" },
-    { name = "satori-python-adapter-onebot11", specifier = "==0.5.1" },
+    { name = "satori-python-adapter-onebot11", specifier = "==0.5.2" },
     { name = "satori-python-client", specifier = "==1.3.10" },
     { name = "satori-python-server", specifier = "==1.3.10" },
     { name = "sqlalchemy", specifier = "==2.0.52" },
@@ -1314,7 +1314,7 @@ entari = [
     { name = "aiosqlite", specifier = ">=0.21.0" },
     { name = "arclet-entari", specifier = "==0.19.1" },
     { name = "entari-plugin-database", specifier = "==0.4.2" },
-    { name = "satori-python-adapter-onebot11", specifier = "==0.5.1" },
+    { name = "satori-python-adapter-onebot11", specifier = "==0.5.2" },
     { name = "satori-python-client", specifier = "==1.3.10" },
     { name = "satori-python-core", specifier = "==1.3.10" },
     { name = "satori-python-server", specifier = "==1.3.10" },

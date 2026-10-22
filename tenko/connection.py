@@ -179,10 +179,6 @@ class ManagedOneBotAdapter(OneBot11ReverseAdapter):
 
     admission: Callable[[str, str], bool] | None = None
 
-    def ensure(self, platform: str, self_id: str) -> bool:
-        # 0.5.1 的登录平台已改为 qq-client，上游 ensure 仍只认 onebot，API 调用会 404。
-        return platform == QQ_PLATFORM and self_id in self.logins
-
     async def websocket_server_handler(self, ws: WebSocket) -> None:
         authorization = ws.headers.get("Authorization", "")
         expected = f"Bearer {self.access_token}" if self.access_token else ""
