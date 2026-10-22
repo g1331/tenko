@@ -12,7 +12,6 @@ from arclet.alconna import Alconna, Args, CommandMeta
 from arclet.entari import BasicConfModel, Session, command, plugin
 from arclet.entari.command import Query
 
-from tenko_api.context import context_from_session
 from tenko_api.features import declare
 from tenko_api.perm import Permission, require
 from tenko_api.storage import Model, Store, get_session
@@ -75,10 +74,10 @@ example_command = Alconna(
 @command.on(example_command)
 @require(Permission.User)
 async def example(session: Session, note: Query[str] = Query("note", "")):
-    ctx = context_from_session(session)
+    user_id = session.user.id
     # Store 是同步读写：读改写之间没有 await，协程不会交错，所以不需要加锁。
     records = visits.load(default={})
-    record = records.setdefault(ctx.user_id, {"count": 0})
+    record = records.setdefault(user_id, {"count": 0})
     record["count"] += 1
     visits.save(records)
 
@@ -86,12 +85,12 @@ async def example(session: Session, note: Query[str] = Query("note", "")):
     async with get_session() as db:
         previous = await db.scalar(
             select(Note.text)
-            .where(Note.user_id == ctx.user_id)
+            .where(Note.user_id == user_id)
             .order_by(Note.id.desc())
             .limit(1)
         )
         if note.result:
-            db.add(Note(user_id=ctx.user_id, text=note.result))
+            db.add(Note(user_id=user_id, text=note.result))
             await db.commit()
 
     reply = f"{config.greeting}，这是你第 {record['count']} 次使用示例命令"

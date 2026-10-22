@@ -6,15 +6,13 @@
 
 import json
 import os
-from datetime import datetime
 from types import SimpleNamespace
 
 import pytest
 import pytest_asyncio
 from arclet.entari import Entari
 from arclet.entari.config import EntariConfig
-from satori import Channel, ChannelType, EventType, Guild, Login, MessageObject, User
-from satori.model import Event, Member
+from satori import User
 
 from tenko.config import DatabaseConfig
 from tenko.db.bootstrap import load_database_plugin
@@ -65,17 +63,7 @@ def module(runtime):
     return runtime.loaded_plugins["example"].module
 
 
-def make_session(user_id: str, text: str = ""):
-    """构造 context_from_session 能解析的最小群聊 Session。"""
+def make_session(user_id: str):
+    """构造只带发送者的最小 Session，足够直接调用命令处理函数。"""
 
-    event = Event(
-        type=EventType.MESSAGE_CREATED,
-        timestamp=datetime.now(),
-        login=Login(platform="onebot", user=User("10001")),
-        channel=Channel("40001", ChannelType.TEXT),
-        guild=Guild("40001", "Tenko"),
-        member=Member(user=User(user_id)),
-        user=User(user_id),
-        message=MessageObject.from_elements("50001", []),
-    )
-    return SimpleNamespace(event=SimpleNamespace(_origin=event))
+    return SimpleNamespace(user=User(user_id))

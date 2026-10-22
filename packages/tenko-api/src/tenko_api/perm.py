@@ -6,7 +6,9 @@
 （例如按参数区分的权限）时才在函数体里用 :func:`require_perm`。
 """
 
-from tenko.context import MessageContext
+from arclet.entari import Session
+
+from tenko.context import context_from_session
 from tenko.host import perm as _perm
 from tenko.host.guards import group_only, private_only, require_group
 from tenko.host.guards import require as _require
@@ -24,22 +26,22 @@ __all__ = [
 ]
 
 
-async def get_user_perm(ctx: MessageContext) -> int:
+async def get_user_perm(session: Session) -> int:
     """返回消息发送者在当前群（私聊为全局）的权限数值。"""
 
-    return await _perm.get_user_perm(ctx)
+    return await _perm.get_user_perm(context_from_session(session))
 
 
-async def get_group_perm(ctx: MessageContext) -> int:
+async def get_group_perm(session: Session) -> int:
     """返回当前群的群等级数值。"""
 
-    return await _perm.get_group_perm(ctx)
+    return await _perm.get_group_perm(context_from_session(session))
 
 
-async def require_perm(ctx: MessageContext, level: int) -> bool:
+async def require_perm(session: Session, level: int) -> bool:
     """发送者权限不低于 ``level``（可用 :class:`Permission`）时返回 ``True``。"""
 
-    return await _perm.require_perm(ctx, level)
+    return await _perm.require_perm(context_from_session(session), level)
 
 
 def require(level: Permission):

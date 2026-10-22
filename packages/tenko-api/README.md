@@ -4,7 +4,7 @@
 
 插件依赖它，而不是依赖 `tenko` 本体：`tenko-api` 没有任何运行时依赖，
 只是转发到正在运行的 Tenko 宿主，因此不会影响插件自己的依赖解析。插件声明
-`tenko-api>=0.2,<0.3` 这样的范围；宿主加载插件前按自己提供的 `tenko-api` 版本检查
+`tenko-api>=0.3,<0.4` 这样的范围；宿主加载插件前按自己提供的 `tenko-api` 版本检查
 这个范围，不兼容的插件不加载并在日志中说明原因，插件不需要另写兼容检查。
 
 > 当前为预览版（0.x）。1.0 之前接口可能调整，请把上限写到次版本。
@@ -19,7 +19,7 @@
 [project]
 name = "tenko-plugin-hello"
 version = "0.1.0"
-dependencies = ["tenko-api>=0.2,<0.3"]
+dependencies = ["tenko-api>=0.3,<0.4"]
 
 [project.entry-points."tenko.plugins"]
 hello = "tenko_plugin_hello"   # 入口名 = 插件 ID
@@ -48,9 +48,8 @@ async def hello(session: Session):
 ## 返回消息
 
 命令处理函数直接返回 `str`，Entari 原样发送；图片等混合内容返回 `MessageChain`。
-`tenko_api.messages.text_message` 自 0.2.0 起弃用（调用时发出 `DeprecationWarning`），
-将在 1.0 前移除，请改为直接返回字符串。宿主强制关闭 Entari 的 `str_as_message`，
-返回的 `str` 一律按纯文本发送；需要 @、图片等元素时返回 `MessageChain`。
+宿主强制关闭 Entari 的 `str_as_message`，返回的 `str` 一律按纯文本发送，需要 @、图片等元素时
+返回 `MessageChain`。
 
 ## 权限与功能开关
 
@@ -65,7 +64,7 @@ async def hello(session: Session):
 - 装饰器放在 `@command.on(...)` 之下，放在之上也同样生效；同一种装饰器在一个函数上只能用一次。
   它们在命令匹配之后执行，所以只有命中命令的消息才会收到拒绝回复。
 - 声明的要求登记在处理函数上，`/帮助 <编号>` 会显示每条命令的“权限”。
-- 只有权限取决于运行时数据时（例如按参数区分的权限）才在函数体里调用 `require_perm`。
+- 只有权限取决于运行时数据时（例如按参数区分的权限）才在函数体里调用 `require_perm(session, level)`。
 - `declare(level=Permission.X)` 声明整个插件要求的群等级，默认 `ActiveGroup`：群等级更低的群里，
   该插件的所有命令都被宿主静默忽略。
 - 不走命令的监听器（例如响应 @bot 的消息监听）没有宿主的命令策略保护，用
@@ -87,13 +86,12 @@ async def on_message(event: MessageCreatedEvent): ...
 
 | 模块 | 内容 |
 |---|---|
-| `tenko_api.context` | `MessageContext`、`context_from_session` |
 | `tenko_api.perm` | `Permission`；装饰器 `require`、`require_group`、`group_only`、`private_only`；函数体内的 `require_perm`、`get_user_perm`、`get_group_perm` |
 | `tenko_api.actions` | 发消息、禁言、踢人、撤回、查询群成员等宿主动作，以及 `ActionServiceError` 系列异常 |
 | `tenko_api.accounts` | 只读账号信息：在线账号、某群可响应的账号 |
 | `tenko_api.features` | `feature_enabled` 只读查询；`declare` 声明范围、默认开关、限流权重和群等级；`feature_required` 装饰非命令监听器 |
 | `tenko_api.render` | `RenderService`、`try_render`（浏览器不可用时得到 `None`，回退文本；`render_or_none` 是按方法名分发的旧写法） |
-| `tenko_api.messages` | `report_error`；`text_message` 已弃用（见上文“返回消息”） |
+| `tenko_api.messages` | `report_error` |
 | `tenko_api.storage` | 插件独立数据目录 `data_dir()`、带版本号并自动备份迁移的 JSON `Store`、插件自己的 SQLite 库 `Model` 与 `get_session()` |
 
 ## 插件的 SQLite 库
@@ -133,7 +131,8 @@ async def latest() -> str | None:
 
 ## 版本承诺
 
-版本号独立于 Tenko 本体，遵循语义化版本（1.0 起生效）：
+版本号独立于 Tenko 本体，遵循语义化版本（1.0 起生效）。1.0 之前删除或改变语义时次版本号 +1，
+例如 0.3.0 移除了 `tenko_api.context` 和 `text_message`，权限函数改为接收 `Session`。
 
 | 变更 | 版本号 |
 |---|---|

@@ -9,6 +9,7 @@ import subprocess
 import sys
 import tomllib
 from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
 from arclet.letoderea.utils import _EventSystem
@@ -21,7 +22,6 @@ from command_dispatch_support import (
 from external_plugin_support import (
     drop_module,
     entry,
-    make_group_context,
     patch_entry_points,
     write_plugin,
 )
@@ -35,7 +35,6 @@ ROOT = Path(__file__).resolve().parents[2]
 API_SOURCE = ROOT / "packages/tenko-api/src"
 
 PUBLIC_API = {
-    "context": {"MessageContext", "context_from_session"},
     "perm": {
         "Permission",
         "require_perm",
@@ -66,7 +65,7 @@ PUBLIC_API = {
     "accounts": {"online_accounts", "accounts_for_group"},
     "features": {"feature_enabled", "declare", "feature_required"},
     "render": {"render_or_none", "try_render", "RenderService"},
-    "messages": {"text_message", "report_error", "action_error_message"},
+    "messages": {"report_error", "action_error_message"},
     "storage": {
         "data_dir",
         "Store",
@@ -88,13 +87,6 @@ def test_facade_modules_export_documented_names(module: str) -> None:
     assert PUBLIC_API[module] <= set(facade.__all__)
     for name in set(facade.__all__) - LAZY_NAMES:
         assert getattr(facade, name) is not None
-
-
-def test_text_message_is_deprecated_but_still_works() -> None:
-    from tenko_api.messages import text_message
-
-    with pytest.warns(DeprecationWarning, match="0.2.0"):
-        assert str(text_message("你好")) == "你好"
 
 
 def test_facade_has_no_runtime_dependencies_and_is_typed() -> None:
@@ -123,14 +115,14 @@ def test_facade_forwards_to_host_objects() -> None:
 async def test_perm_facade_hides_checker_argument(monkeypatch) -> None:
     from tenko_api import perm
 
-    context = make_group_context("40001")
+    session = SimpleNamespace(event=SimpleNamespace(_origin=message_event("hi")))
     monkeypatch.setattr(
         "tenko.host.perm.PermissionChecker",
         lambda: PermissionChecker(registry=PermissionRegistry()),
     )
-    assert await perm.require_perm(context, perm.Permission.User)
-    assert not await perm.require_perm(context, perm.Permission.Master)
-    assert await perm.get_user_perm(context) == perm.Permission.User
+    assert await perm.require_perm(session, perm.Permission.User)
+    assert not await perm.require_perm(session, perm.Permission.Master)
+    assert await perm.get_user_perm(session) == perm.Permission.User
 
 
 def test_in_tree_facade_precedes_installed_copy(tmp_path) -> None:

@@ -105,8 +105,7 @@ config/tenko.toml.example    # 配置模板
    （`action_service`、`account.protocol.send_message` 等：公告、通知、定时任务）都不加；
    想让某条回复不带引用，用后者发送。
    命令直接返回 `str` 作为纯文本回复（Entari 原样发送），图片等混合内容返回
-   `MessageChain`；不要再包 `text_message`（`tenko_api.messages.text_message` 自 0.2.0 起弃用，
-   1.0 前移除）。Tenko 强制 `[basic] str_as_message = false`，`str` 一律按纯文本发送，
+   `MessageChain`。Tenko 强制 `[basic] str_as_message = false`，`str` 一律按纯文本发送，
    用户输入里的 `<at id="all"/>` 不会被解析成元素。渲染图片用
    `_common.render_or_text`（底层 `tenko.host.render.try_render`，传入注入的 `RenderService` 的方法，
    失败回退文本）。

@@ -6,7 +6,6 @@ import sys
 from pathlib import Path
 from types import SimpleNamespace
 
-from tenko.context import MessageContext
 from tenko.host.plugins import runtime as plugin_host
 
 
@@ -45,20 +44,6 @@ def drop_module(*modules: str) -> None:
             m for m in sys.modules if m == module or m.startswith(f"{module}.")
         ]:
             sys.modules.pop(name, None)
-
-
-def make_group_context(group_id: str, text: str = "hello") -> MessageContext:
-    return MessageContext(
-        account_id="10001",
-        event_type="message-created",
-        protocol_event_type="message.group.normal",
-        chat_type="group",
-        channel_id=group_id,
-        user_id="20001",
-        message_id="30001",
-        text=text,
-        image_urls=(),
-    )
 
 
 def build_wheel(
