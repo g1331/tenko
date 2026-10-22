@@ -19,6 +19,38 @@ OneBot 11 协议接入 QQ（协议端推荐 NapCat，也可替换为任何兼容
   <img src="docs/assets/sections.png" alt="Tenko feature sections" width="100%">
 </p>
 
+## WebUI 一览
+
+内置的 Web 管理面板与 bot 共用监听端口，账号、插件、功能开关、升级和日志都能在浏览器里处理，
+手机上也能用。以下截图来自演示环境，群号、账号和头像均为虚构。
+
+<p align="center">
+  <img src="docs/assets/webui/overview.webp" alt="运行总览：在线账号、活动群组、消息收发曲线和主机资源" width="100%">
+</p>
+
+<table>
+  <tr>
+    <td width="50%"><img src="docs/assets/webui/accounts.webp" alt="账户与响应"><br><sub><b>账户与响应</b>：多账号状态、各群随机或定向响应</sub></td>
+    <td width="50%"><img src="docs/assets/webui/inbox.webp" alt="待处理"><br><sub><b>待处理</b>：好友申请与群邀请，同意、拒绝或忽略</sub></td>
+  </tr>
+  <tr>
+    <td><img src="docs/assets/webui/plugins.webp" alt="插件"><br><sub><b>插件</b>：启停、维护、插件市场与第三方插件</sub></td>
+    <td><img src="docs/assets/webui/switches.webp" alt="功能开关"><br><sub><b>功能开关</b>：按群或按插件开关功能</sub></td>
+  </tr>
+  <tr>
+    <td><img src="docs/assets/webui/upgrade.webp" alt="版本与升级"><br><sub><b>版本与升级</b>：检查更新、升级与回滚</sub></td>
+    <td><img src="docs/assets/webui/logs.webp" alt="日志"><br><sub><b>日志</b>：实时日志、级别与关键字筛选</sub></td>
+  </tr>
+</table>
+
+<p align="center">
+  <img src="docs/assets/webui/overview-dark.webp" alt="深色主题" width="72%">
+  &nbsp;
+  <img src="docs/assets/webui/mobile.webp" alt="手机端" width="22%">
+</p>
+
+面板的开启、登录、反向代理和各页面说明见 [WebUI 管理面板](docs/webui.md)。
+
 ## 缘起
 
 Tenko 的名字取自东方 Project 中的比那名居天子——掌管大地的绯想之剑，
@@ -31,691 +63,84 @@ Tenko 的名字取自东方 Project 中的比那名居天子——掌管大地�
 沉淀下来的权限模型、群管逻辑与升级体系，舍去的是 Graia 时代的旧船票。
 舟已换，航线未变——便是 Tenko。
 
-## 功能说明
 
-Tenko 围绕聊天群组的日常运营提供一组开箱即用的能力：
+## 功能
 
 - **权限体系**——按成员和群两级管理权限，与平台管理角色自动同步；
 - **群管理**——禁言、解禁、撤回、踢出、加精、加群审批等动作，带能力探测与失败回执；
-- **多账号**——多个 bot 账号在同一宿主下共存，按群绑定响应策略，支持指定账号执行；
-- **功能开关**——按群粒度启用或停用某个插件，回应"这个群要不要这个功能"；
+- **多账号**——多个 bot 账号在同一宿主下共存，按群随机或定向响应，支持指定账号执行；
+- **功能开关**——按群启用或停用某个插件，群管理员可自助调整；
 - **状态与报告**——运行状态、消息统计、异常捕获，需要时以离线渲染的图片输出；
-- **自我升级**——检查更新、下载校验、健康检查与回滚，升级不动你的配置和数据。
+- **第三方插件**——从插件目录安装、更新、回滚，插件与宿主共用环境；
+- **自我升级**——检查更新、下载校验、健康检查与回滚，升级不动配置和数据；
+- **WebUI**——上面截图里的管理面板，好友申请和群邀请也能在这里处理。
 
-命令统一使用 / 前缀。下表与 tenko/plugins/ 中当前注册的插件一致；尖括号表示需要替换的参数。
+命令统一使用 `/` 前缀，尖括号表示需要替换的参数，方括号表示可选。发送 `/帮助` 可查看当前
+实际注册的命令。
 
 | 插件 | 能力 | 常用命令 |
 | --- | --- | --- |
-| perm_manager | 管理成员权限、群权限，并同步群成员的平台管理角色 | /修改权限、/修改群权限、/权限列表 |
-| helper | 从当前 command_manager 注册表生成帮助列表和命令详情 | /帮助、/帮助 <编号> |
-| group_manager | 查询群设置、开关群频率限制、审批加群请求，以及执行禁言、解禁、撤回、加精、踢出和指定 BOT 退群等群管理动作 | /群设置、/频率限制 [开启\|关闭]、/同意邀请 <请求ID>、/退群 <群号> <BOT账号>、/禁言、/解禁 |
-| status | 查看会话、进程资源、消息收发统计、在线账号和群路由状态 | /状态 |
-| exception_catcher | 捕获全局异常，向超级用户发送带会话上下文的报告，必要时保存本地证据 | 无命令 |
-| response_manager | 查询多账号在线状态、群绑定、禁言状态，并设置群响应策略 | /BOT列表、/在线BOT、/设定响应 |
-| announcement | 向已开启指定功能的群推送公告，并返回逐群结果 | /公告 <功能名> <内容...> |
-| updater | 按配置通道检查、准备和回滚 Tenko 宿主版本 | /检查更新、/升级、/回滚 |
-| plugin_manager | Master 安装、更新、卸载、回滚第三方插件，恢复插件环境（群聊和私聊都可用；新插件启用即加载，其余变更重启后生效） | /安装插件、/更新插件、/卸载插件 <插件ID> [清除数据]、/回滚插件、/启用插件、/停用插件、/插件列表、/同步插件环境 |
-| feature_manager | 按群启用或停用插件功能；控制平面插件不可由群管理员关闭 | /开启 <插件编号或名称>、/关闭 <插件编号或名称> |
-| webui_account | Master 私聊管理 WebUI 面板账号、重置密码和强制下线 | /面板账号、/面板重置密码、/面板下线 |
-| friend_request | 按全局策略处理好友申请，其余保持待处理并私聊通知 Master | /好友申请 [关闭\|仅管理员\|所有人] |
+| perm_manager | 成员权限、群权限、全局黑名单和 BOT 管理，同步平台管理角色 | /修改权限、/修改群权限、/权限列表、/全局黑、/BOT管理 |
+| group_manager | 群设置、频率限制、加群邀请审批和群管理动作 | /群设置、/频率限制 [开启\|关闭]、/待审邀请、/同意邀请 <请求ID>、/拒绝邀请 <请求ID> [理由]、/禁言、/解禁、/撤回、/加精、/退群 <群号> <BOT账号> |
+| response_manager | 多账号在线状态、群绑定、禁言状态和群响应策略 | /BOT列表、/在线BOT、/设定响应、/指定BOT |
+| feature_manager | 按群启用或停用插件功能；控制平面插件不可由群管理员关闭 | /开启 <功能>、/关闭 <功能>、/清除插件数据 <插件ID> |
+| friend_request | 按全局策略处理好友申请，其余留给 Master 在 WebUI 或私聊处理 | /好友申请 [关闭\|仅管理员\|所有人] |
+| plugin_manager | Master 管理第三方插件 | /插件市场、/插件详情、/安装插件、/更新插件、/卸载插件、/回滚插件、/启用插件、/停用插件、/插件列表、/同步插件环境 |
+| updater | 按配置通道检查、准备和回滚宿主版本，重启宿主 | /检查更新、/升级 [卸载不兼容插件]、/回滚、/重启 |
+| status | 会话、进程资源、消息统计、在线账号和群路由状态 | /状态 |
+| announcement | 向开启指定功能的群推送公告，逐群报告结果 | /公告 <功能名> <内容...> |
+| helper | 根据当前注册的命令生成帮助 | /帮助、/帮助 <编号> |
+| webui_account | Master 私聊管理面板账号、重置密码和强制下线 | /面板账号、/面板重置密码、/面板下线 |
+| exception_catcher | 捕获全局异常，向超级用户发送带上下文的报告 | 无命令 |
+| startup_notify | 启动就绪后播报启动耗时 | 无命令 |
 
-群邀请审批仅允许目标群的 BotAdmin/Master 执行，GroupAdmin 无权审批；邀请人自身为
-BotAdmin/Master 时会自动同意，无法取得邀请人 ID 时会保留待审并提示人工处理。
+群邀请只能由目标群的 BotAdmin/Master 审批；邀请人自身是 BotAdmin/Master 时自动同意，
+其余邀请一小时内未处理会自动拒绝。好友申请策略保存在数据库中，可在 WebUI 设置页或由 Master
+私聊 `/好友申请` 修改：`仅管理员`（默认）、`所有人` 或 `关闭`。
 
-好友申请策略是保存在数据库中的全局动态设置，可在 WebUI 设置页或由 Master 私聊
-`/好友申请` 修改，立即生效：`仅管理员`（默认，Master 与 BotAdmin 的申请自动同意）、
-`所有人`（全部自动同意）、`关闭`（不处理也不通知）。不符合策略的申请保持待处理，
-并私聊通知 Master；数据库不可用时不会自动同意。
+## 快速开始
 
-涉及权限变更、群管理或宿主升级的命令会按照当前群权限、账号能力和超级用户
-配置执行。渲染不可用或未安装浏览器时，状态和异常报告自动回退文本。
-RenderService 是由 Tenko runtime 直接注册的内置宿主服务，不属于插件清单。
+需要 Python 3.11–3.13、[uv](https://docs.astral.sh/uv/)，以及一个 OneBot 11 协议端
+（推荐 [NapCat](https://github.com/NapNeko/NapCatQQ)）。
 
+```bash
+git clone https://github.com/g1331/tenko.git
+cd tenko
+uv sync
+cp config/tenko.toml.example config/tenko.toml
+```
 
-## 使用指南
-
-### 环境要求
-
-- Python >=3.11,<3.14；
-- 可连接到 OneBot 11 端点的协议端（例如 NapCat）及网络环境；
-- 图片输出需要 Chromium 浏览器运行时；浏览器不可用时会回退文本。
-
-### 创建独立环境
-
-推荐使用 uv 管理依赖（基于 pyproject.toml 与 uv.lock）：
-
-    uv sync
-
-uv 会在项目根目录创建 .venv 并按锁文件安装依赖，之后通过 uv run 执行命令：
-
-    uv run python -m tenko
-    uv run pytest -q
-
-没有 uv 的环境可以先通过 `pip install uv` 或官方安装脚本安装 uv，再执行 `uv sync`。
-
-复制配置模板：
-
-    cp config/tenko.toml.example config/tenko.toml
-
-然后按下节说明编辑 config/tenko.toml。启动：
-
-    python -m tenko      # 或 uv run python -m tenko
-
-生产部署可使用仓库内的标准启动器：
-
-    ./scripts/launcher.sh
-
-启动器把脚本所在仓库目录作为稳定根目录，固定以该目录为 cwd，并通过
-`uv run --project <stable_root> --no-sync` 复用项目环境。没有 `active.json` 时运行
-稳定根目录中的代码；存在有效的 `active.json` 时只把对应 `versions/` 子目录作为
-代码源。启动器不消费 `handoff.json`，handoff 由 `tenko.__main__` 在正常启动时一次性
-应用，应用成功后会在 fresh Python 进程中重执行 active 版本。升级命令 arm 的 detached
-watcher 会等待当前进程退出，再调用这个启动器；升级切换时还会观察新进程的启动存活，
-因此 Ctrl+C 仍是正常的优雅退出路径。
-
-### 协议端连接（以 NapCat 为例）
-
-默认反向 WebSocket 地址为：
+编辑 `config/tenko.toml`：至少把 `[basic].superusers` 改成你的 QQ 号，并给 `[onebot].access_token`
+设一个随机值（完整字段见[配置参考](docs/configuration.md)）。然后在 NapCat 的 OneBot 11
+反向 WebSocket 中填写下面的地址和同一个 token：
 
     ws://127.0.0.1:8080/onebot/v11/ws
 
-在所选 OneBot 11 协议端的反向 WebSocket 配置中填写相同地址。下面以 NapCat
-为例，在 NapCat 的 OneBot 11 反向 WebSocket 配置中填写相同地址。若配置了
-[onebot].access_token，该协议端必须使用相同的 token；示例文件和下方最小配置
-只使用占位符，部署时请替换为实际值。
+启动：
 
-### 图片渲染
-
-图片渲染由内置 RenderService 提供，需要 Chromium 浏览器运行时，
-在当前虚拟环境中执行（uv 环境可写为 uv run python -m playwright ...）：
-
-    python -m playwright install chromium
-
-Linux 主机缺少 Chromium 系统依赖时，需要由运维按主机权限安装对应依赖。
-
-## 最小配置
-
-config/tenko.toml 可以从示例复制后按需补充。下面的配置覆盖连接、权限、
-数据库、渲染和升级的基本入口；所有敏感字段和账号标识都是占位符：
-
-    # 通知群：邀请审批等管理通知的播报目标；留空表示私发 Master。
-    notify_group = ""
-
-    [basic]
-    prefix = ["/"]
-    ignore_self_message = true
-    skip_req_missing = false
-    superusers = { onebot = ["<QQ_ID>"] }
-
-    [basic.log]
-    level = "INFO"
-    # save = { rotation = "00:00", compression = "gz", colorize = false }
-
-    [onebot]
-    listen_host = "127.0.0.1"
-    listen_port = 8080
-    reverse_ws_prefix = "/"
-    reverse_ws_path = "onebot/v11"
-    reverse_ws_endpoint = "ws"
-    access_token = "<ONEBOT_ACCESS_TOKEN>"
-    api_timeout = 60
-
-    [debug]
-    enabled = false
-
-    [database]
-    url = "sqlite+aiosqlite:///./.tenko/tenko.db"
-    echo = false
-    create_table_at = "preparing"
-
-    [render]
-    timeout = 10.0
-    width = 800
-    quality = 85
-    device_scale_factor = 2
-
-    [upgrade]
-    enabled = true
-    source = "git_tag"
-    repository = "https://github.com/g1331/tenko.git"
-    tag_prefix = "v"
-    channel = "stable"
-    policy = "check"
-
-不要把真实 token、平台用户标识、GitHub 凭据或其他密钥写入版本库。邀请审批等管理通知
-优先发送到顶层 `notify_group` 指定的群；留空或省略时只私发给一个 Master。
-
-### 顶层通知配置
-
-| 配置 | 说明 |
-| --- | --- |
-| notify_group | 邀请审批等管理通知的播报群；留空或省略时私发一个 Master |
-
-## 配置参考
-
-配置读取自 tenko/config.py。未写出的配置项使用代码中的默认值；配置表中的
-路径相对于启动目录解析。
-
-### [onebot]
-
-| 字段 | 说明 |
-| --- | --- |
-| listen_host | 反向 WebSocket 监听地址，默认 127.0.0.1 |
-| listen_port | 监听端口，默认 8080 |
-| reverse_ws_prefix | 反向 WebSocket 路径前缀，默认 / |
-| reverse_ws_path | OneBot 11 路径，默认 onebot/v11 |
-| reverse_ws_endpoint | WebSocket 端点名，默认 ws |
-| access_token | 可选的 OneBot 访问 token；不设置时可留空 |
-| api_timeout | OneBot action 超时时间，默认 60 秒 |
-| capability_overrides | 按账号覆盖平台能力学习结果的映射，值为布尔开关 |
-
-旧版的 `satori_host`、`satori_path`、`satori_token` 已不再使用：OneBot 事件在进程内直接交给
-Entari，内部接口的令牌每次启动随机生成。配置里留着这几项也能启动，只会打印一条弃用提示。
-
-### [basic] 与 [debug]
-
-| 配置 | 说明 |
-| --- | --- |
-| basic.prefix | Entari 官方命令前缀列表；默认兼容 Tenko 的 `/`，可以配置多个前缀 |
-| basic.ignore_self_message | 是否忽略机器人自己发送的消息，默认开启 |
-| basic.skip_req_missing | 是否跳过缺少依赖的事件监听器，默认关闭 |
-| basic.superusers | 超级用户唯一权威来源，格式为“平台名到用户 ID 列表”的映射 |
-| basic.log.level | 日志级别，默认 INFO |
-| basic.log.ignores | 要忽略的日志记录器名称列表，支持通配符 |
-| basic.log.save | 日志保存与轮转；默认 `None`，不落盘 |
-| basic.log.save.rotation | 轮转时间或文件大小，例如 `00:00` 或 `10 MB` |
-| basic.log.save.compression | 压缩格式，例如 `gz`；留空表示不压缩 |
-| basic.log.save.colorize | 是否在文件中保留颜色，默认由官方模型开启 |
-| debug.enabled | 是否只处理 debug.masters 中用户产生的事件，默认关闭 |
-| debug.masters | 调试白名单；省略时继承 basic.superusers，显式空列表表示不放行用户 |
-
-例如，OneBot 11 的超级用户和日志轮转配置为：
-
-    [basic]
-    superusers = { onebot = ["<QQ_ID>"] }
-
-    [basic.log]
-    save = { rotation = "00:00", compression = "gz", colorize = false }
-
-`basic.network` 也按 Entari 官方模型解析并保留，但 Tenko 的 OneBot 连接仍由
-`[onebot]` 节组装；本批次不会用 `basic.network` 驱动 OneBot 连接。旧配置中的
-`[runtime].log_level`、`[runtime].command_prefix` 和 `[entari].superusers` 会在读取时
-映射到 `basic`，新配置应直接使用官方节。
-
-### [database]、[features] 与 [exception]
-
-| 配置 | 说明 |
-| --- | --- |
-| database.url | SQLAlchemy 数据库 URL，默认 sqlite+aiosqlite:///./.tenko/tenko.db |
-| database.echo | 是否输出 SQL，默认关闭 |
-| database.create_table_at | 建表时机，可选 preparing、prepared 或 blocking；Tenko 运行期状态接入时为保证状态读取晚于建表会使用 preparing |
-| accounts / response state | 多账号路由和响应策略保存在 database.url 指定的数据库中 |
-| features | 群功能开关保存在 database.url 指定的数据库中 |
-| features.default_enabled | 新群或未记录功能的默认开关，默认开启 |
-| exception.message_buffer_size | 异常报告保留的最近消息数量，默认 10 |
-| exception.evidence_dir | 报告无法投递时的本地证据目录，默认 .tenko/exceptions |
-
-升级相关的 schema 变更遵循只前进纪律：禁止直接 `DROP` 或改型既有列；废弃列先保留并
-标记 `deprecated`，至少跨两个版本后再清理。使用文件型 SQLite 时，`/升级` 在写入
-安装接管记录前会用 SQLite online backup API 生成
-`.tenko/tenko.db.bak-<version>-<timestamp>`，最近保留 3 份；备份失败会写入升级审计
-并记录 ERROR，但不会阻塞升级。
-
-Tenko 的 `/开启`、`/关闭` 使用 `database.url` 指定的数据库保存“群 × 插件”的功能状态，
-多账号路由、响应策略、命令频控和启动耗时历史也使用同一数据库。它与 Entari builtin
-control 使用的 `local_data` 状态文件（包括全局插件/函数控制）是两套独立边界，不会
-互相读写；实际执行需要插件仍被 Entari 注册且没有被全局控制停用，同时通过 Tenko 当前
-群的开关检查。Entari 全局控制因此优先于 Tenko 群级开关，而 Tenko 群级开关在命令进入
-插件分发前生效。
-
-### [ratelimit]
-
-| 字段 | 说明 |
-| --- | --- |
-| enabled | 是否启用命令限流，默认开启 |
-| window_seconds | 滚动窗口长度，默认 15.0 秒 |
-| max_weight | 窗口允许的最大权重，默认 24 |
-| default_weight | 未单独指定命令的默认权重，默认 1 |
-| cooldown_seconds | 同一来源冷却时间，默认 5.0 秒 |
-| blacklist_seconds | 触发限制后的黑名单时间，默认 300.0 秒 |
-| override_permission | 可豁免限流的最低权限等级，默认 32 |
-
-触发限流（冷却或临时拉黑）后 bot **不回复**，只在调试日志里记录群、用户和插件，
-避免刷屏的人借提示继续刷屏。群管理员可以用 `/频率限制 关闭` 让某个群不限流
-（`/频率限制` 查询当前状态，默认开启）；该开关保存在 `GroupSetting.frequency_limitation`。
-
-### [render]
-
-| 字段 | 说明 |
-| --- | --- |
-| timeout | 单次渲染超时时间，默认 10.0 秒 |
-| width | 图片 viewport 宽度，默认 800 |
-| quality | JPEG 质量，范围为 0 到 100，默认 85 |
-| device_scale_factor | 浏览器设备像素比，默认 2 |
-
-### [upgrade]
-
-升级配置控制版本发现、制品准备和外部重启接管。默认策略只检查，不会自动下载
-或安装。
-
-| 字段 | 说明 |
-| --- | --- |
-| enabled | 是否启用升级功能，默认开启 |
-| source | 版本源：git_tag、github_release 或 manifest |
-| repository | `git_tag` 源使用的 Git 仓库地址；默认值 `.` 只适合本地 refs，远端部署必须填写完整 URL，例如 `https://github.com/g1331/tenko.git` |
-| github_repository | GitHub 版本源的仓库标识 |
-| manifest_url | manifest 版本源的地址 |
-| github_token | 可选的 GitHub 访问 token |
-| asset_name | 可选的发布制品名称 |
-| tag_prefix | Git tag 前缀，默认 v |
-| channel | 更新通道；stable 只接受正式版本，prerelease 同时接受正式和预发布版本 |
-| policy | 执行策略；常用值为 check、download、install |
-| current_version | 当前版本；留空时从项目版本读取 |
-| config_version | 配置兼容版本，默认 1.0.0 |
-| install_root | 版本和升级状态目录，默认 .tenko/upgrades |
-| config_path | 外部配置路径，默认 config/tenko.toml |
-| data_dir | 仅传给自定义健康检查命令的外部目录，默认 data；Tenko 自身持久化数据仍在 .tenko |
-| health_command | 可选健康检查命令参数列表；设置后取代默认检查（含导入检查） |
-| health_timeout | 健康检查超时时间，默认 30 秒 |
-| check_interval_hours | 定时检查间隔，默认 24 小时 |
-| superuser_ids | 可执行升级命令的用户 ID；省略时继承 basic.superusers |
-
-## 更新机制
-
-升级命令只允许配置的超级用户执行：
-
-    /检查更新
-    /升级
-    /回滚
-
-### 版本源与更新通道
-
-当 `source = "git_tag"` 时，`repository` 是用于 `git ls-remote --tags` 和
-`git clone` 的仓库地址。需要从远端发现新版本的部署必须填写完整 Git URL，例如：
-
-    [upgrade]
-    source = "git_tag"
-    repository = "https://github.com/g1331/tenko.git"
-    tag_prefix = "v"
-    channel = "stable"
-
-不要把 `repository = "."` 当作远端地址：它指向当前本地工作树，`git_tag` 只会看到
-本地已有的 refs，不会联网发现远端 tag。当前实现兼容已有 Git 工作树中的 named
-remote（例如 `origin`），会在加载配置时用 `git remote get-url` 将其解析为 URL；但
-直接填写完整 URL 不依赖部署目录中的 remote 配置，也能保证检查和下载使用同一个远端。
-
-`tag_prefix` 默认是 `v`，因此 `v4.0.0` 会被解析为版本 `4.0.0`。通道决定预发布
-版本是否进入候选集合，并且候选版本仍必须高于当前版本：
-
-- `stable` 只选择正式版本，适合生产实例；`4.0.0-rc.1` 等预发布 tag 会被排除。
-- `prerelease` 同时接受正式版和预发布版，适合验证实例或需要跟进预发布版本的部署。
-
-执行策略的含义是：`policy = "check"` 只发现并记录候选版本，`policy = "download"`
-自动准备制品，`policy = "install"` 生成外部安装接管记录。进程切换仍由稳定的外部
-启动器完成。
-
-### `/升级`：下载、接管与重启
-
-`/检查更新` 只查询当前通道中高于当前版本的最高候选版本，返回当前版本、候选版本、
-标签和来源，不下载制品。
-
-`/升级` 不会在当前进程中热替换代码，完整流程如下：
-
-1. 检查当前通道并选择候选版本。
-2. 获取候选制品；`git_tag` 源会按 tag 做浅克隆，并校验 commit SHA。随后升级器
-   检查配置兼容性和切换前健康状态，并用候选版本的宿主锁重新解析插件锁（环境不动）：
-   有插件不兼容时停止升级并列出原因，可改发 `/升级 卸载不兼容插件`，先卸载它们（数据
-   保留）再升级。成功后把制品提升到
-   `.tenko/upgrades/versions/`，写入 `pending.json`。
-3. 写入 `handoff.json`，请求外部重启时执行 `activate`。命令会尝试 arm 一次性
-   detached watcher；watcher 等待当前进程退出后，在新制品启动宽限期内观察进程存活，
-   连续两次失败会写入自动回滚 handoff。
-4. 收到成功回复后使用 `Ctrl+C` 让当前 Tenko 进程优雅退出。watcher 检测到旧进程
-   退出后启动标准启动器 `scripts/launcher.sh`，并在启动宽限期内观察新进程。
-5. 启动器固定以部署根目录为工作目录，并使用共享的 uv 环境启动 Tenko。启动早期
-   会消费 `handoff.json`，原子更新 `active.json`，按候选版本的 `uv.lock` 同步依赖，
-   执行切换后的健康检查，然后在 fresh Python 进程中重新执行 active 版本。配置、
-   SQLite 数据库和 `.tenko/` 下的运行状态仍使用稳定根目录中的原有路径。
-
-依赖同步等价于 `uv sync --frozen --inexact --no-editable --project <版本目录>`，
-目标是当前运行的虚拟环境。第三方插件与宿主共用这个环境，所以用 `--inexact` 保留锁文件
-之外的插件依赖（默认的精确同步会把它们卸载）；`tenko-api` 以普通包装入，
-环境里登记的版本始终与宿主一致。需要 `uv` 可执行文件（`PATH` 或环境变量 `UV`）；没有 `uv.lock` 的旧版本目录
-跳过同步。插件自己需要的包版本与锁文件冲突时以锁文件为准，导入检查会暴露由此造成的
-插件加载失败。
-
-默认健康检查（`health_command` 为空时）在切换前只做编译冒烟；依赖同步后再用候选代码
-启动子进程，导入宿主并通过 Entari 加载全部内置插件和已启用的第三方插件，任何一个导入
-失败都视为健康检查失败。
-
-### 第三方插件管理
-
-第三方插件装进与宿主共用的虚拟环境，由 Master 在聊天里管理（群聊或私聊均可）。新装的插件
-默认未启用，`/启用插件 <ID>` 后直接加载；插件使用了独立数据库、启动以来已有的插件包有变动，
-或插件模块在本次运行中导入过时，改为提示 `/重启` 后加载。更新、卸载和回滚都在 `/重启` 后生效。
-
-插件目录 [tenko-registry](https://github.com/g1331/tenko-registry) 列出经过自动检查的插件，
-地址在 `[registry] urls` 配置，按顺序回退。Tenko 每小时刷新一次，并在 `.tenko/plugins/registry/`
-留一份缓存，离线也能搜索和安装。已安装的插件被目录封禁时会立即停用（不卸载，数据保留），并私聊
-通知 Master。
-
-- `/插件市场 [关键词]`、`/插件详情 <ID>`：搜索目录，查看简介、作者、来源和各版本能否装在当前宿主上。
-- `/安装插件 <ID[@版本]>`：从目录安装，固定到目录登记的版本和文件哈希，不需要确认。
-- `/安装插件 <包名[版本范围] | Git URL@tag或提交号>`：不在目录里的来源按“未收录”处理，PyPI 包名
-  必须以 `tenko-plugin-` 或 `entari-plugin-` 开头，需要两次确认（先回复“是”，再回复“确认安装”；
-  只接受发起人在同一会话里的回复）。Git 来源会在安装时运行仓库里的构建脚本，插件与 bot 拥有相同
-  权限，请只安装信任的来源。
-- `/更新插件 [ID] [新的 Git URL@tag]`：目录里的插件更新到最新的可用版本（检查通过、未撤回、与当前
-  `tenko-api` 兼容），其余 PyPI 来源更新到兼容的最新版本。
-- `/卸载插件 <ID> [清除数据]`：插件立即移出插件锁和记录，包在下次启动加载插件之前才删除，
-  运行中的插件不会丢文件。数据目录默认保留；带“清除数据”需要再回复“确认清除”，
-  且要求插件当前未运行（先 `/停用插件` 并 `/重启`）。已卸载插件遗留的数据可用
-  `/清除插件数据 <ID>` 清除。
-- `/回滚插件`：撤销最近一次安装、更新或卸载（保留最近 5 次），插件版本、依赖和插件库备份一起恢复。
-- `/插件列表`、`/同步插件环境`：查看状态（含可更新、已撤回、已封禁）；按插件锁重装被
-  `uv sync` 清掉的插件包。
-
-`.tenko/plugins/plugins.lock` 是 `uv pip compile --generate-hashes` 生成的插件锁（精确版本和
-哈希，Git 来源固定到提交号），只含插件自己的包；每个插件的来源、版本、哈希或提交号、安装人和
-时间记在 `.tenko/plugins/state.json` 的 `plugins` 节。解析时以宿主 `uv.lock` 和宿主实际的
-`tenko-api` 版本为约束：插件要求的 `tenko-api` 范围不含宿主版本，或需要改动宿主已有包的
-版本时，解析直接失败、环境不变。因此解析时宿主的 `tenko-api` 版本必须能从 uv 的索引（默认
-PyPI，或 `UV_FIND_LINKS` 等 uv 自己的配置）取到。
-
-安装、更新、卸载、回滚都按同一个事务执行：解析 → 备份（当前插件锁、记录和 `uv pip freeze`）
-→ 应用 → 校验（环境与锁一致、入口名和版本或提交号符合、子进程导入检查）→ 提交；应用或校验
-失败时按备份恢复环境，并把失败步骤记入 `audit.jsonl`。`state.json` 是提交点，记录插件锁的
-哈希；两者写到一半中断时，下次启动会补完提交，被手工改过的插件锁则告警。
-
-升级宿主时，离开的版本当时的插件锁和记录存到 `.tenko/plugins/releases/`；`/回滚`（以及升级
-失败退回）会恢复目标版本存下的插件锁，代码、宿主依赖和插件环境一起回到原来的状态。切换后
-更新器补回缺失的插件包并用 `uv pip check` 检查：与新依赖不兼容的插件会让升级失败并恢复旧版本，
-回滚则只记审计。启动时环境与插件锁不一致（Git 来源按提交号比较）会告警，不会自动联网安装；
-也可以在 `uv sync` 之后执行 `python -m tenko plugins sync`。
-
-如果 watcher 未能 arm，`/升级` 的回复会提示手动接管；此时退出当前进程后运行
-`./scripts/launcher.sh`。如果依赖同步或切换后的健康检查失败，升级器会恢复原 active
-指针、把依赖重新同步回原版本的锁文件，并清理本次接管记录，避免失败 handoff 在后续
-启动中反复执行；失败原因写入日志、审计和 `recovery-notice.json`，运行版本不变。启动器拉起后续进程仍在
-宽限期内退出时，watcher 会把 `active.json` 切回 `previous.json` 指向的制品并重新拉起；
-回滚成功后，新进程启动通知会播报“已自动回滚至 X 版本”。如果回滚制品也无法存活，
-watcher 停止尝试、隔离失败 handoff 并保留审计记录，等待人工处理，不会继续循环拉起。
-
-`/回滚` 请求回到 `.tenko/upgrades/previous.json` 指向的上一可用版本：
-
-1. 命令检查是否存在上一版本和当前 `active` 指针。
-2. 写入 `action = "rollback"` 的 `handoff.json`，并按与 `/升级` 相同的方式尝试
-   arm watcher。
-3. 使用 `Ctrl+C` 退出当前进程；下一次由标准启动器启动时，启动早期消费回滚 handoff，
-   将 `active.json` 切换到上一版本，按上一版本的 `uv.lock` 恢复依赖，再执行健康检查。
-
-回滚也不会在当前进程中立即替换代码。回滚时的依赖同步或健康检查失败会恢复原 active
-指针和原版本的依赖，并隔离失败的 handoff；如果不存在上一可用版本，命令会返回“没有可回滚的上一可用版本”。
-
-`[upgrade]` 配置在 Tenko 启动时读取并构造升级管理器，运行期间不会自动重新读取配置。
-因此修改 `channel`、`repository`、`source`、`policy` 或其他升级配置后，必须重启
-Tenko 才会生效；若配置修改本身需要先停止服务，应按部署方式退出当前进程，再使用
-标准启动器（或原有的 `uv run python -m tenko` 启动命令）启动。
-
-启用周期检查时，check_interval_hours 控制定时检查间隔。升级目录、配置目录和
-数据目录彼此分离，升级过程不会覆盖用户配置或运行数据；`data_dir` 不会改变
-Tenko 自身 `.tenko` 应用数据的落点。
-
-### 配置兼容性清单
-
-仓库根目录的 `upgrade-manifest.json` 是发布制品中的 canonical 配置兼容性清单，
-最小内容为：
-
-    {
-      "min_config_version": "1.0.0"
-    }
-
-清单中的 `min_config_version` 是独立于项目版本的配置协议版本。它表示候选代码
-能够读取的最低用户配置版本：普通代码修复或功能增加不需要提升它；只有配置格式
-发生破坏性变化、旧配置无法继续被新代码读取时才提升它。项目版本（例如 `4.0.1`）
-和配置协议版本（例如 `1.0.0`）不能互相推导。
-
-发布源数据写在 `pyproject.toml` 的 `[tool.tenko.upgrade]` 段：
-
-    [tool.tenko.upgrade]
-    min_config_version = "1.0.0"
-
-运行版本脚本时，`scripts.bump` 会在修改版本前校验该字段，并在版本、锁文件和
-可选 changelog 步骤成功后生成根目录清单：
-
-    uv run python -m scripts.bump pre_n --no-commit
-    uv run python -m scripts.bump patch --commit
-
-字段缺失或不是合法 SemVer 会使发布流程失败，不会从项目版本猜测默认值。使用
-`--commit` 时清单会和 `pyproject.toml`、`uv.lock` 一起加入提交；不使用该选项时
-仍由发布者自行检查并提交生成的清单。
-
-旧制品可能没有清单。升级器会将这类制品按“未声明最低配置版本”的 legacy 兼容
-行为处理并写入审计；新制品应只生成根目录这一份 canonical 清单。为兼容更早的
-制品，升级器仍会按固定顺序检查 `tenko/upgrade-manifest.json`，再检查根目录清单。
-
-### 代码、配置、数据与升级状态目录
-
-标准启动器以部署根目录为稳定 `cwd`。候选版本目录只提供代码，不携带配置、虚拟
-环境或应用数据；表中的相对路径都相对于稳定 `cwd` 解析：
-
-| 目录或文件 | 用途 | 解析位置 |
-| --- | --- | --- |
-| 部署根目录 | 稳定启动根、共享依赖和当前工作树 | 启动器确定的稳定根目录 |
-| `config/tenko.toml` | 用户配置 | 稳定 `cwd` |
-| `.tenko/tenko.db` | Tenko 运行期状态和既有业务表 | 稳定 `cwd` |
-| `.tenko/exceptions/` | 异常取证文件 | 稳定 `cwd` |
-| `.tenko/upgrades/` | `active.json`、`previous.json`、`pending.json`、`handoff.json`、`recovery-notice.json`、`audit.jsonl` 和版本目录 | 稳定 `cwd` |
-| `.tenko/upgrades/versions/<version>/` | 候选代码 | 升级状态目录下，作为代码源 |
-
-`[upgrade].data_dir` 是只传给自定义健康检查命令的外部目录，不是 Tenko
-自身应用数据根目录。升级切换后，数据库、JSON 状态、异常取证和配置仍指向稳定
-根目录下的原有物理路径；候选版本不会在自己的目录中生成新的 `.tenko/` 或
-`config/`。
-
-## WebUI 管理面板
-
-WebUI 复用 OneBot/Satori 的监听端口，入口为 `/webui`，默认关闭。开启方式：
-
-```toml
-[webui]
-enabled = true
-allowed_ips = ["127.0.0.1"]
-# 可选：仅用于在 bot 回复中拼出面板链接
-public_url = "http://203.0.113.10:8081"
+```bash
+uv run python -m tenko        # 生产部署可用 ./scripts/launcher.sh，见升级与部署
 ```
 
-面板使用一个数据库账号登录，默认用户名 `master`，密码以 scrypt 哈希保存，
-没有静态令牌。只有 Master 能取得或重置密码，以下指令仅限 Master 在私聊中使用
-（群内会被拒绝，不回显任何密码）：
+可选步骤：
 
-| 指令 | 作用 |
+- **图片输出**：`uv run python -m playwright install chromium`。浏览器不可用时状态和报告回退为文本。
+- **WebUI**：把配置里的 `[webui].enabled` 改为 `true`，重启后访问 `http://127.0.0.1:8080/webui/`。
+  用户名 `master`，密码由 Master 私聊 `/面板重置密码` 获取，或在部署目录执行
+  `uv run python -m tenko webui-passwd`。
+
+## 文档
+
+| 文档 | 内容 |
 | --- | --- |
-| `/面板账号` | 查看用户名、是否已设置密码、在线会话数和面板地址 |
-| `/面板重置密码` | 生成新的随机密码（首次使用即创建账号），让所有会话下线，并回复用户名和密码 |
-| `/面板下线` | 让所有面板会话下线 |
+| [配置参考](docs/configuration.md) | `config/tenko.toml` 的全部配置项和默认值 |
+| [升级与部署](docs/upgrade.md) | 标准启动器、更新通道、`/升级` 流程、兼容性清单和目录结构 |
+| [第三方插件](docs/plugins.md) | 编写插件、插件目录、安装与管理命令 |
+| [WebUI 管理面板](docs/webui.md) | 开启与登录、反向代理、各页面功能、前端开发 |
+| [开发指南](docs/development.md) | 开发环境、代码约定、测试和架构 |
 
-QQ 未连接时，可在部署根目录执行 `python -m tenko webui-passwd [--config PATH]
-[--username NAME]`，它会补建缺失的表、重置密码、让所有会话下线，并把用户名和密码
-打印到标准输出；宿主运行中也可执行，立即对运行中的面板生效。
+参与开发前请先阅读 [AGENTS.md](AGENTS.md)。
 
-登录后服务端签发 7 天的会话，保存在 `HttpOnly`、`SameSite=Strict` 的 cookie 中
-（HTTPS 访问时自动加 `Secure`），活跃使用会自动顺延。同一 IP 15 分钟内连续
-输错 5 次密码会被暂时拒绝（HTTP 429）。登录后可在面板中修改用户名和密码、查看
-并撤销其他会话；修改密码会让其他会话下线。面板只有这一种角色（管理员），不再区分
-只读与管理。
+## 许可
 
-`[webui]` 中的 `token` 和 `admin_token` 已弃用：旧配置仍可加载，但这两项会被忽略
-并在启动时给出警告，请删除。把面板暴露到公网前，请确认 `allowed_ips`、反向代理和
-HTTPS 配置；密码只通过 cookie 会话使用，不要放在 URL 中。
-
-### 通过域名访问
-
-用 nginx（或 1Panel、宝塔等面板创建的反向代理）在 HTTPS 域名后转发 `/webui`：
-
-```nginx
-location = / {
-    return 302 /webui/;
-}
-location ^~ /webui {
-    proxy_pass http://127.0.0.1:8081;            # Tenko 的 listen_port
-    proxy_set_header Host $host;                 # 缺少时写操作会被当成跨来源（403）
-    proxy_set_header X-Forwarded-Proto $scheme;  # 缺少时同样 403，cookie 也不会带 Secure
-    proxy_set_header X-Forwarded-For $remote_addr;
-    proxy_http_version 1.1;
-    proxy_buffering off;                         # 实时推送（SSE）
-    proxy_read_timeout 1h;
-}
-```
-
-```toml
-[webui]
-enabled = true
-allowed_ips = ["0.0.0.0/0", "::/0"]
-public_url = "https://panel.example.com"
-```
-
-代理传来 `X-Forwarded-For` 后，Tenko 看到的是访问者的真实 IP，登录限流和审计日志
-都按它计算，所以 `allowed_ips` 要用网段放开（也可以只写自己的网段）。前面还有 Cloudflare
-等 CDN 时，`$remote_addr` 是 CDN 节点的地址，改传 `$http_cf_connecting_ip` 这类真实 IP 头。只转发
-`/webui`：面板和 OneBot/Satori 共用端口，面板生成的默认代理通常是 `location /`，
-会把 OneBot 接口一起暴露出去。`allowed_ips` 放开后，任何能直接连到监听端口的人也能
-打开面板登录页，请用防火墙挡住该端口，或在 NapCat 与 Tenko 同机时把 `listen_host`
-设为 `127.0.0.1`。Tenko 只信任来自本机的 `X-Forwarded-*`；代理不在本机（包括 Docker 桥接网络）时，
-需要设置环境变量 `FORWARDED_ALLOW_IPS` 为代理地址。
-
-| 页面 | 可用操作 |
-| --- | --- |
-| 账户 | 查看连接与启用状态、配对接入、启用/停用、踢下线、移除记录、别名和能力覆盖 |
-| 插件 | Entari 原生启停、维护状态、全局功能开关；会影响控制平面的操作受保护；第三方插件带“第三方”标记，首次启用时多数可直接加载 |
-| 开关 | 按群设置功能开关；维护和全局覆盖需先在插件页解除 |
-| 日志 | 每 3 秒刷新实时日志、暂停、关键字及实时级别筛选、历史文件搜索 |
-| 设置 | 未显式配置的群功能默认策略 |
-| 插件 · 插件市场 | 浏览插件目录，安装目录里的插件；未收录来源只能在聊天里安装 |
-| 插件 · 第三方插件 | 启停、更新、卸载、回滚、同步插件环境，编辑插件配置，重启 |
-
-明暗／系统主题切换和 GitHub 仓库入口位于侧边栏底部（手机端位于顶部）。
-页面数据每 30 秒自动刷新（标签页隐藏时暂停），也可用页头的刷新按钮立即同步，
-管理操作成功后自动同步；实时日志单独每 3 秒更新。
-
-账户是协议端连接后自动出现的，不由面板主动创建。当前账户写操作支持 OneBot 11；
-其他平台显示为只读。停用同时阻止消息处理和重新接入，并在重启后保持。踢下线仅
-断开当前连接，协议端可以自动重连；移除记录要求先离线，只删除 Tenko 的路由和
-偏好，不会删除协议端的账号。
-
-配对流程提供连接地址和受保护的凭据读取；若监听 `0.0.0.0` 或 `::`，需在页面
-填写协议端实际可达的地址。令牌轮换只改写 `onebot.access_token` 这一个键，注释、
-顺序和其他内容逐字保留；先写临时文件并校验，再原子替换配置。新令牌立即用于后续连接，已有连接不
-强制断开，所有协议端都需要同步更新。环境变量提供的令牌须在其配置来源轮换，
-配置文件被外部修改时会拒绝覆盖，需重启加载后重试。
-
-插件市场和第三方插件页调用与聊天命令相同的 `PluginManager` 事务，操作在后台执行，页面
-显示进度和结果（失败时说明环境是否已恢复）。面板只能安装插件目录里的插件，未收录的来源仍需
-Master 在聊天里两次确认，避免面板会话被盗后直接安装任意包。被目录封禁的插件不能在面板里启用。
-插件配置表单由插件的配置模型生成，只能编辑字符串、数字、布尔和枚举字段，保存时只改写
-`[plugin_config.<id>]` 里改动的键，注释和其他内容保留；引用了环境变量的插件配置只读。重启按钮复用升级系统的重启接管，
-未启用升级系统时需要手动重启。
-
-账户偏好使用新增的 `TenkoAccountPreference` 表，运行期设置使用
-`TenkoWebUISetting` 表，面板账号和会话使用 `TenkoWebUIAccount`、`TenkoWebUISession` 表；不改变旧权限表和路由表的 schema。旧 OneBot 能力覆盖
-只导入一次，后续以数据库为准；移除账户后不会从旧 TOML 重新导入。关闭 WebUI
-也不会取消已保存的账户停用、插件停用或功能默认策略。
-
-日志仅从当前进程缓冲区和 Entari 配置的日志目录读取，返回前会遮蔽已知令牌及
-常见凭据字段。实时缓冲最多 1000 条，不收集 WebUI 自身的访问日志；历史日志
-需开启 `[basic.log].save`，支持 `.log`、`.log.gz` 和 `.log.zip`。历史检索每文件
-最多扫描 8 MiB，返回最多 500 条匹配，达到上限会明确提示截断。管理审计进入
-宿主日志，包含操作目标、来源和响应状态，不记录请求凭据；需要跨重启保留审计
-时应开启日志落盘。
-
-### 前端开发
-
-WebUI 前端是 `webui/` 下的 Vue 3 + TypeScript + Vite + Element Plus 工程（需要
-Node `^22.18` 或 `>=24.12`，使用 npm）：
-
-    cd webui
-    npm ci
-    TENKO_BACKEND=http://127.0.0.1:8081 npm run dev    # http://localhost:5173/webui/
-
-开发服务器把 `/webui/api` 代理到 `TENKO_BACKEND`（默认 `http://127.0.0.1:8081`，
-即宿主的监听端口，且需开启 `[webui]` 并用 `python -m tenko webui-passwd` 取得
-密码），代理会去掉 `Origin` 请求头以通过后端的同源校验。常用脚本：
-`npm run type-check`、`npm run lint`、`npm run format`。
-
-`npm run build` 会把产物直接写入 `tenko/webui/static/`（`index.html` 与
-`assets/`）。该目录是**提交进仓库的构建产物**——基于 Git tag 的自更新直接发布
-它，宿主也只读取它——所以每次修改 `webui/` 后都必须重新构建并一起提交；CI 会
-重新构建并在产物有差异时失败。不要手工编辑 `tenko/webui/static/`。
-
-## 开发环境搭建
-
-### 获取与安装
-
-    git clone https://github.com/g1331/tenko.git
-    cd tenko
-    uv sync
-
-依赖以 pyproject.toml 声明、uv.lock 锁定；依赖变更使用 uv add / uv remove，
-不要直接编辑 pyproject.toml 的依赖表。
-
-### 代码约定
-
-- 插件位于 tenko/plugins/，遵循 Entari 插件生命周期，命令统一 / 前缀；
-  第三方插件通过 `tenko.plugins` 入口提供，默认关闭，在 WebUI 插件页启用后加载
-  （个别需要重启）（规则见 AGENTS.md「第三方插件」）。写第三方插件请从
-  [examples/tenko-plugin-example](examples/tenko-plugin-example) 开始，它只依赖
-  [tenko-api](packages/tenko-api)；
-- 数据库访问集中在 tenko/db/，宿主服务在 tenko/host/；
-- 提交遵循 Conventional Commits，功能、修复、文档分开提交；
-- 开发细节见 AGENTS.md。
-
-### 运行测试
-
-在项目根目录、并使用已安装依赖的环境执行：
-
-    ./.venv-entari/bin/ruff check tenko tests/tenko
-    ./.venv-entari/bin/python -m pytest tests/tenko
-
-使用 uv 环境时可以直接执行：
-
-    uv run ruff check tenko tests/tenko
-    uv run pytest -q
-
-如果使用已激活的虚拟环境，也可以执行：
-
-    ruff check tenko tests/tenko
-    python -m pytest tests/tenko
-
-## 架构
-
-![Tenko architecture](docs/assets/architecture.png)
-
-<details>
-<summary>文本版架构图</summary>
-
-```text
-OneBot 11 endpoint (e.g. NapCat)
-  │
-  ▼
-Satori adapter ──► Entari runtime ──► command_manager ──► Tenko plugins
-                                      │
-                                      ├── account / permission / feature services
-                                      ├── SQLite database + repositories
-                                      └── RenderService
-```
-
-</details>
-
-兼容 OneBot 11 的协议端（以下以 NapCat 为例）通过反向 WebSocket 连接 Tenko，
-Satori 负责协议对象和动作抽象，Entari 负责事件分发、插件生命周期和命令处理：
-
-- 插件在 Entari 生命周期中加载和卸载；插件通过原生命令注册表接收命令，
-  通过宿主服务访问账号路由、权限、功能开关、限流和升级控制平面。
-- command_manager 是帮助系统读取命令列表的来源，因此帮助内容会随当前已注册
-  插件变化。
-- RenderService 由 Tenko runtime 直接注册到 Launart，使用 Playwright 在本地离线
-  渲染 HTML/Markdown；服务异常不会
-  阻断文本功能。
-- 数据层使用 SQLite、SQLAlchemy 和 entari-plugin-database。新 ORM 位于
-  tenko/db/models.py，repository 位于 tenko/db/repositories.py；应用启动时会创建
-  或迁移所需表，已有 SQLite 数据库文件可以继续使用。
+[GPL-3.0](LICENSE)

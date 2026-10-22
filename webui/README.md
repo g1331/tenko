@@ -1,7 +1,7 @@
 # Tenko WebUI 前端
 
 Vue 3 + TypeScript + Vite + Element Plus（按需引入，主题变量见 `src/styles/theme.css`）。
-开发与构建流程见仓库根目录 README 的“前端开发”一节：`npm run build` 的产物写入
+开发与构建流程见 [docs/webui.md](../docs/webui.md) 的“前端开发”一节：`npm run build` 的产物写入
 `../tenko/webui/static/` 并随仓库提交。
 
 ## 结构
