@@ -9,7 +9,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 
 from arclet.entari import SendResponse
-from arclet.entari.logger import log
+from arclet.entari.logger import escape_tag, log
 import arclet.letoderea as le
 
 from ..context import MessageContext
@@ -305,6 +305,8 @@ async def _record_entari_send(event: SendResponse) -> None:
     account = event.account
     user = getattr(getattr(account, "self_info", None), "user", None)
     name = getattr(user, "name", None) or account.self_id
-    log.message.info(
-        f"{_send_scene(event)} {name}({account.self_id}) -> {event.message.display()!r}"
+    # bot 的发言用青色与收到的消息区分；颜色只作用于终端，文件和 WebUI 日志是纯文本。
+    text = f"{name}({account.self_id}) -> {event.message.display()!r}"
+    log.message.opt(colors=True).info(
+        f"{escape_tag(_send_scene(event))} <c>{escape_tag(text)}</c>"
     )
