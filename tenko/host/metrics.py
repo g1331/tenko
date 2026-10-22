@@ -301,5 +301,10 @@ async def _record_entari_send(event: SendResponse) -> None:
     # Entari 的每条发送（Session.send、ActionService、account.protocol）都在成功后
     # 发布 SendResponse；在这里补齐出站统计和取证日志。
     message_metrics.record_send_response(event)
-    # 与 Entari 记录收到消息的 “[群名(群号)] 昵称(QQ) -> 内容” 对应。
-    log.message.info(f"{_send_scene(event)} <- {event.message.display()!r}")
+    # 与 Entari 记录收到消息的 “[群名(群号)] 昵称(QQ) -> 内容” 同一形式，发送者是 bot。
+    account = event.account
+    user = getattr(getattr(account, "self_info", None), "user", None)
+    name = getattr(user, "name", None) or account.self_id
+    log.message.info(
+        f"{_send_scene(event)} {name}({account.self_id}) -> {event.message.display()!r}"
+    )
