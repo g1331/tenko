@@ -11,8 +11,10 @@
   .m { width: 800px; min-height: 800px; box-sizing: border-box; position: relative; overflow: hidden; isolation: isolate; color: #fff; background: #141a33;
     font-family: "SC", "Noto Sans CJK SC", "WenQuanYi Zen Hei", sans-serif; padding-bottom: 30px; }
 
-  .field { position: absolute; inset: -15%; z-index: -3; background: var(--art) center 20% / cover;
-    filter: blur(80px) saturate(1.6) brightness(.75); transform: scale(1.15); }
+  /* 色场图是立绘套 blur(38.5px) saturate(1.6) brightness(.75) 后的 200px 截图，等同于这里原来的
+     blur(80px)；实时滤镜每次截图要多花两秒多。换立绘时照此重新生成。 */
+  .field { position: absolute; inset: -15%; z-index: -3; background: url({{ asset("tenko_field.jpg") }}) center 20% / cover;
+    transform: scale(1.15); }
   .m::after { content: ""; position: absolute; inset: 0; z-index: -2;
     background: linear-gradient(180deg, rgba(14,18,40,0) 0, rgba(14,18,40,.35) 30%, rgba(12,14,32,.7) 100%); }
 
