@@ -181,6 +181,12 @@ class MessageEventHandler:
         ):
             return False
 
+        # 与 v3 相同：自家其他 bot 发的群消息不交给插件，免得 bot 之间互相触发命令。
+        # 聊天记录在这之前写入，面板里照样能看到。
+        if is_message_created(event) and (sender := _event_user_id(event)) is not None:
+            if self.account_registry.is_own((account_key(account)[0], sender)):
+                return True
+
         # 消息事件可能是启动时群列表发现之前抵达的第一条消息。事件本身
         # 证明账号当前在线，因此先登记账号并加入当前群路由，再执行统一
         # 选路；这样群列表拉取失败时仍保留消息触发绑定的兜底路径。

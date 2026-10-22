@@ -370,6 +370,12 @@ class AccountRegistry:
     def is_enabled(self, account_or_id: object) -> bool:
         return account_key(account_or_id) not in self._disabled
 
+    def is_own(self, account_or_id: object) -> bool:
+        """是否是 Tenko 自己的账号：本次运行连上过的，或在面板里停用的。"""
+
+        key = account_key(account_or_id)
+        return key in self._accounts or key in self._disabled
+
     @staticmethod
     def _mute_expired(until: datetime) -> bool:
         now = datetime.now(UTC) if until.tzinfo else datetime.now()

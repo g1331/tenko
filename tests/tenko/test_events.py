@@ -358,6 +358,24 @@ async def test_group_event_guard_routes_by_shared_seq_not_local_message_id(
 
 
 @pytest.mark.asyncio
+async def test_group_messages_from_own_bots_never_reach_plugins() -> None:
+    first = RoutedFakeAccount("10001")
+    registry = AccountRegistry()
+    registry.register(first, groups=[40001])
+    registry.register(RoutedFakeAccount("10002"))  # 不进这个群的选路，结果确定
+    registry.set_enabled("10003", False)  # 面板里停用、本次没连上的自家账号
+    callback = AsyncMock()
+    guarded = MessageEventHandler(account_registry=registry).guard(callback)
+
+    for bot in ("10002", "10003"):
+        await guarded(first, make_group_event(user_id=bot, text="/状态"))
+    callback.assert_not_awaited()
+
+    await guarded(first, make_group_event(user_id="20001", text="/状态"))
+    callback.assert_awaited_once()
+
+
+@pytest.mark.asyncio
 async def test_group_event_guard_binds_unknown_account_as_message_fallback() -> None:
     account = RoutedFakeAccount("10001")
     registry = AccountRegistry()
