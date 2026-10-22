@@ -115,7 +115,6 @@ async def test_run_async_loads_plugins_before_starting_entari(
 ) -> None:
     lifecycle: list[str] = []
     connection = Mock()
-    connection.ready_service.id = "tenko.ready"
     monkeypatch.setattr(
         runtime_module, "OneBotConnection", Mock(return_value=connection)
     )
@@ -187,9 +186,10 @@ async def test_run_async_loads_plugins_before_starting_entari(
         manager,
         stop_signal=(runtime_module.signal.SIGINT, runtime_module.signal.SIGTERM),
     )
+    connection.attach.assert_called_once_with(app, manager)
     assert lifecycle == ["connection", "plugins", "app"]
     # runtime-state 服务不得进入 app.required（pre8 事故根因，见 runtime.py 注释）
-    assert app.required == {"tenko.ready"}
+    assert app.required == set()
 
 
 @pytest.mark.asyncio
@@ -197,7 +197,6 @@ async def test_run_async_registers_render_service(
     monkeypatch,
 ) -> None:
     connection = Mock()
-    connection.ready_service.id = "tenko.ready"
     monkeypatch.setattr(
         runtime_module, "OneBotConnection", Mock(return_value=connection)
     )
@@ -243,7 +242,6 @@ async def test_run_async_registers_render_service(
 @pytest.mark.asyncio
 async def test_run_async_registers_webui_only_when_enabled(monkeypatch) -> None:
     connection = Mock()
-    connection.ready_service.id = "tenko.ready"
     monkeypatch.setattr(
         runtime_module, "OneBotConnection", Mock(return_value=connection)
     )
@@ -348,9 +346,6 @@ def test_entari_run_async_registration_keeps_connection_components(
     assert manager.get_component(Entari) is app
     assert manager.get_component(AiohttpClientService).id == "http.client/aiohttp"
     assert manager.get_component("satori-python.server") is connection.server
-    assert (
-        manager.get_component(connection.ready_service.id) is connection.ready_service
-    )
 
 
 @pytest.mark.asyncio
@@ -414,7 +409,7 @@ async def test_build_app_uses_basic_without_rewriting_entari_config(
     try:
         app = runtime.build_app()
 
-        assert app.configs == (connection.client_config,)
+        assert app.configs == ()
         assert app.kwargs == {
             "log_level": "DEBUG",
             "ignore_self_message": False,

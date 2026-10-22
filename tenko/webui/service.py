@@ -555,14 +555,11 @@ class WebUIService(Service):
     def _secrets(self) -> tuple[str, ...]:
         values = [*self._retired_tokens]
         if self.tenko_config is not None:
-            values.extend(
-                (
-                    self.tenko_config.onebot.access_token,
-                    self.tenko_config.onebot.satori_token,
-                )
-            )
+            values.append(self.tenko_config.onebot.access_token)
         if self.connection is not None:
-            values.append(self.connection.adapter.access_token)
+            values.extend(
+                (self.connection.adapter.access_token, self.connection.server.token)
+            )
         return tuple(value for value in values if isinstance(value, str) and value)
 
     async def _manage(self, request: Request, operation: Callable) -> JSONResponse:

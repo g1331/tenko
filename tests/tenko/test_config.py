@@ -42,6 +42,7 @@ notify_group = 40001
 listen_host = "0.0.0.0"
 listen_port = 9000
 access_token = "secret"
+# 旧版内部 Satori 配置：识别后忽略，不影响启动。
 satori_token = "satori-secret"
 satori_host = "127.0.0.1"
 
@@ -70,7 +71,7 @@ create_table_at = "prepared"
 
     assert config.onebot.reverse_ws_url == "ws://0.0.0.0:9000/onebot/v11/ws"
     assert config.onebot.access_token == "secret"
-    assert config.onebot.satori_client_host == "127.0.0.1"
+    assert config.onebot.local_host == "127.0.0.1"
     assert config.onebot.capability_overrides == {
         "10001": {"member_mute": True, "group_essence": False}
     }
@@ -310,22 +311,16 @@ def test_deprecated_webui_tokens_load_with_one_warning() -> None:
     assert "reader" not in repr(config.webui)
 
 
-def test_non_loopback_bind_requires_custom_tokens() -> None:
+def test_non_loopback_bind_requires_access_token() -> None:
     from tenko.config import OneBotConfig
 
-    for onebot in (
-        OneBotConfig(listen_host="0.0.0.0"),
-        OneBotConfig(listen_host="0.0.0.0", access_token="a"),
-        OneBotConfig(listen_host="::", satori_token="s"),
-    ):
+    for host in ("0.0.0.0", "::"):
         with pytest.raises(ValueError, match="listen_host"):
-            TenkoConfig(onebot=onebot)
+            TenkoConfig(onebot=OneBotConfig(listen_host=host))
 
     TenkoConfig(onebot=OneBotConfig(listen_host="::1"))
     TenkoConfig(onebot=OneBotConfig(listen_host="localhost"))
-    TenkoConfig(
-        onebot=OneBotConfig(listen_host="0.0.0.0", access_token="a", satori_token="s")
-    )
+    TenkoConfig(onebot=OneBotConfig(listen_host="0.0.0.0", access_token="a"))
 
 
 def test_plugin_config_tables_load_and_survive_entari_save(tmp_path) -> None:

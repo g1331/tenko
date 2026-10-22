@@ -159,9 +159,6 @@ config/tenko.toml 可以从示例复制后按需补充。下面的配置覆盖�
     reverse_ws_endpoint = "ws"
     access_token = "<ONEBOT_ACCESS_TOKEN>"
     api_timeout = 60
-    satori_host = "127.0.0.1"
-    satori_path = "satori"
-    satori_token = "<SATORI_TOKEN>"
 
     [debug]
     enabled = false
@@ -210,10 +207,10 @@ config/tenko.toml 可以从示例复制后按需补充。下面的配置覆盖�
 | reverse_ws_endpoint | WebSocket 端点名，默认 ws |
 | access_token | 可选的 OneBot 访问 token；不设置时可留空 |
 | api_timeout | OneBot action 超时时间，默认 60 秒 |
-| satori_host | 内部 Satori 服务地址；省略时根据监听地址推导 |
-| satori_path | 内部 Satori 路径，默认 satori |
-| satori_token | 内部 Satori token，可留空关闭鉴权 |
 | capability_overrides | 按账号覆盖平台能力学习结果的映射，值为布尔开关 |
+
+旧版的 `satori_host`、`satori_path`、`satori_token` 已不再使用：OneBot 事件在进程内直接交给
+Entari，内部接口的令牌每次启动随机生成。配置里留着这几项也能启动，只会打印一条弃用提示。
 
 ### [basic] 与 [debug]
 

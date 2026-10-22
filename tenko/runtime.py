@@ -222,8 +222,8 @@ class TenkoRuntime:
 
         set_event_loop(asyncio.get_running_loop())
         basic = self.config.basic
+        # 不配置 Satori 网络连接：OneBot 事件由进程内 Server 直接交给 app。
         app = Entari(
-            self.connection.client_config,
             log_level=basic.log.level,
             ignore_self_message=basic.ignore_self_message,
             skip_req_missing=basic.skip_req_missing,
@@ -323,6 +323,7 @@ class TenkoRuntime:
             self.config.onebot.reverse_ws_url,
         )
         app = self.build_app()
+        self.connection.attach(app, manager)
         try:
             self.database_service = load_database_plugin(
                 self.config.database,
@@ -404,10 +405,6 @@ class TenkoRuntime:
                 tenko_config=self.config,
             )
             manager.add_component(self.webui_service)
-        # Satori client 必须在 server socket 开始接受连接后启动。否则其第一次
-        # 连接尝试可能与 Uvicorn 发生竞争，该时间窗口内到达的事件也不会被
-        # replay 给 client。
-        app.required = {*app.required, self.connection.ready_service.id}
         # 注意（pre8 生产事故根因）：RuntimeStateService 与官方
         # SqlalchemyService 都经插件机制注册，由 PluginManagerService 在其
         # launch 阶段统一 resolve_requirements 后装载。两者都不可加入
@@ -415,11 +412,6 @@ class TenkoRuntime:
         # 插件服务装载之前，任何一者提前进入组件表都会让解析因依赖缺失而
         # 整体崩溃（RequirementResolveFailed）。启动时序由 RuntimeStateService
         # 自身的 required={"database/sqlalchemy"} 与 wait_for_required 保证。
-        for connection in app.connections:
-            connection.required = {
-                *connection.required,
-                self.connection.ready_service.id,
-            }
         await app.run_async(
             manager,
             stop_signal=(signal.SIGINT, signal.SIGTERM),

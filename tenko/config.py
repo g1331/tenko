@@ -339,9 +339,13 @@ def _is_loopback_host(host: str) -> bool:
         return False
 
 
+# 4.0.0-rc25 起内部 Satori 连接改为进程内直连，这些键只为兼容旧配置文件而识别。
+_LEGACY_SATORI_KEYS = ("satori_host", "satori_path", "satori_token")
+
+
 @dataclass(frozen=True, slots=True)
 class OneBotConfig:
-    """OneBot 11 反向 WebSocket 与内部 Satori 服务的配置。"""
+    """OneBot 11 反向 WebSocket 的配置。"""
 
     listen_host: str = "127.0.0.1"
     listen_port: int = 8080
@@ -350,9 +354,6 @@ class OneBotConfig:
     reverse_ws_endpoint: str = "ws"
     access_token: str | None = None
     api_timeout: int = 60
-    satori_host: str | None = None
-    satori_path: str = "satori"
-    satori_token: str | None = "tenko-satori-local"
     capability_overrides: Mapping[str, Mapping[str, bool]] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
@@ -364,8 +365,6 @@ class OneBotConfig:
             raise ValueError("reverse WebSocket path 和 endpoint 不能为空")
         if self.api_timeout <= 0:
             raise ValueError("api_timeout 必须大于 0")
-        if not self.satori_path:
-            raise ValueError("satori_path 不能为空")
 
         normalized_overrides = _capability_overrides(
             {"capability_overrides": self.capability_overrides}
@@ -374,8 +373,6 @@ class OneBotConfig:
 
         if self.access_token == "":
             object.__setattr__(self, "access_token", None)
-        if self.satori_token == "":
-            object.__setattr__(self, "satori_token", None)
 
     @property
     def reverse_ws_path_value(self) -> str:
@@ -393,36 +390,25 @@ class OneBotConfig:
         return f"ws://{host}:{self.listen_port}{self.reverse_ws_path_value}"
 
     @property
-    def satori_client_host(self) -> str:
-        host: str
-        if self.satori_host:
-            host = self.satori_host
-        elif self.listen_host == "0.0.0.0":
-            host = "127.0.0.1"
-        elif self.listen_host == "::":
-            host = "::1"
-        else:
-            host = self.listen_host
+    def local_host(self) -> str:
+        """本进程访问自己监听端口时用的地址（URL 形式，IPv6 带方括号）。"""
 
-        # satori-python-client 会根据此值构造 URL，因此 IPv6 字面量需要使用
-        # URL 形式，而不是 socket-address 形式。
+        host = {"0.0.0.0": "127.0.0.1", "::": "::1"}.get(
+            self.listen_host, self.listen_host
+        )
         if ":" in host and not host.startswith("["):
             return f"[{host}]"
         return host
 
-    @property
-    def listen_probe_host(self) -> str:
-        """返回本进程探测监听 socket 时应使用的地址。"""
-
-        if self.listen_host == "0.0.0.0":
-            return "127.0.0.1"
-        if self.listen_host == "::":
-            return "::1"
-        return self.listen_host
-
     @classmethod
     def from_mapping(cls, section: Mapping[str, Any]) -> OneBotConfig:
         defaults = cls()
+        if legacy := [key for key in _LEGACY_SATORI_KEYS if key in section]:
+            logger.warning(
+                "[onebot] {} 已弃用并被忽略：Tenko 内部不再使用 Satori WebSocket，"
+                "请从配置中删除",
+                "、".join(legacy),
+            )
         return cls(
             listen_host=_string(section, "listen_host", defaults.listen_host),
             listen_port=_integer(section, "listen_port", defaults.listen_port),
@@ -439,11 +425,6 @@ class OneBotConfig:
                 section, "access_token", defaults.access_token
             ),
             api_timeout=_integer(section, "api_timeout", defaults.api_timeout),
-            satori_host=_optional_string(section, "satori_host", defaults.satori_host),
-            satori_path=_string(section, "satori_path", defaults.satori_path),
-            satori_token=_optional_string(
-                section, "satori_token", defaults.satori_token
-            ),
             capability_overrides=_capability_overrides(section),
         )
 
@@ -854,13 +835,8 @@ class TenkoConfig:
 
     def __post_init__(self) -> None:
         onebot = self.onebot
-        if not _is_loopback_host(onebot.listen_host) and (
-            not onebot.access_token or onebot.satori_token == "tenko-satori-local"
-        ):
-            raise ValueError(
-                "onebot.listen_host 不是回环地址时，必须设置 access_token，"
-                "且 satori_token 不能使用默认值"
-            )
+        if not _is_loopback_host(onebot.listen_host) and not onebot.access_token:
+            raise ValueError("onebot.listen_host 不是回环地址时，必须设置 access_token")
         if self.webui.deprecated_tokens_configured:
             logger.warning(
                 "[webui] token / admin_token 已弃用并被忽略；面板改用数据库账号，"

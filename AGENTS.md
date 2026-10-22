@@ -19,7 +19,7 @@ Tenko 是面向聊天群组的管理 bot，使用 Entari 作为运行时，以 S
 tenko/
 ├── __main__.py              # 命令行入口和 dry-run
 ├── config.py                # TOML 配置模型
-├── connection.py            # OneBot 11 / Satori 连接服务
+├── connection.py            # OneBot 11 反向适配器与进程内 Satori Server
 ├── runtime.py               # Entari 运行时装配
 ├── context.py               # 消息上下文和身份转换
 ├── events.py                # 事件入口：过滤、去重、群路由维护

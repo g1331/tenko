@@ -52,6 +52,8 @@ save = {{rotation = "1 MB", compression = "gz", colorize = false}}
     process = None
     tasks = []
     websockets = []
+    # 协议端收到的全部动作请求：(self_id, action, params)
+    actions: list[tuple[int, str, dict]] = []
     async with httpx.AsyncClient(
         base_url=f"http://127.0.0.1:{port}",
         timeout=3,
@@ -119,11 +121,11 @@ save = {{rotation = "1 MB", compression = "gz", colorize = false}}
                     await process.wait()
                     pytest.fail("宿主未能正常退出\n" + log_path.read_text()[-8000:])
 
-        async def protocol(ws):
+        async def protocol(ws, self_id=10001):
             await ws.send_json(
                 {
                     "time": 1,
-                    "self_id": 10001,
+                    "self_id": self_id,
                     "post_type": "meta_event",
                     "meta_event_type": "lifecycle",
                     "sub_type": "connect",
@@ -133,8 +135,12 @@ save = {{rotation = "1 MB", compression = "gz", colorize = false}}
                 if message.type != aiohttp.WSMsgType.TEXT:
                     continue
                 request = message.json()
+                actions.append((self_id, request.get("action"), request.get("params")))
                 result = {
-                    "get_login_info": {"user_id": 10001, "nickname": "WebUI Test Bot"},
+                    "get_login_info": {
+                        "user_id": self_id,
+                        "nickname": "WebUI Test Bot",
+                    },
                     "get_group_list": [{"group_id": 40001, "group_name": "Test Group"}],
                 }.get(request.get("action"), {})
                 await ws.send_json(
@@ -211,7 +217,49 @@ save = {{rotation = "1 MB", compression = "gz", colorize = false}}
                     message = await asyncio.wait_for(incomplete.receive(), 3)
                     assert message.json()["action"] == "get_login_info"
                 assert await state() == []
-                await connect(session)
+                ws = await connect(session)
+                # 消息往返：私聊命令经进程内桥接进入 Entari，回复以动作请求回到协议端。
+                await ws.send_json(
+                    {
+                        "time": 2,
+                        "self_id": 10001,
+                        "post_type": "message",
+                        "message_type": "private",
+                        "sub_type": "friend",
+                        "message_id": 1,
+                        "user_id": 20001,
+                        "message": [{"type": "text", "data": {"text": "/帮助"}}],
+                        "raw_message": "/帮助",
+                        "font": 0,
+                        "sender": {"user_id": 20001, "nickname": "tester"},
+                    }
+                )
+
+                async def replied():
+                    return any(
+                        name in {"send_private_msg", "send_msg"}
+                        and str((params or {}).get("user_id")) == "20001"
+                        for _, name, params in actions
+                    )
+
+                await wait_for(replied)
+                # 第二个账号同时在线，断开后只影响它自己。
+                second = await session.ws_connect(
+                    f"http://127.0.0.1:{port}/onebot/v11/ws",
+                    headers={
+                        "Authorization": "Bearer protocol-test-token",
+                        "X-Self-ID": "10002",
+                    },
+                )
+                websockets.append(second)
+                tasks.append(asyncio.create_task(protocol(second, 10002)))
+
+                async def online_ids():
+                    return {row["id"] for row in await state() if row["online"]}
+
+                await wait_for(lambda: _contains(online_ids(), {"10001", "10002"}))
+                await second.close()
+                await wait_for(lambda: _equals(online_ids(), {"10001"}))
                 await action(
                     "preferences",
                     {"alias": "重启后保留", "capabilities": {"member_mute": False}},
@@ -287,3 +335,11 @@ save = {{rotation = "1 MB", compression = "gz", colorize = false}}
                 await ws.close()
             await asyncio.gather(*tasks, return_exceptions=True)
             await stop()
+
+
+async def _contains(value, expected):
+    return expected <= await value
+
+
+async def _equals(value, expected):
+    return await value == expected
