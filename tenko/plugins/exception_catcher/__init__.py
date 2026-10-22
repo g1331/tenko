@@ -102,6 +102,18 @@ def is_ignored_exception(exception: BaseException) -> bool:
     return cause is not None and cause is not exception and is_ignored_exception(cause)
 
 
+def is_send_timeout(exception: BaseException) -> bool:
+    """NapCat 发消息时等 QQ 确认超时（retcode 1200）。消息通常已经送达，只是回执慢了。"""
+
+    seen: BaseException | None = exception
+    while seen is not None:
+        text = str(seen)
+        if "Timeout: NTEvent" in text and "/sendMsg" in text:
+            return True
+        seen = seen.__cause__ if seen.__cause__ is not seen else None
+    return False
+
+
 def _compact(value: object, limit: int = 160) -> str:
     text = " ".join(str(value or "").split())
     return text if len(text) <= limit else f"{text[: limit - 1]}…"
@@ -273,7 +285,13 @@ async def send_error_report(
     服务实例。
     """
 
-    if is_ignored_exception(exception) or _in_cooldown(exception):
+    if is_ignored_exception(exception):
+        return
+    if is_send_timeout(exception):
+        # 不发报告：报告本身也是一条消息，协议端忙时同样会超时，只会越积越多。
+        logger.warning("消息发送确认超时，通常已送达，不发异常报告：{}", exception)
+        return
+    if _in_cooldown(exception):
         return
     report = generate_error_report(exception, origin)
     image = (

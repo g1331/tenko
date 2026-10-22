@@ -20,7 +20,7 @@ from satori import (
     Text,
     User,
 )
-from satori.exception import NotFoundException
+from satori.exception import BadRequestException, NotFoundException
 from satori.model import Event
 
 from tenko.host.metrics import MessageLog
@@ -123,6 +123,31 @@ def test_exception_filter_does_not_hide_unrelated_action_failure(loaded_plugin) 
     assert not loaded_plugin.is_ignored_exception(
         ActionExecutionError("permission failed", failure=failure)
     )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("loaded_plugin", ["exception_catcher"], indirect=True)
+async def test_send_confirmation_timeout_is_logged_not_reported(
+    loaded_plugin, monkeypatch, tmp_path
+) -> None:
+    sent = AsyncMock()
+    monkeypatch.setattr(loaded_plugin, "notify", sent)
+    napcat = "1200: Timeout: NTEvent serviceAndMethod:NodeIKernelMsgService/sendMsg"
+    try:
+        try:
+            raise RuntimeError(napcat)
+        except RuntimeError as cause:
+            raise BadRequestException("send failed") from cause
+    except BadRequestException as error:
+        timeout = error
+
+    origin = SimpleNamespace(account=None)
+    await loaded_plugin.send_error_report(timeout, origin, evidence_dir=tmp_path)
+    other = RuntimeError("1200: Timeout: NTEvent .../fetchUserDetailInfo")
+    await loaded_plugin.send_error_report(other, origin, evidence_dir=tmp_path)
+
+    assert sent.await_count == 1
+    assert sent.await_args.args[0][0].text.find("fetchUserDetailInfo") >= 0
 
 
 @pytest.mark.asyncio
