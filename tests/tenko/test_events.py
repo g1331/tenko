@@ -333,6 +333,31 @@ async def test_group_event_guard_randomly_selects_one_online_account(
 
 
 @pytest.mark.asyncio
+async def test_group_event_guard_routes_by_shared_seq_not_local_message_id(
+    monkeypatch,
+) -> None:
+    # NapCat 给同一条群消息的 message_id 各账号不同，real_seq 相同。
+    first = RoutedFakeAccount("10001")
+    second = RoutedFakeAccount("10002")
+    registry = AccountRegistry()
+    registry.register(first, groups=[40001])
+    registry.register(second, groups=[40001])
+    picks = iter([second, first])
+    monkeypatch.setattr(accounts_module.random, "choice", lambda _: next(picks))
+    callback = AsyncMock()
+    guarded = MessageEventHandler(account_registry=registry).guard(callback)
+    seen_by_first, seen_by_second = make_group_event(), make_group_event()
+    seen_by_first.message.id, seen_by_second.message.id = "111", "222"
+    seen_by_first._data = {"group_id": 40001, "real_seq": "7788"}
+    seen_by_second._data = {"group_id": 40001, "real_seq": "7788"}
+
+    await guarded(first, seen_by_first)
+    await guarded(second, seen_by_second)
+
+    callback.assert_awaited_once_with(second, seen_by_second)
+
+
+@pytest.mark.asyncio
 async def test_group_event_guard_binds_unknown_account_as_message_fallback() -> None:
     account = RoutedFakeAccount("10001")
     registry = AccountRegistry()

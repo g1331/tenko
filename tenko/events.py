@@ -64,6 +64,21 @@ def _event_message_id(event: Event) -> str | None:
     return None if message_id is None else str(message_id)
 
 
+def _event_route_id(event: Event) -> str | None:
+    """同一条群消息在各账号上相同的标识，多账号据此得出同一个选路结果。
+
+    OneBot 的 ``message_id`` 是协议端本地编号，同一条消息在两个账号上不同；
+    NapCat 的 ``real_seq`` 是 QQ 服务端的群消息序号，各账号一致。
+    """
+
+    raw_data = getattr(event, "_data", None)
+    if isinstance(raw_data, Mapping) and raw_data.get("real_seq") not in (None, ""):
+        return f"seq:{raw_data['real_seq']}"
+    # shortcut: 没有 real_seq 的协议端仍按本地消息 ID 选路，多账号同群可能重复或漏回；
+    # 接入这类协议端时改用服务端序号或（发送者, 时间）指纹。
+    return _event_message_id(event)
+
+
 def _event_type_value(event: Event) -> str:
     event_type = getattr(event, "type", "")
     return str(getattr(event_type, "value", event_type))
@@ -176,7 +191,7 @@ class MessageEventHandler:
         if not self.account_registry.is_muted(account, group_id):
             selected = self.account_registry.select_for_event(
                 group_id,
-                source_id=_event_message_id(event),
+                source_id=_event_route_id(event),
             )
             if selected is not None and account_key(selected) == account_key(account):
                 return False
