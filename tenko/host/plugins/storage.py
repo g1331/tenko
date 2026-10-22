@@ -1,7 +1,7 @@
 """第三方插件的独立数据存储：数据目录和带版本的 JSON 存储。
 
 所有入口按调用方（或模型）所在的模块归属到插件 ID，规则见
-:func:`tenko.host.plugins.external_plugin_for_module`：模块必须属于某个
+:func:`tenko.host.plugins.runtime.external_plugin_for_module`：模块必须属于某个
 ``tenko.plugins`` 入口声明的包，否则抛出 :class:`PluginStorageError`。
 """
 
@@ -21,7 +21,7 @@ from typing import Any
 
 from loguru import logger
 
-from .plugins import _PLUGIN_ID, external_plugin_for_module
+from .runtime import _PLUGIN_ID, external_plugin_for_module
 
 # 与 .tenko/plugins/state.json 一样相对工作目录；测试可以替换它。
 PLUGIN_DATA_ROOT = Path(".tenko/plugin-data")

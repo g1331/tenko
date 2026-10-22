@@ -17,7 +17,7 @@ from tenko import runtime as runtime_module
 from tenko.config import TenkoConfig
 from tenko.connection import OneBotConnection
 from tenko.db.runtime import RuntimeStateService
-from tenko.render import RenderService
+from tenko.host.render import RenderService
 from tenko.runtime import TenkoRuntime
 from tenko.webui import WebUIService
 

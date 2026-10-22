@@ -19,14 +19,14 @@ from loguru import logger
 from starlette.requests import Request
 from starlette.responses import FileResponse, JSONResponse, Response
 
-from ..host.plugin_docs import plugin_command_help, plugin_icon_path
-from ..host.plugin_manager import (
+from ..host.plugins.docs import plugin_command_help, plugin_icon_path
+from ..host.plugins.manager import (
     PluginChange,
     PluginManager,
     PluginManagerError,
     get_plugin_manager,
 )
-from ..host.registry import (
+from ..host.plugins.registry import (
     Registry,
     RegistryError,
     RegistryPlugin,
@@ -38,7 +38,7 @@ from ..host.registry import (
     why_incompatible,
 )
 from ..host.startup import _project_version
-from .auth import WEBUI_PATH, error_response
+from .auth import WEBUI_PATH, error_response, read_json
 
 if TYPE_CHECKING:
     from .service import WebUIService
@@ -449,7 +449,7 @@ class PluginMarket:
 
     async def create_task(self, request: Request) -> JSONResponse:
         async def start():
-            body = await self.service._body(request)
+            body = await read_json(request)
             action = body.get("action")
             if action not in _ACTIONS or body.get("confirm") is not True:
                 raise ValueError("请确认要执行的插件操作")
@@ -536,7 +536,7 @@ class PluginMarket:
                 for key, spec in properties.items()
             }
             if request.method == "POST":
-                body = await self.service._body(request)
+                body = await read_json(request)
                 values = body.get("values")
                 if set(body) != {"values", "confirm"} or body["confirm"] is not True:
                     raise ValueError("请确认保存插件配置")
@@ -584,7 +584,7 @@ class PluginMarket:
 
     async def restart(self, request: Request) -> JSONResponse:
         async def action():
-            body = await self.service._body(request)
+            body = await read_json(request)
             if body != {"confirm": True}:
                 raise ValueError("请确认重启")
             updater = self.updater

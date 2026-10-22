@@ -3316,7 +3316,7 @@ class UpgradeManager:
         if not data_dir.is_absolute():
             data_dir = root / data_dir
         # plugin_manager 依赖本模块，延迟导入避免循环。
-        from .plugin_manager import PluginManager
+        from .plugins.manager import PluginManager
 
         plugins = PluginManager()
         health_checker = DefaultHealthChecker(

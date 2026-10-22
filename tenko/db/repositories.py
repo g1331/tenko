@@ -226,12 +226,6 @@ class MemberPermRepository(_Repository):
             return tuple(result.all())
 
     # 常用的短别名保持调用方语义清晰，同时不复制实现。
-    get = get_permission
-    set = set_permission
-    delete = delete_permission
-    list_by_group = list_group_permissions
-    bot_admin_ids = list_bot_admins
-    global_blacklist = list_global_blacklist
 
 
 class GroupPermRepository(_Repository):
@@ -439,9 +433,6 @@ class FeatureStateRepository(_Repository):
             )
             await session.commit()
 
-    list = list_states
-    replace = replace_states
-
 
 @dataclass(frozen=True, slots=True)
 class AccountRouteRecord:
@@ -528,9 +519,6 @@ class AccountStateRepository(_Repository):
                 for row in response_rows
             )
             await session.commit()
-
-    load = load_state
-    replace = replace_state
 
 
 @dataclass(frozen=True, slots=True)
@@ -634,9 +622,6 @@ class RateLimitRepository(_Repository):
             )
             await session.commit()
 
-    load = load_state
-    replace = replace_state
-
 
 class StartupTimeRepository(_Repository):
     """启动耗时样本 repository。"""
@@ -652,8 +637,6 @@ class StartupTimeRepository(_Repository):
         async with self._session() as session:
             session.add(StartupTime(duration=duration))
             await session.commit()
-
-    list = list_durations
 
 
 @dataclass(frozen=True, slots=True)

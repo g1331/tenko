@@ -24,7 +24,7 @@ from loguru import logger
 from ..context import MessageContext
 from .features import feature_service
 from .perm import Permission, PermissionChecker
-from .plugins import external_plugin_for_module
+from .plugins.runtime import external_plugin_for_module
 
 REQUIRES_ATTR = "__tenko_requires__"
 # 测试可以替换它；内置和第三方插件共用同一个检查器（数据库 + Entari superusers）。

@@ -15,14 +15,14 @@ from satori import Image, Text
 from satori.exception import NotFoundException
 
 from tenko.context import MessageContext
-from tenko.events import MessageLog, message_metrics
+from tenko.host.metrics import MessageLog, message_metrics
 from tenko.host.actions import (
     ActionExecutionError,
     ActionFailure,
     ActionTargetUnavailable,
 )
 from tenko.host.perm import superuser_ids
-from tenko.render import RenderService, try_render
+from tenko.host.render import RenderService, try_render
 
 
 plugin.metadata(

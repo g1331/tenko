@@ -561,15 +561,10 @@ class AccountRegistry:
             self._group_permission_level(permission)
         )
 
-    # 这些别名保持调用方对“账号×群”关系的自然命名，不复制第二份状态。
-    set_account_group_permission = set_group_permission
-
     def group_permission(
         self, account_or_id: AccountInput, group_id: str | int
     ) -> int | None:
         return self._group_permissions.get((account_key(account_or_id), _key(group_id)))
-
-    account_group_permission = group_permission
 
     def management_accounts_for_group(
         self, group_id: str | int, *, minimum: int = 32

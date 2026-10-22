@@ -215,7 +215,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         return 0
 
     if args.command == "plugins":
-        from .host.plugin_manager import PluginManagerError, get_plugin_manager
+        from .host.plugins.manager import PluginManagerError, get_plugin_manager
 
         try:
             repaired = asyncio.run(get_plugin_manager().sync_env())

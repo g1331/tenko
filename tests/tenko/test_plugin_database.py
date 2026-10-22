@@ -18,7 +18,7 @@ from sqlalchemy import exc as sa_exc
 from tenko_api.storage import get_session
 
 from tenko.db.migration import install_forward_only_guard, run_database_migrations
-from tenko.host.plugin_storage import PluginStorageError
+from tenko.host.plugins.storage import PluginStorageError
 
 MODULE = "tenko_t_plugin_db"
 IMPORTS = (
@@ -46,7 +46,7 @@ class PluginDatabaseHost:
         import entari_plugin_database
         from entari_plugin_database import migration
 
-        from tenko.db import plugin_models
+        from tenko.host.plugins import database as plugin_models
 
         self.root, self.models, self.monkeypatch = root, [], monkeypatch
         self.module, self.errors = entari_plugin_database, []
@@ -98,7 +98,7 @@ async def plugin_db(tmp_path, monkeypatch):
         yield host
     finally:
         logger.remove(sink)
-        from tenko.db import plugin_models
+        from tenko.host.plugins import database as plugin_models
 
         remove_callback(plugin_models.guard_plugin_model)
         for table in [t for t in Base.metadata.tables if t.startswith("db_demo_")]:

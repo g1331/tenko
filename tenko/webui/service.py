@@ -41,13 +41,14 @@ from .auth import (
     success_response as _success_response,
 )
 from .logs import LogReader
-from .market import PluginMarket
-from ..events import MessageMetrics, message_metrics
+from .plugins import PluginMarket
+from ..host.metrics import MessageMetrics, message_metrics
 from . import core_config
 from .live import MAX_STREAMS, TOPICS, LiveStreams
 from ..host.accounts import AccountRegistry, account_registry
 from ..host.features import FeatureService, feature_service as default_feature_service
-from ..host.plugins import PluginRuntime
+from ..host.plugins.runtime import PluginRuntime
+from ..host.status import build_status_data
 
 _STATIC_DIR = Path(__file__).parent / "static"
 _STATIC_INDEX = _STATIC_DIR / "index.html"
@@ -293,8 +294,6 @@ class WebUIService(Service):
         return _success_response(result)
 
     def _status_data(self) -> Mapping[str, Any]:
-        from tenko.plugins.status import build_status_data
-
         runtime = self.plugin_runtime or PluginRuntime()
         context = SimpleNamespace(chat_type="private", channel_id="")
         return build_status_data(
@@ -566,9 +565,6 @@ class WebUIService(Service):
             values.append(self.connection.adapter.access_token)
         return tuple(value for value in values if isinstance(value, str) and value)
 
-    async def _body(self, request: Request) -> dict[str, Any]:
-        return await read_json(request)
-
     async def _manage(self, request: Request, operation: Callable) -> JSONResponse:
         try:
             async with self._write_lock:
@@ -658,7 +654,7 @@ class WebUIService(Service):
                 raise KeyError(key)
             if platform != "onebot" or self.connection is None:
                 raise RuntimeError("当前协议适配器尚未提供账户管理能力")
-            body = await self._body(request)
+            body = await read_json(request)
             if action == "preferences":
                 if set(body) - {"alias", "capabilities"}:
                     raise ValueError("仅支持别名和能力覆盖")
@@ -784,7 +780,7 @@ class WebUIService(Service):
             data = self._pairing_data()
             if request.method == "GET":
                 return data
-            body = await self._body(request)
+            body = await read_json(request)
             if body == {"action": "reveal"}:
                 request.state.webui_action = "reveal"
                 data["access_token"] = self.connection.adapter.access_token or ""
@@ -818,7 +814,7 @@ class WebUIService(Service):
         async def change():
             repository = self._management().repository
             info = self._plugin(request.path_params["plugin"])
-            body = await self._body(request)
+            body = await read_json(request)
             if (
                 set(body) != {"enabled", "confirm"}
                 or type(body["enabled"]) is not bool
@@ -868,7 +864,7 @@ class WebUIService(Service):
             group_id = request.path_params["group_id"]
             if group_id not in self.accounts.group_ids:
                 raise ValueError("群 ID 不在已知路由中")
-            body = await self._body(request)
+            body = await read_json(request)
             strategy, account = body.get("strategy"), body.get("account")
             if set(body) != {"strategy", "account"} or strategy not in (
                 "random",
@@ -903,7 +899,7 @@ class WebUIService(Service):
             if not self.feature_service.ready:
                 raise RuntimeError("功能状态尚未就绪")
             info = self._plugin(request.path_params["plugin"])
-            body = await self._body(request)
+            body = await read_json(request)
             if set(body) == {"maintenance"} and type(body["maintenance"]) is bool:
                 self.feature_service.set_maintenance(info.name, body["maintenance"])
             elif set(body) == {"group_id", "enabled"} and body["group_id"] is None:
@@ -943,7 +939,7 @@ class WebUIService(Service):
         async def action():
             repository = self._management().repository
             if request.method == "POST":
-                body = await self._body(request)
+                body = await read_json(request)
                 if not body or not set(body) <= {
                     "default_enabled",
                     "friend_request_mode",
@@ -979,7 +975,7 @@ class WebUIService(Service):
             writable = self._config_path is not None and self._config_stamp is not None
             raw = self.raw_config() if writable else {}
             if request.method == "POST":
-                body = await self._body(request)
+                body = await read_json(request)
                 changes = core_config.plan(raw, body.get("values"))
                 self.update_config(lambda data: core_config.apply(data, changes))
                 self._core_config_changed = True

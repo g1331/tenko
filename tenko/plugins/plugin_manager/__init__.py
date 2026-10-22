@@ -29,16 +29,16 @@ from satori import Text
 from tenko.host.accounts import account_registry
 from tenko.host.guards import require
 from tenko.host.perm import Permission, superuser_ids
-from tenko.host.plugin_docs import plugin_icon_path
-from tenko.host.plugin_manager import (
+from tenko.host.plugins.docs import plugin_icon_path
+from tenko.host.plugins.manager import (
     PluginChange,
     PluginManagerError,
     PluginSource,
     get_plugin_manager,
     parse_source,
 )
-from tenko.host.plugins import PluginRuntime, api_incompatibility
-from tenko.host.registry import (
+from tenko.host.plugins.runtime import PluginRuntime, api_incompatibility
+from tenko.host.plugins.registry import (
     RegistryError,
     RegistryIndex,
     RegistryPlugin,
@@ -49,8 +49,9 @@ from tenko.host.registry import (
     source_for,
     why_incompatible,
 )
-from tenko.plugins._common import context_from_session, render_or_text
-from tenko.render import RenderService, data_uri
+from tenko.context import context_from_session
+from tenko.plugins._common import render_or_text
+from tenko.host.render import RenderService, data_uri
 
 plugin.metadata(
     "插件管理",

@@ -33,8 +33,9 @@ from tenko.host.actions import (
 from tenko.host.accounts import AccountRegistry
 from tenko.host.guards import REQUIRES_ATTR
 from tenko.host.perm import Permission, PermissionChecker, PermissionRegistry
-from tenko.plugins._common import NotifyGroupConfig, action_error_message
-from tenko.render import RenderService
+from tenko.plugins._common import NotifyGroupConfig
+from tenko.host.action_errors import action_error_message
+from tenko.host.render import RenderService
 
 
 def make_session(user_id: str, role: str, elements=None):
@@ -449,7 +450,7 @@ async def test_group_action_error_reports_and_returns_safe_message(
     )
     error = ActionExecutionError("平台动作失败: set_group_ban (1200)", failure=failure)
     reporter = AsyncMock()
-    monkeypatch.setattr("tenko.plugins._common.report_action_error", reporter)
+    monkeypatch.setattr("tenko.host.action_errors.report_action_error", reporter)
     loaded_plugin.permission_checker = PermissionChecker(registry=PermissionRegistry())
     loaded_plugin.action_service = SimpleNamespace(
         authorize=AsyncMock(return_value=True),

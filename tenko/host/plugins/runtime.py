@@ -26,9 +26,9 @@ from arclet.entari.plugin import (
 from loguru import logger
 from packaging.requirements import InvalidRequirement, Requirement
 
-from ..context import MessageContext
+from ...context import MessageContext
 
-_DEFAULT_PLUGIN_DIR = Path(__file__).resolve().parent.parent / "plugins"
+_DEFAULT_PLUGIN_DIR = Path(__file__).resolve().parents[2] / "plugins"
 # 第三方插件入口组；不能用 Entari 的 ``entari.plugin``，它会被无条件自动加载。
 EXTERNAL_ENTRY_POINT_GROUP = "tenko.plugins"
 _DEFAULT_STATE_FILE = Path(".tenko/plugins/state.json")

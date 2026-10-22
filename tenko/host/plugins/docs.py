@@ -12,10 +12,10 @@ from arclet.alconna import Option, command_manager
 from arclet.entari.plugin import get_plugin_commands
 
 from tenko.host.guards import command_requirements, requirement_text
-from tenko.host.registry import Registry, get_registry
+from tenko.host.plugins.registry import Registry, get_registry
 
 _COMMAND_HELP_FIELDS = (("说明", "description"), ("用法", "usage"), ("示例", "example"))
-ICON_DIR = Path(__file__).resolve().parents[1] / "templates" / "assets" / "icons"
+ICON_DIR = Path(__file__).resolve().parents[2] / "templates" / "assets" / "icons"
 # 内置插件的菜单图标（Phosphor fill）；未列出的插件用 package。
 BUILTIN_ICONS = {
     "announcement": "megaphone",

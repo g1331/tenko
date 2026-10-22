@@ -12,15 +12,16 @@ from arclet.entari.plugin import Plugin, PluginRole, get_plugin_commands
 from tenko.host.features import feature_service
 from tenko.host.guards import require
 from tenko.host.perm import Permission
-from tenko.host.plugin_docs import (
+from tenko.host.plugins.docs import (
     command_prefix,
     format_fields,
     plugin_command_help,
     plugin_icon_path,
 )
-from tenko.host.plugins import PluginInfo, PluginRuntime
-from tenko.plugins._common import context_from_session, render_or_text
-from tenko.render import RenderService, data_uri
+from tenko.host.plugins.runtime import PluginInfo, PluginRuntime
+from tenko.context import context_from_session
+from tenko.plugins._common import render_or_text
+from tenko.host.render import RenderService, data_uri
 
 
 plugin.metadata(

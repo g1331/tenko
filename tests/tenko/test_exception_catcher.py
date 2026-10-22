@@ -23,7 +23,7 @@ from satori import (
 from satori.exception import NotFoundException
 from satori.model import Event
 
-from tenko.events import MessageLog
+from tenko.host.metrics import MessageLog
 from tenko.host.actions import ActionCapability, ActionExecutionError, ActionFailure
 
 
@@ -526,7 +526,7 @@ def _delivering_origin(sent: list[str]):
 @pytest.mark.parametrize("loaded_plugin", ["exception_catcher"], indirect=True)
 async def test_action_error_path_respects_cooldown(loaded_plugin, monkeypatch) -> None:
     monkeypatch.setitem(sys.modules, "tenko.plugins.exception_catcher", loaded_plugin)
-    from tenko.plugins._common import report_action_error
+    from tenko.host.action_errors import report_action_error
 
     loaded_plugin.last_error_time.clear()
     sent: list[str] = []

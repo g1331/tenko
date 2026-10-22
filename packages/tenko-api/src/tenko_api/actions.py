@@ -25,7 +25,7 @@ kick_member = action_service.kick_member
 delete_message = action_service.delete_message
 get_group_member = action_service.get_group_member
 list_group_members = action_service.list_group_members
-list_groups = action_service.list_groups
+list_groups = action_service.get_group_list
 
 __all__ = [
     "ActionAccountUnavailable",

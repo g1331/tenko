@@ -41,7 +41,7 @@ class RenderTimeoutError(RenderError):
     """单次渲染操作超过配置的超时时间时抛出。"""
 
 
-_TEMPLATE_DIR = Path(__file__).with_name("templates")
+_TEMPLATE_DIR = Path(__file__).resolve().parents[1] / "templates"
 _MIME_TYPES = {".woff2": "font/woff2", ".svg": "image/svg+xml"}
 
 

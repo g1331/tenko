@@ -25,7 +25,8 @@ from satori.model import Event
 import tenko.events as events_module
 import tenko.host.accounts as accounts_module
 from tenko.context import MessageContext
-from tenko.events import MessageEventHandler, MessageMetrics
+from tenko.events import MessageEventHandler
+from tenko.host.metrics import MessageMetrics
 from tenko.host.accounts import AccountRegistry
 from tenko.config import DebugConfig
 
@@ -516,7 +517,7 @@ async def test_entari_send_subscriber_records_via_dispatch(monkeypatch) -> None:
     # Letoderea 0.22 的 dispatch 用全局事件循环建任务；生产里由 runtime 设置。
     monkeypatch.setattr(_EventSystem, "loop", asyncio.get_running_loop())
     metrics = MessageMetrics()
-    monkeypatch.setattr(events_module, "message_metrics", metrics)
+    monkeypatch.setattr("tenko.host.metrics.message_metrics", metrics)
     account = Mock(spec=Account)
     account.self_id = "10001"
     account.platform = "onebot"

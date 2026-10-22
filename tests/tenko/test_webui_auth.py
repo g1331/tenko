@@ -392,7 +392,7 @@ def test_account_commands_declare_master_private_only(loaded_plugin, handler):
 
 @pytest.mark.parametrize("loaded_plugin", ["webui_account"], indirect=True)
 def test_account_plugin_is_protected_control_plane(loaded_plugin):
-    from tenko.host.plugins import PluginRuntime
+    from tenko.host.plugins.runtime import PluginRuntime
 
     runtime = PluginRuntime()
     info = next(item for item in runtime.discover() if item.name == "webui_account")

@@ -5,6 +5,6 @@
 ``None``，请回退到文本。:func:`render_or_none` 是按方法名分发的旧写法，保留兼容。
 """
 
-from tenko.render import RenderService, render_or_none, try_render
+from tenko.host.render import RenderService, render_or_none, try_render
 
 __all__ = ["RenderService", "render_or_none", "try_render"]

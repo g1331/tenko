@@ -44,9 +44,9 @@ from packaging.requirements import InvalidRequirement, Requirement
 from packaging.utils import canonicalize_name
 from packaging.version import InvalidVersion, Version
 
-from . import plugin_storage
-from .plugins import _MODULE_PATH, _PLUGIN_ID, PluginInfo, PluginRuntime
-from .updater import (
+from . import storage as plugin_storage
+from .runtime import _MODULE_PATH, _PLUGIN_ID, PluginInfo, PluginRuntime
+from ..updater import (
     AuditLogger,
     DefaultHealthChecker,
     DependencySyncError,
@@ -120,7 +120,7 @@ class PluginManagerError(RuntimeError):
 class PluginSource:
     """一次安装的来源。
 
-    插件目录的条目由 :func:`tenko.host.registry.source_for` 转成同样的结构：``requirement``
+    插件目录的条目由 :func:`tenko.host.plugins.registry.source_for` 转成同样的结构：``requirement``
     固定到版本或提交号，``trust`` 取目录的等级，``expected_id`` 是目录登记的插件 ID，
     ``pins`` 是目录登记的文件哈希（解析出的哈希必须都在其中）。
     """
@@ -289,7 +289,7 @@ class PluginManager:
         self.uv = uv
         self.runtime = runtime or PluginRuntime()
         # 宿主锁取自正在运行的这份代码，升级后随版本目录变化。
-        self.host_root = Path(host_root or Path(__file__).resolve().parents[2])
+        self.host_root = Path(host_root or Path(__file__).resolve().parents[3])
         self.cwd = Path(cwd or Path.cwd()).resolve()
         self.audit = audit or AuditLogger(Path(".tenko/upgrades/audit.jsonl"))
         self.import_check = import_check or self._default_import_check

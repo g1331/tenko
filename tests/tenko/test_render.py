@@ -6,7 +6,7 @@ from types import SimpleNamespace
 import pytest
 
 from tenko.config import RenderConfig
-from tenko.render import (
+from tenko.host.render import (
     RenderService,
     RenderTimeoutError,
     RenderUnavailableError,
@@ -211,7 +211,7 @@ async def test_start_relaunches_disconnected_browser(monkeypatch) -> None:
 
     fresh = Browser(True)
     monkeypatch.setattr(
-        "tenko.render.async_playwright",
+        "tenko.host.render.async_playwright",
         lambda: SimpleNamespace(start=lambda: _async(Playwright(fresh))),
     )
     service = RenderService()

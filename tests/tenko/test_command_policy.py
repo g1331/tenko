@@ -30,7 +30,7 @@ from external_plugin_support import (
 )
 from tenko.host.features import CommandPolicy, FeatureService
 from tenko.host.perm import PermissionChecker, PermissionRegistry
-from tenko.host.plugins import PluginRuntime
+from tenko.host.plugins.runtime import PluginRuntime
 from tenko.host.ratelimit import RateLimitService
 
 COMMAND_PLUGIN = """

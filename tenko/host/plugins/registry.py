@@ -28,7 +28,7 @@ from packaging.specifiers import InvalidSpecifier, SpecifierSet
 from packaging.utils import canonicalize_name
 from packaging.version import InvalidVersion, Version
 
-from .plugin_manager import (
+from .manager import (
     PluginManager,
     PluginManagerError,
     PluginSource,

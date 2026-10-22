@@ -117,8 +117,11 @@ def load_database_plugin(
 
     try:
         from . import models  # noqa: F401  # 注册所有 Tenko ORM 模型
-        from .plugin_models import install_model_guard
         from .repositories import configure_database_service
+
+        # 第三方插件模型的保护属于插件生态，但要随数据库插件一起装好：插件的测试
+        # 脚手架（示例插件模板）只调用本函数和 PluginRuntime.load_all。
+        from ..host.plugins.database import install_model_guard
 
         service = plugin._services[_DATABASE_SERVICE]
         configure_database_service(service)

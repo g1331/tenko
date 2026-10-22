@@ -103,7 +103,7 @@ async def test_feature_commands_can_disable_required_function_plugin(
     )
     monkeypatch.setattr(loaded_plugin.plugin_runtime, "discover", lambda: (info,))
     monkeypatch.setattr(
-        "tenko.host.plugins.get_plugins", lambda *, subplugged: (native,)
+        "tenko.host.plugins.runtime.get_plugins", lambda *, subplugged: (native,)
     )
     service = FeatureService()
     monkeypatch.setattr(loaded_plugin, "feature_service", service)
@@ -136,7 +136,7 @@ async def test_feature_commands_toggle_global_feature(loaded_plugin, monkeypatch
     )
     monkeypatch.setattr(loaded_plugin.plugin_runtime, "discover", lambda: (info,))
     monkeypatch.setattr(
-        "tenko.host.plugins.get_plugins", lambda *, subplugged: (native,)
+        "tenko.host.plugins.runtime.get_plugins", lambda *, subplugged: (native,)
     )
     service = FeatureService()
     monkeypatch.setattr(loaded_plugin, "feature_service", service)
@@ -200,7 +200,9 @@ async def test_feature_numbers_match_help_and_external_cannot_claim_protection(
         ),
     )
     monkeypatch.setattr(loaded_plugin.plugin_runtime, "discover", lambda: infos)
-    monkeypatch.setattr("tenko.host.plugins.get_plugins", lambda *, subplugged: natives)
+    monkeypatch.setattr(
+        "tenko.host.plugins.runtime.get_plugins", lambda *, subplugged: natives
+    )
     service = FeatureService()
     monkeypatch.setattr(loaded_plugin, "feature_service", service)
     loaded_plugin.permission_checker = PermissionChecker(registry=PermissionRegistry())

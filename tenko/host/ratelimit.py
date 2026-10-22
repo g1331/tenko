@@ -279,8 +279,6 @@ class RateLimitService:
         self._blacklist.pop(key, None)
         self._dirty = True
 
-    reset = clear
-
     def check(
         self,
         group_id: str | int,

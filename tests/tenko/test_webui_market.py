@@ -14,8 +14,8 @@ from test_registry import index_data
 from test_webui import _login
 
 from tenko.config import TenkoConfig
-from tenko.host.plugin_manager import PluginChange, PluginManagerError
-from tenko.host.registry import Registry
+from tenko.host.plugins.manager import PluginChange, PluginManagerError
+from tenko.host.plugins.registry import Registry
 from tenko.webui import WebUIService
 
 
@@ -223,7 +223,7 @@ async def test_plugin_detail_drops_unsafe_links_and_serves_icons(
         "Issues": "https://e.x/issues",
         "evil": "javascript:alert(1)",
     }
-    monkeypatch.setattr("tenko.webui.market.plugin_command_help", lambda _p: [])
+    monkeypatch.setattr("tenko.webui.plugins.plugin_command_help", lambda _p: [])
     await client.get("/webui/api/market")  # 刷新目录缓存
 
     detail = (await client.get("/webui/api/plugins/example/detail")).json()["data"]

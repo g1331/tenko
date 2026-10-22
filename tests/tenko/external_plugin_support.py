@@ -7,7 +7,7 @@ from pathlib import Path
 from types import SimpleNamespace
 
 from tenko.context import MessageContext
-from tenko.host import plugins as plugin_host
+from tenko.host.plugins import runtime as plugin_host
 
 
 def entry(name: str, value: str, version: str | None = "1.0.0"):

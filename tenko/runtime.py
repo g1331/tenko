@@ -23,19 +23,20 @@ from .connection import OneBotConnection
 from .db.bootstrap import load_database_plugin
 from .db.errors import DatabaseUnavailableError
 from .db.runtime import RuntimeStateService
-from .events import MessageEventHandler, configure_message_metrics
+from .events import MessageEventHandler
+from .host.metrics import configure_message_metrics
 from .host.accounts import account_registry
 from .host.account_management import AccountManagement
 from .host.actions import action_service
 from .host.features import CommandPolicy, configure_feature_service
-from .host.plugin_manager import get_plugin_manager
-from .host.registry import configure_registry
-from .host.plugins import PluginRuntime
+from .host.plugins.manager import get_plugin_manager
+from .host.plugins.registry import configure_registry
+from .host.plugins.runtime import PluginRuntime
 from .host.quote import quote_group_reply
 from .host.ratelimit import configure_rate_limiter
 from .host.startup import startup_history
 from .host.updater import UpgradeManager, configure_updater
-from .render import RenderService
+from .host.render import RenderService
 from .webui import WebUIService
 
 

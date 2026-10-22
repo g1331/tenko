@@ -12,8 +12,8 @@ import pytest
 from loguru import logger
 
 from tenko.context import MessageContext
-from tenko.host import plugins as plugin_host
-from tenko.host.plugins import PluginRuntime
+from tenko.host.plugins import runtime as plugin_host
+from tenko.host.plugins.runtime import PluginRuntime
 
 
 @dataclass
@@ -519,7 +519,7 @@ async def test_first_enable_loads_plugin_installed_after_startup(
 ) -> None:
     from arclet.entari.plugin import unload_plugin
 
-    from tenko.host.plugin_manager import PluginManager
+    from tenko.host.plugins.manager import PluginManager
 
     monkeypatch.syspath_prepend(tmp_path)
     patch_entry_points(monkeypatch)
@@ -558,3 +558,12 @@ async def test_first_enable_loads_plugin_installed_after_startup(
         for module in ("tenko_t_live", "tenko_t_late"):
             unload_plugin(module)
             sys.modules.pop(module, None)
+
+
+def test_package_keeps_cross_version_import_names() -> None:
+    # 旧版升级器的导入检查和 tenko-registry probe 都从包入口导入，搬家后也要能用。
+    import tenko.host.plugins as package
+    from tenko.host.plugins import runtime
+
+    assert package.PluginRuntime is runtime.PluginRuntime
+    assert package.api_incompatibility is runtime.api_incompatibility

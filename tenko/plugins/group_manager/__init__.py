@@ -21,16 +21,11 @@ from tenko.context import MessageContext
 from tenko.host.guards import group_only, private_only, require
 from tenko.host.perm import Permission, PermissionChecker
 from tenko.host.ratelimit import rate_limit_service
-from tenko.plugins._common import (
-    NotifyGroupConfig,
-    action_errors,
-    context_from_session,
-    list_data,
-    master_id_for_account,
-    render_or_text,
-    report_action_error,
-)
-from tenko.render import RenderService
+from tenko.plugins._common import NotifyGroupConfig, list_data, render_or_text
+from tenko.host.action_errors import action_errors, report_action_error
+from tenko.context import context_from_session
+from tenko.host.perm import master_id_for_account
+from tenko.host.render import RenderService
 
 
 plugin.metadata(
@@ -150,10 +145,6 @@ async def _is_privileged_inviter(
         return False
 
 
-def _master_id(account: Any) -> str | None:
-    return master_id_for_account(account, permission_checker)
-
-
 def _ensure_action_account(pending: PendingInvite) -> None:
     """让提前到达的邀请事件也能复用已注册账号的 ActionService。"""
 
@@ -212,7 +203,7 @@ async def _send_reviewer_notice(
             pending.request_id,
         )
         return
-    master_id = _master_id(pending.account)
+    master_id = master_id_for_account(pending.account, permission_checker)
     if master_id is None:
         logger.warning(
             "Pending invite {} recorded without configured Master",

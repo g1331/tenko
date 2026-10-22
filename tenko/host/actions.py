@@ -954,13 +954,6 @@ class ActionService:
             f"账号 {account_id} 查询群 {group} 成员列表失败: {detail}"
         ) from (errors[-1] if errors else None)
 
-    async def list_groups(self, account_or_id: Account | str | int) -> tuple[str, ...]:
-        """``get_group_list`` 的业务友好别名。"""
-
-        return await self.get_group_list(account_or_id)
-
-    discover_groups = list_groups
-
     async def verify_group_membership(
         self, account_or_id: Account | str | int, group_id: str | int
     ) -> bool:

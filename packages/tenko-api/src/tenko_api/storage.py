@@ -14,7 +14,7 @@
 
 from typing import TYPE_CHECKING, Any
 
-from tenko.host.plugin_storage import (
+from tenko.host.plugins.storage import (
     PluginStorageError,
     Store,
     StoreVersionError,
@@ -22,7 +22,7 @@ from tenko.host.plugin_storage import (
 )
 
 if TYPE_CHECKING:
-    from tenko.db.plugin_models import Model, get_session
+    from tenko.host.plugins.database import Model, get_session
 
 __all__ = [
     "Model",
@@ -36,7 +36,7 @@ __all__ = [
 
 def __getattr__(name: str) -> Any:
     if name in ("Model", "get_session"):
-        from tenko.db import plugin_models
+        from tenko.host.plugins import database as plugin_models
 
         return getattr(plugin_models, name)
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

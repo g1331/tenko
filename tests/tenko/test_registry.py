@@ -7,8 +7,8 @@ import json
 
 import pytest
 
-from tenko.host.plugin_manager import PluginManagerError
-from tenko.host.registry import (
+from tenko.host.plugins.manager import PluginManagerError
+from tenko.host.plugins.registry import (
     Registry,
     RegistryError,
     compatible,

@@ -21,13 +21,13 @@ from tenko.host.guards import group_only, private_only, require
 from tenko.host.perm import Permission, PermissionChecker, superuser_ids
 from tenko.plugins._common import (
     NotifyGroupConfig,
-    context_from_session,
     list_data,
     normalize_targets,
     render_or_text,
     send_private_message,
 )
-from tenko.render import RenderService
+from tenko.context import context_from_session
+from tenko.host.render import RenderService
 
 
 plugin.metadata(

@@ -12,13 +12,13 @@ from pathlib import Path
 import pytest
 from external_plugin_support import build_wheel
 
-from tenko.host.plugin_manager import (
+from tenko.host.plugins.manager import (
     PluginManager,
     PluginManagerError,
     parse_source,
 )
-from tenko.host.plugin_storage import prepare_plugin_db
-from tenko.host.plugins import PluginRuntime
+from tenko.host.plugins.storage import prepare_plugin_db
+from tenko.host.plugins.runtime import PluginRuntime
 from tenko.host.updater import HealthCheckResult
 from tenko_api import __version__ as API_VERSION
 
@@ -378,7 +378,7 @@ async def test_blocked_plugins_are_disabled_but_kept(
 ) -> None:
     from external_plugin_support import entry, patch_entry_points
 
-    from tenko.host.registry import parse_index
+    from tenko.host.plugins.registry import parse_index
 
     monkeypatch.chdir(tmp_path)
     patch_entry_points(monkeypatch, entry("evil", "tenko_t_evil"), entry("fine", "x"))
@@ -401,8 +401,8 @@ async def test_blocked_plugins_are_disabled_but_kept(
 
 @pytest.mark.parametrize("loaded_plugin", ["plugin_manager"], indirect=True)
 def test_plugin_detail_data_renders_with_template(loaded_plugin) -> None:
-    from tenko.host.registry import parse_index
-    from tenko.render import RenderService
+    from tenko.host.plugins.registry import parse_index
+    from tenko.host.render import RenderService
 
     def version(v: str, api: str) -> dict:
         pin = {"sha256": ["a" * 64]}

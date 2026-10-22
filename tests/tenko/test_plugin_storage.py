@@ -9,7 +9,7 @@ import sqlite3
 import pytest
 from external_plugin_support import entry, patch_entry_points
 
-from tenko.host.plugin_storage import (
+from tenko.host.plugins.storage import (
     PluginStorageError,
     StoreVersionError,
     clear_plugin_data,

@@ -26,6 +26,16 @@ def superuser_ids(platform: str | None) -> tuple[str, ...]:
     return tuple(value for value in values if value)
 
 
+def master_id_for_account(account: object, permission_checker: object) -> str | None:
+    """按现有通知策略解析账号对应的第一个 Master。"""
+
+    registry = getattr(permission_checker, "registry", None)
+    configured_master = str(getattr(registry, "master_id", None) or "").strip()
+    if configured_master:
+        return configured_master
+    return next(iter(superuser_ids(getattr(account, "platform", "onebot"))), None)
+
+
 class Permission(IntEnum):
     """Tenko 侧的成员权限数值，保持旧 `core.control.Permission` 的协议。"""
 

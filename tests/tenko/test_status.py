@@ -20,7 +20,8 @@ from satori import (
 )
 from satori.model import Event, Member
 
-from tenko.events import MessageMetrics
+import tenko.host.status as host_status
+from tenko.host.metrics import MessageMetrics
 from tenko.context import MessageContext
 from tenko.host.accounts import AccountRegistry
 from tenko.host.perm import PermissionChecker, PermissionRegistry
@@ -80,7 +81,7 @@ class PrivateMessageProtocol:
 
 
 def make_resources(loaded_plugin):
-    return loaded_plugin.SystemResources(
+    return host_status.SystemResources(
         cpu_percent=12.5,
         memory_used=2 * 1024**3,
         memory_total=8 * 1024**3,
@@ -94,7 +95,7 @@ def make_resources(loaded_plugin):
 
 
 def make_process(loaded_plugin):
-    return loaded_plugin.ProcessInfo(
+    return host_status.ProcessInfo(
         start_time=datetime(2026, 1, 1, tzinfo=UTC),
         uptime_seconds=3661,
         rss=64 * 1024**2,
@@ -104,8 +105,8 @@ def make_process(loaded_plugin):
 def patch_status_data(loaded_plugin, monkeypatch) -> None:
     resources = make_resources(loaded_plugin)
     process = make_process(loaded_plugin)
-    monkeypatch.setattr(loaded_plugin, "collect_system_resources", lambda: resources)
-    monkeypatch.setattr(loaded_plugin, "collect_process_info", lambda: process)
+    monkeypatch.setattr(host_status, "collect_system_resources", lambda: resources)
+    monkeypatch.setattr(host_status, "collect_process_info", lambda: process)
     monkeypatch.setattr(
         loaded_plugin,
         "get_version_details",
@@ -134,7 +135,7 @@ async def test_status_command_reports_legacy_group_fields_without_context_detail
     loaded_plugin, monkeypatch
 ) -> None:
     loaded_plugin.permission_checker = PermissionChecker(registry=PermissionRegistry())
-    monkeypatch.setattr(loaded_plugin, "message_metrics", MessageMetrics())
+    monkeypatch.setattr(host_status, "message_metrics", MessageMetrics())
     patch_status_data(loaded_plugin, monkeypatch)
 
     result = await loaded_plugin.status.callable_target(
@@ -310,7 +311,7 @@ def test_group_and_private_status_share_the_same_legacy_base(
     metrics = MessageMetrics()
     version_details = ("版本信息：v9.9.9", "Git分支：test")
 
-    group_output = loaded_plugin.build_status(
+    group_output = host_status.build_status_data(
         context,
         7,
         registry=registry,
@@ -318,8 +319,8 @@ def test_group_and_private_status_share_the_same_legacy_base(
         resources=resources,
         process=process,
         version_details=version_details,
-    )
-    private_output = loaded_plugin.build_status(
+    )["content"]
+    private_output = host_status.build_status_data(
         private_context,
         7,
         registry=registry,
@@ -327,7 +328,7 @@ def test_group_and_private_status_share_the_same_legacy_base(
         resources=resources,
         process=process,
         version_details=version_details,
-    )
+    )["content"]
 
     assert group_output == f"{private_output}\n当前群禁言：1/1"
     assert "当前群禁言：" not in private_output
@@ -377,12 +378,12 @@ def test_build_status_reports_legacy_resources_and_current_group_mute(
         text="状态结果",
     )
 
-    output = loaded_plugin.build_status(
+    output = host_status.build_status_data(
         context,
         7,
         registry=registry,
         metrics=metrics,
-        resources=loaded_plugin.SystemResources(
+        resources=host_status.SystemResources(
             cpu_percent=12.5,
             memory_used=2 * 1024**3,
             memory_total=8 * 1024**3,
@@ -393,14 +394,14 @@ def test_build_status_reports_legacy_resources_and_current_group_mute(
             net_sent=4 * 1024**2,
             net_received=5 * 1024**2,
         ),
-        process=loaded_plugin.ProcessInfo(
+        process=host_status.ProcessInfo(
             start_time=datetime(2026, 1, 1, tzinfo=UTC),
             uptime_seconds=3661,
             rss=64 * 1024**2,
         ),
         detailed=True,
         version_details=("版本信息：v9.9.9", "构建类型：dev"),
-    )
+    )["content"]
 
     assert "开机时间：2026年" in output
     assert "运行时长：0天1小时1分1秒" in output
@@ -424,7 +425,7 @@ def test_build_status_reports_legacy_resources_and_current_group_mute(
 def test_status_skips_system_resource_section_when_psutil_is_missing(
     loaded_plugin, monkeypatch
 ) -> None:
-    monkeypatch.setattr(loaded_plugin, "psutil", None)
+    monkeypatch.setattr(host_status, "psutil", None)
     registry = AccountRegistry()
     context = MessageContext(
         account_id="10001",
@@ -438,9 +439,9 @@ def test_status_skips_system_resource_section_when_psutil_is_missing(
         image_urls=(),
     )
 
-    output = loaded_plugin.build_status(
+    output = host_status.build_status_data(
         context, 1, registry=registry, metrics=MessageMetrics(), detailed=True
-    )
+    )["content"]
 
     assert "开机时间：" in output
     assert "内存使用：" not in output
@@ -466,11 +467,11 @@ def test_collect_system_resources_reads_psutil_snapshot(
             bytes_sent=4 * 1024**2, bytes_recv=5 * 1024**2
         ),
     )
-    monkeypatch.setattr(loaded_plugin, "psutil", fake_psutil)
+    monkeypatch.setattr(host_status, "psutil", fake_psutil)
 
-    resources = loaded_plugin.collect_system_resources()
+    resources = host_status.collect_system_resources()
 
-    assert resources == loaded_plugin.SystemResources(
+    assert resources == host_status.SystemResources(
         cpu_percent=12.5,
         memory_used=2 * 1024**3,
         memory_total=8 * 1024**3,
@@ -487,10 +488,10 @@ def test_collect_system_resources_reads_psutil_snapshot(
 def test_get_version_details_includes_git_and_build_metadata(
     loaded_plugin, monkeypatch
 ) -> None:
-    loaded_plugin.get_version_details.cache_clear()
-    monkeypatch.setattr(loaded_plugin, "_project_version", lambda: "9.9.9")
+    host_status.get_version_details.cache_clear()
+    monkeypatch.setattr(host_status, "_project_version", lambda: "9.9.9")
     monkeypatch.setattr(
-        loaded_plugin,
+        host_status,
         "_git_output",
         lambda *arguments: {
             ("branch", "--show-current"): "release/test",
@@ -503,7 +504,7 @@ def test_get_version_details_includes_git_and_build_metadata(
     monkeypatch.setenv("B2V_BUILD_DATE", "2026-08-30")
     monkeypatch.setenv("B2V_BUILD_TYPE", "release")
 
-    assert loaded_plugin.get_version_details() == (
+    assert host_status.get_version_details() == (
         "版本信息：v9.9.9",
         "Git分支：release/test",
         "最新提交：abc123 (Tenko Test)",
@@ -518,7 +519,7 @@ def test_get_version_details_includes_git_and_build_metadata(
 def test_get_version_details_collects_git_metadata_once(
     loaded_plugin, monkeypatch
 ) -> None:
-    loaded_plugin.get_version_details.cache_clear()
+    host_status.get_version_details.cache_clear()
     for name in ("B2V_BUILD_NUMBER", "B2V_BUILD_DATE", "B2V_BUILD_TYPE"):
         monkeypatch.delenv(name, raising=False)
     git_calls: list[tuple[str, ...]] = []
@@ -529,8 +530,8 @@ def test_get_version_details_collects_git_metadata_once(
             return "main"
         return "abc123\x1fTenko Test\x1ffix(status): cache details"
 
-    monkeypatch.setattr(loaded_plugin, "_project_version", lambda: "9.9.9")
-    monkeypatch.setattr(loaded_plugin, "_git_output", git_output)
+    monkeypatch.setattr(host_status, "_project_version", lambda: "9.9.9")
+    monkeypatch.setattr(host_status, "_git_output", git_output)
 
     expected = (
         "版本信息：v9.9.9",
@@ -538,8 +539,8 @@ def test_get_version_details_collects_git_metadata_once(
         "最新提交：abc123 (Tenko Test)",
         "提交信息：fix(status): cache details",
     )
-    assert loaded_plugin.get_version_details() == expected
-    assert loaded_plugin.get_version_details() == expected
+    assert host_status.get_version_details() == expected
+    assert host_status.get_version_details() == expected
     assert git_calls == [
         ("branch", "--show-current"),
         ("log", "-1", "--format=%h%x1f%an%x1f%s"),
@@ -550,7 +551,7 @@ def test_get_version_details_collects_git_metadata_once(
 def test_plugin_count_only_counts_loaded_plugins(loaded_plugin, monkeypatch) -> None:
     """未启用（未加载）的第三方插件不计入“已加载插件”。"""
 
-    from tenko.host.plugins import PluginInfo, PluginRuntime
+    from tenko.host.plugins.runtime import PluginInfo, PluginRuntime
 
     infos = (
         PluginInfo("local", None, False, "mod_local"),

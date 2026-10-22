@@ -26,13 +26,10 @@ from tenko.host.accounts import AccountRegistry, account_registry
 from tenko.host.features import feature_service
 from tenko.host.guards import group_only, require
 from tenko.host.perm import Permission, PermissionChecker
-from tenko.host.plugins import PluginInfo, PluginRuntime
-from tenko.plugins._common import (
-    action_error_message,
-    context_from_session,
-    report_action_error,
-    send_private_message,
-)
+from tenko.host.plugins.runtime import PluginInfo, PluginRuntime
+from tenko.host.action_errors import action_error_message, report_action_error
+from tenko.context import context_from_session
+from tenko.plugins._common import send_private_message
 
 """公告插件。
 

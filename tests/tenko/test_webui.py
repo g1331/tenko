@@ -10,7 +10,8 @@ import pytest
 from satori.server import Server
 
 from tenko.config import WebUIConfig
-from tenko.events import MessageMetrics
+import tenko.host.status as host_status
+from tenko.host.metrics import MessageMetrics
 from tenko.host.accounts import AccountRegistry
 from tenko.host.features import FeatureService
 from tenko.webui import WebUIService
@@ -381,7 +382,8 @@ async def test_webui_features_expose_group_names_and_survive_database_errors(
 async def test_webui_overview_uses_status_data_metrics_and_counts(
     loaded_plugin, monkeypatch, tenko_database
 ):
-    status = loaded_plugin
+    del loaded_plugin
+    status = host_status
     accounts = AccountRegistry()
     accounts.register(
         SimpleNamespace(self_id="10001", platform="onebot"),
@@ -662,7 +664,7 @@ async def test_plugin_and_group_switches_use_host_state_and_protect_control_plan
     from tenko.db.repositories import ManagementRepository
     from tenko.host.account_management import AccountManagement
     from tenko.host.actions import ActionService
-    from tenko.host.plugins import PluginRuntime
+    from tenko.host.plugins.runtime import PluginRuntime
 
     config = TenkoConfig.from_mapping({"webui": {"enabled": True}})
     accounts = AccountRegistry()
@@ -875,11 +877,11 @@ async def test_external_plugin_toggle_uses_state_file_and_reports_restart(
     from tenko.config import TenkoConfig
     from tenko.connection import OneBotConnection
     from tenko.db.repositories import ManagementRepository
-    from tenko.host import plugins as plugin_host
+    from tenko.host.plugins import runtime as plugin_host
     from tenko.host.account_management import AccountManagement
     from tenko.host.actions import ActionService
-    from tenko.host import plugin_manager
-    from tenko.host.plugins import PluginRuntime
+    from tenko.host.plugins import manager as plugin_manager
+    from tenko.host.plugins.runtime import PluginRuntime
 
     # 进程内共享的管理器可能已被别的测试走过启动检查；这里要一个没有启动记录的。
     monkeypatch.setattr(plugin_manager, "_manager", None)

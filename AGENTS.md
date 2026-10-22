@@ -22,9 +22,11 @@ tenko/
 ├── connection.py            # OneBot 11 / Satori 连接服务
 ├── runtime.py               # Entari 运行时装配
 ├── context.py               # 消息上下文和身份转换
+├── events.py                # 事件入口：过滤、去重、群路由维护
 ├── db/                      # 模型、迁移、数据库启动和 repositories
-├── host/                    # 账号、权限、功能、限流和升级服务
-├── plugins/                 # Tenko 原生插件
+├── host/                    # 宿主服务：账号、权限、功能、限流、动作、渲染、统计、状态、升级
+│   └── plugins/             # 第三方插件生态：运行时加载、安装管理、插件目录、独立存储、说明资料
+├── plugins/                 # Tenko 原生插件；_common.py 只放插件之间共用的小工具
 ├── templates/               # 离线渲染模板和资源
 └── webui/                   # WebUI 后端；static/ 是前端构建产物（勿手改）
 packages/tenko-api/          # 第三方插件的稳定接口（uv workspace 成员，发布为 tenko-api）
@@ -33,6 +35,9 @@ webui/                        # WebUI 前端工程（Vue 3 + TS + Vite + Element
 tests/tenko/                  # 单元测试和集成式调用点测试
 config/tenko.toml.example    # 配置模板
 ```
+
+依赖方向：`plugins/`、`webui/` → `host/` → `db/`，`context.py` 与 `config.py` 是底层。
+宿主和 WebUI 都要用的东西放进 `host/`，`host/` 和 `db/` 不导入 `plugins/` 或 `webui/`。
 
 ## 开发环境与命令
 
@@ -103,11 +108,11 @@ config/tenko.toml.example    # 配置模板
    `MessageChain`；不要再包 `text_message`（`tenko_api.messages.text_message` 自 0.2.0 起弃用，
    1.0 前移除）。Tenko 强制 `[basic] str_as_message = false`，`str` 一律按纯文本发送，
    用户输入里的 `<at id="all"/>` 不会被解析成元素。渲染图片用
-   `_common.render_or_text`（底层 `tenko.render.try_render`，传入注入的 `RenderService` 的方法，
+   `_common.render_or_text`（底层 `tenko.host.render.try_render`，传入注入的 `RenderService` 的方法，
    失败回退文本）。
 3. 平台动作通过宿主动作服务执行，先确认账号能力、目标可用性和权限，再处理
    失败结果；不要在插件中复制协议层调用或吞掉未知异常。群管理命令用
-   `_common.action_errors(session)` 包住动作：失败时上报开发者并回复简短提示，成功消息写在
+   `tenko.host.action_errors.action_errors(session)` 包住动作：失败时上报开发者并回复简短提示，成功消息写在
    `async with` 块内 `return`。
 4. 数据库操作通过 `tenko.db.repositories` 等现有抽象完成。新增状态需要明确持久化路径、
    迁移策略和测试覆盖。宿主配置（通知群、WebUI 地址、异常取证目录）作为 Entari 插件配置
@@ -161,19 +166,19 @@ config/tenko.toml.example    # 配置模板
 - 存储：`tenko_api.storage.data_dir()` 返回 `.tenko/plugin-data/<id>/`；`Store(name,
   version, migrate)` 是带版本号的 JSON 文件（原子写入，版本变化先备份再迁移，遇到更新
   版本的文件拒绝读写）。调用方按模块名归属到 `tenko.plugins` 入口，只能在插件自己的
-  模块里调用（实现见 `tenko/host/plugin_storage.py`）。
+  模块里调用（实现见 `tenko/host/plugins/storage.py`）。
 - 插件 SQL 数据：`tenko_api.storage.Model` 是声明式基类，表建在插件自己的
   `.tenko/plugin-data/<id>/data.db`（绑定键 `plugin:<id>`，默认表名 `<id>_<类名小写>`，共用一份
   元数据所以显式表名要全局唯一），`get_session()` 取会话，操作 `Model` 子类自动路由到插件库
   （原生 SQL 仍走主库）。引擎在插件模块导入、第一个模型创建时登记到官方
-  `SqlalchemyService.engines`（`tenko/db/plugin_models.py`）：必须早于 service 的 `initialize()`，
+  `SqlalchemyService.engines`（`tenko/host/plugins/database.py`）：必须早于 service 的 `initialize()`，
   它只为当时已有的引擎建表和绑定会话，迁移器对未知绑定键会静默回退主库，所以 service 初始化后
   再定义模型会直接报错。插件里直接继承 `BaseOrm` 等绑定到主库的模型在加载时报错，该插件加载失败。
   迁移走官方迁移器和上面的“只前进”保护，显式 `register_custom_migration` 照常可用。插件版本
   （分发包版本）相比上次启动变化时，先把库备份到 `backups/<时间>-v<旧版本>.db`（保留最近 3 份）；
   上次版本记在 `db-version`。`/清除插件数据 <插件ID>`（Master，二次确认）
   删除整个数据目录，要求插件当前未加载（先停用并重启）；卸载默认保留数据。
-- 安装与管理（`tenko/host/plugin_manager.py`，命令在 `tenko/plugins/plugin_manager/`）：
+- 安装与管理（`tenko/host/plugins/manager.py`，命令在 `tenko/plugins/plugin_manager/`）：
   `.tenko/plugins/plugins.lock` 是以宿主 `uv.lock` 加宿主实际 `tenko-api` 版本为约束的
   `uv pip compile --generate-hashes` 输出，已排除宿主的包；插件记录（分发名、版本、来源、
   哈希或提交号、安装人和时间）在同目录 `state.json` 的 `plugins` 节。安装、更新、卸载、回滚走
@@ -183,7 +188,7 @@ config/tenko.toml.example    # 配置模板
   （`_commit`：临时锁 → `state.json` 记锁哈希，这是提交点 → 替换锁；`startup_check` 补完中断的
   提交）；失败即按旧锁恢复。卸载用 `defer=True`：只改锁和记录，包记进 `pending_removal`，
   由 `startup_check`（`TenkoRuntime` 在加载插件前调用）或 `reconcile` 删除。来源由 `parse_source` 解析为 `PluginSource`；未收录的 PyPI 包名必须以
-  `tenko-plugin-` 或 `entari-plugin-` 开头。插件目录客户端在 `tenko/host/registry.py`：
+  `tenko-plugin-` 或 `entari-plugin-` 开头。插件目录客户端在 `tenko/host/plugins/registry.py`：
   `[registry] urls` 按序回退，内存和 `.tenko/plugins/registry/` 缓存一小时，只解析 schema v1
   的已知字段（坏条目跳过），图标按文件名里的哈希前缀校验后缓存到本地；`source_for` 把目录条目
   转成固定版本加 `pins`（登记的文件哈希，`_check_pins` 要求解析出的哈希都在其中）的

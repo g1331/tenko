@@ -25,7 +25,7 @@ from external_plugin_support import (
 from tenko.host import guards
 from tenko.host.features import CommandPolicy, FeatureService
 from tenko.host.perm import Permission, PermissionChecker, PermissionRegistry
-from tenko.host.plugins import PluginRuntime
+from tenko.host.plugins.runtime import PluginRuntime
 
 GUARD_PLUGIN = """
 from arclet.alconna import Alconna

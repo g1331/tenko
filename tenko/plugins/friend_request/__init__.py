@@ -21,7 +21,7 @@ from tenko.host.friend_requests import (
 )
 from tenko.host.guards import private_only, require
 from tenko.host.perm import Permission, PermissionChecker
-from tenko.plugins._common import master_id_for_account
+from tenko.host.perm import master_id_for_account
 
 
 plugin.metadata(

@@ -20,8 +20,8 @@ from satori import (
 )
 from satori.model import Event, Member
 
-from tenko.host import plugin_docs
-from tenko.host.plugin_docs import format_command_help
+from tenko.host.plugins import docs as plugin_docs
+from tenko.host.plugins.docs import format_command_help
 
 
 def make_session(user_id: str, role: str):
@@ -107,7 +107,7 @@ def test_help_data_partitions_required_available_and_maintenance(
 
     monkeypatch.setattr(loaded_plugin.plugin_runtime, "discover", lambda: infos)
     monkeypatch.setattr(
-        "tenko.host.plugins.get_plugins", lambda *, subplugged: native_plugins
+        "tenko.host.plugins.runtime.get_plugins", lambda *, subplugged: native_plugins
     )
     monkeypatch.setattr(loaded_plugin, "feature_service", FakeFeatureService())
 
@@ -152,7 +152,7 @@ def test_help_marks_host_plugins_as_protected(monkeypatch, loaded_plugin):
     )
     monkeypatch.setattr(loaded_plugin.plugin_runtime, "discover", lambda: (info,))
     monkeypatch.setattr(
-        "tenko.host.plugins.get_plugins", lambda *, subplugged: (native_plugin,)
+        "tenko.host.plugins.runtime.get_plugins", lambda *, subplugged: (native_plugin,)
     )
 
     data = loaded_plugin.build_help_data()
@@ -280,7 +280,7 @@ def test_help_number_uses_plugin_commands_for_card_positions(
 
     monkeypatch.setattr(loaded_plugin.plugin_runtime, "discover", lambda: infos)
     monkeypatch.setattr(
-        "tenko.host.plugins.get_plugins", lambda *, subplugged: native_plugins
+        "tenko.host.plugins.runtime.get_plugins", lambda *, subplugged: native_plugins
     )
     monkeypatch.setattr(loaded_plugin.command_manager, "get_command", get_command)
 
@@ -408,7 +408,9 @@ def test_help_lists_loaded_external_plugins_in_their_own_section(
             return True
 
     monkeypatch.setattr(loaded_plugin.plugin_runtime, "discover", lambda: infos)
-    monkeypatch.setattr("tenko.host.plugins.get_plugins", lambda *, subplugged: natives)
+    monkeypatch.setattr(
+        "tenko.host.plugins.runtime.get_plugins", lambda *, subplugged: natives
+    )
     monkeypatch.setattr(loaded_plugin, "feature_service", FakeFeatureService())
 
     data = loaded_plugin.build_help_data("40001")
@@ -437,7 +439,7 @@ def test_help_hides_third_party_section_when_none_loaded(monkeypatch, loaded_plu
     )
     monkeypatch.setattr(loaded_plugin.plugin_runtime, "discover", lambda: (info,))
     monkeypatch.setattr(
-        "tenko.host.plugins.get_plugins", lambda *, subplugged: (native,)
+        "tenko.host.plugins.runtime.get_plugins", lambda *, subplugged: (native,)
     )
     data = loaded_plugin.build_help_data()
     assert [section["key"] for section in data["sections"]] == [

@@ -2,11 +2,14 @@ from __future__ import annotations
 
 from collections.abc import Iterable
 from dataclasses import dataclass
-from typing import Literal
+from typing import TYPE_CHECKING, Literal
 
 from satori import ChannelType, EventType, Image, Text
 from satori.element import Element
 from satori.model import Event
+
+if TYPE_CHECKING:
+    from arclet.entari import Session
 
 ChatType = Literal["private", "group", "other"]
 
@@ -112,3 +115,12 @@ def is_message_created(event: Event) -> bool:
     """判断事件是否是可交给最小消息闭环处理的消息事件。"""
 
     return _value(event.type) == EventType.MESSAGE_CREATED.value
+
+
+def context_from_session(session: Session) -> MessageContext:
+    """将 Entari 的消息 Session 转换为 Tenko 权限上下文。"""
+
+    origin = getattr(session.event, "_origin", None)
+    if origin is None:
+        raise ValueError("Entari session event does not expose a Satori origin")
+    return MessageContext.from_event(origin)

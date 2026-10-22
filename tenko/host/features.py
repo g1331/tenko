@@ -13,7 +13,7 @@ from loguru import logger
 
 from ..context import MessageContext
 from .perm import GroupPermission, Permission, PermissionChecker
-from .plugins import external_plugin_for_module
+from .plugins.runtime import external_plugin_for_module
 
 GROUP_LEVELS = frozenset(int(level) for level in GroupPermission)
 _FEATURE_MANAGER_NAMES = frozenset({"feature_manager", "功能开关"})

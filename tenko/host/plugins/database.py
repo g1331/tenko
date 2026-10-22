@@ -15,7 +15,7 @@ from typing import Any
 try:
     from entari_plugin_database import BaseOrm
 except (AttributeError, ImportError, LookupError) as error:  # pragma: no cover
-    from .errors import DatabaseUnavailableError
+    from ...db.errors import DatabaseUnavailableError
 
     raise DatabaseUnavailableError(
         "官方 entari-plugin-database 尚未加载，插件无法使用 tenko_api.storage.Model"
@@ -24,8 +24,8 @@ except (AttributeError, ImportError, LookupError) as error:  # pragma: no cover
 from graia.amnesia.builtins.sqla.model import register_callback, remove_callback
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 
-from ..host.plugin_storage import PluginStorageError, prepare_plugin_db
-from ..host.plugins import external_plugin_for_module, external_plugin_version
+from .storage import PluginStorageError, prepare_plugin_db
+from .runtime import external_plugin_for_module, external_plugin_version
 
 BIND_PREFIX = "plugin:"
 

@@ -18,7 +18,7 @@ from loguru import logger
 
 from tenko.host.guards import require
 from tenko.host.perm import Permission
-from tenko.host.plugin_manager import PluginManagerError, get_plugin_manager
+from tenko.host.plugins.manager import PluginManagerError, get_plugin_manager
 from tenko.host.updater import (
     CheckResult,
     HandoffResult,
@@ -30,7 +30,7 @@ from tenko.host.updater import (
     get_upgrade_manager,
     get_upgrade_permission_checker,
 )
-from tenko.plugins._common import context_from_session
+from tenko.context import context_from_session
 
 
 plugin.metadata(

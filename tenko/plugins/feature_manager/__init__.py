@@ -8,9 +8,9 @@ from arclet.entari.plugin import PluginRole
 from tenko.host.features import feature_service
 from tenko.host.guards import group_only, require
 from tenko.host.perm import Permission, PermissionChecker
-from tenko.host.plugin_storage import PLUGIN_DATA_ROOT, clear_plugin_data
-from tenko.host.plugins import _PLUGIN_ID, PluginInfo, PluginRuntime
-from tenko.plugins._common import context_from_session
+from tenko.host.plugins.storage import PLUGIN_DATA_ROOT, clear_plugin_data
+from tenko.host.plugins.runtime import _PLUGIN_ID, PluginInfo, PluginRuntime
+from tenko.context import context_from_session
 
 
 plugin.metadata(

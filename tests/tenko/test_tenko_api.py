@@ -28,7 +28,7 @@ from external_plugin_support import (
 
 from tenko.host.features import CommandPolicy, feature_service
 from tenko.host.perm import PermissionChecker, PermissionRegistry
-from tenko.host.plugins import PluginRuntime
+from tenko.host.plugins.runtime import PluginRuntime
 from tenko.host.ratelimit import RateLimitService
 
 ROOT = Path(__file__).resolve().parents[2]

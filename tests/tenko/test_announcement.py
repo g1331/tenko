@@ -30,7 +30,7 @@ from tenko.host.actions import (
 from tenko.host.accounts import AccountRegistry
 from tenko.host.features import FeatureService
 from tenko.host.perm import PermissionChecker, PermissionRegistry
-from tenko.host.plugins import PluginInfo
+from tenko.host.plugins.runtime import PluginInfo
 
 
 @dataclass

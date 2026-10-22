@@ -8,8 +8,9 @@ from arclet.entari.plugin import PluginRole
 from tenko.host.accounts import AccountRegistry, account_registry
 from tenko.host.guards import group_only, private_only, require
 from tenko.host.perm import Permission
-from tenko.plugins._common import context_from_session, list_data, render_or_text
-from tenko.render import RenderService
+from tenko.context import context_from_session
+from tenko.plugins._common import list_data, render_or_text
+from tenko.host.render import RenderService
 
 
 plugin.metadata(

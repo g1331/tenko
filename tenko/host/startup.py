@@ -13,8 +13,7 @@ from loguru import logger
 
 from tenko.host.actions import action_service as default_action_service
 from tenko.host.features import feature_service as default_feature_service
-from tenko.host.perm import PermissionChecker
-from tenko.plugins._common import master_id_for_account
+from tenko.host.perm import PermissionChecker, master_id_for_account
 
 try:
     import tomllib
