@@ -274,7 +274,7 @@ def test_help_list_and_out_of_range_detail_use_native_prefix(loaded_plugin) -> N
 
 
 def test_command_prefix_configuration_is_applied_before_alconna_construction() -> None:
-    configure_command_prefix("!")
+    configure_command_prefix(["!"])
     command = Alconna("临时前缀命令")
     try:
         assert command.prefixes == ["!"]
@@ -282,4 +282,4 @@ def test_command_prefix_configuration_is_applied_before_alconna_construction() -
         assert not command.parse("临时前缀命令").matched
     finally:
         command_manager.delete(command)
-        configure_command_prefix("/")
+        configure_command_prefix()

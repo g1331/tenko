@@ -445,7 +445,7 @@ async def test_build_app_uses_basic_without_rewriting_entari_config(
             is runtime.message_handler.handle_member_removed.__func__
         )
     finally:
-        runtime_module.configure_command_prefix("/")
+        runtime_module.configure_command_prefix()
         EntariConfig.instance.basic.prefix = original_prefix
         EntariConfig.instance.basic.nickname = original_nickname
         EntariConfig.instance.basic.superusers = original_superusers or {}

@@ -501,103 +501,6 @@ class WebUIConfig:
         )
 
 
-@dataclass(frozen=True, slots=True)
-class RuntimeConfig:
-    """运行时行为的只读兼容视图。"""
-
-    log_level: str | int = "INFO"
-    command_prefix: str = "/"
-    superusers: Mapping[str, tuple[str, ...]] = field(default_factory=dict)
-
-    def __post_init__(self) -> None:
-        if not isinstance(self.log_level, str | int) or isinstance(
-            self.log_level, bool
-        ):
-            raise ValueError("log_level 必须是字符串或整数")
-        if isinstance(self.log_level, str) and not self.log_level:
-            raise ValueError("log_level 不能为空")
-        if not self.command_prefix:
-            raise ValueError("command_prefix 不能为空")
-        object.__setattr__(
-            self,
-            "superusers",
-            _identifier_mapping({"superusers": self.superusers}, "superusers", {}),
-        )
-
-    @classmethod
-    def from_mapping(
-        cls,
-        section: Mapping[str, Any],
-        *,
-        superusers: Mapping[str, tuple[str, ...]] | None = None,
-    ) -> RuntimeConfig:
-        defaults = cls()
-        return cls(
-            log_level=_log_level(section, "log_level", defaults.log_level),
-            command_prefix=_string(section, "command_prefix", defaults.command_prefix),
-            superusers=(
-                _identifier_mapping(section, "superusers", defaults.superusers)
-                if superusers is None
-                else superusers
-            ),
-        )
-
-    @classmethod
-    def from_basic(cls, basic: BasicConfig) -> RuntimeConfig:
-        """从官方 basic 生成旧调用方仍使用的运行时视图。"""
-
-        command_prefix = next((prefix for prefix in basic.prefix if prefix), "/")
-        return cls(
-            log_level=basic.log.level,
-            command_prefix=command_prefix,
-            superusers=_basic_superusers(basic),
-        )
-
-
-@dataclass(frozen=True, slots=True)
-class LegacyEntariConfig:
-    """旧版 `config.entari` 访问路径的只读兼容视图。"""
-
-    superusers: Mapping[str, tuple[str, ...]] = field(default_factory=dict)
-
-    def __post_init__(self) -> None:
-        object.__setattr__(
-            self,
-            "superusers",
-            _identifier_mapping({"superusers": self.superusers}, "superusers", {}),
-        )
-
-    @classmethod
-    def from_mapping(
-        cls,
-        section: Mapping[str, Any],
-        *,
-        legacy_runtime_section: Mapping[str, Any] | None = None,
-    ) -> LegacyEntariConfig:
-        """兼容旧调用方直接构造 `config.entari` 视图。"""
-
-        if "superusers" in section:
-            users = _identifier_mapping(section, "superusers", {})
-        elif legacy_runtime_section is not None:
-            users = _identifier_mapping(legacy_runtime_section, "superusers", {})
-        else:
-            users = {}
-        return cls(users)
-
-
-# 保留旧的导入名称；实际权威配置已经是上方导入的官方 NativeEntariConfig。
-EntariConfig = LegacyEntariConfig
-
-
-def _log_level(section: Mapping[str, Any], key: str, default: str | int) -> str | int:
-    value = section.get(key, default)
-    if not isinstance(value, str | int) or isinstance(value, bool):
-        raise ValueError(f"配置项 {key!r} 必须是字符串或整数")
-    if isinstance(value, str) and not value:
-        raise ValueError(f"配置项 {key!r} 不能为空")
-    return value
-
-
 def _flatten_identifiers(mapping: Mapping[str, tuple[str, ...]]) -> tuple[str, ...]:
     """将平台映射按配置顺序展开，并去除重复 ID。"""
 
@@ -928,11 +831,6 @@ class DatabaseConfig:
         )
 
 
-# 允许调用方使用更自然的单数名称，同时配置字段保持 `[features]` / `[ratelimit]`。
-FeatureConfig = FeaturesConfig
-RatelimitConfig = RateLimitConfig
-
-
 @dataclass(frozen=True, slots=True)
 class TenkoConfig:
     basic: BasicConfig = field(default_factory=_default_basic_config)
@@ -941,7 +839,6 @@ class TenkoConfig:
     )
     onebot: OneBotConfig = field(default_factory=OneBotConfig)
     webui: WebUIConfig = field(default_factory=WebUIConfig)
-    runtime: RuntimeConfig = field(default_factory=RuntimeConfig)
     upgrade: UpgradeConfig = field(default_factory=UpgradeConfig)
     debug: DebugConfig = field(default_factory=DebugConfig)
     registry: RegistryConfig = field(default_factory=RegistryConfig)
@@ -972,16 +869,10 @@ class TenkoConfig:
             )
 
     @property
-    def entari(self) -> LegacyEntariConfig:
-        """返回旧版 `config.entari` 的派生视图，不作为配置来源。"""
+    def command_prefix(self) -> str:
+        """返回首个非空命令前缀，用于提示文案和命令策略。"""
 
-        return LegacyEntariConfig(_basic_superusers(self.basic))
-
-    @property
-    def command_prefixes(self) -> tuple[str, ...]:
-        """返回官方 basic 使用的全部命令前缀。"""
-
-        return tuple(self.basic.prefix)
+        return next((prefix for prefix in self.basic.prefix if prefix), "/")
 
     @classmethod
     def from_mapping(
@@ -1000,7 +891,6 @@ class TenkoConfig:
             entari_config=entari_config,
             onebot=OneBotConfig.from_mapping(_section(normalized, "onebot")),
             webui=WebUIConfig.from_mapping(_section(normalized, "webui")),
-            runtime=RuntimeConfig.from_basic(basic),
             debug=DebugConfig.from_mapping(
                 _section(normalized, "debug"), inherited_masters=superuser_ids
             ),

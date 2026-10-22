@@ -165,7 +165,7 @@ async def test_command_owner_resolves_real_plugins_by_registered_command(
     from tenko.host.perm import PermissionChecker, PermissionRegistry
 
     runtime = PluginRuntime()
-    configure_command_prefix("/", use_entari_prefix=True)
+    configure_command_prefix(())
     try:
         for name in ("group_manager", "perm_manager"):
             await runtime.load(name)
@@ -195,7 +195,7 @@ async def test_command_owner_resolves_real_plugins_by_registered_command(
     finally:
         for name in ("group_manager", "perm_manager"):
             runtime.unload(name)
-        configure_command_prefix("/")
+        configure_command_prefix()
 
 
 def _entry(name: str, value: str, dist: str | None = None):
@@ -399,7 +399,7 @@ async def test_command_owner_covers_external_and_flags_unmanaged(
     state_file = tmp_path / "state.json"
     state_file.write_text(json.dumps({"enabled": ["ext_demo"]}), encoding="utf-8")
     runtime = PluginRuntime(tmp_path / "no_builtin", state_file=state_file)
-    configure_command_prefix("/", use_entari_prefix=True)
+    configure_command_prefix(())
     try:
         await runtime.load_all()
         assert load_plugin("tenko_t_unmanaged")
@@ -416,7 +416,7 @@ async def test_command_owner_covers_external_and_flags_unmanaged(
         )
         assert runtime.command_owner("无此命令") is None
     finally:
-        configure_command_prefix("/")
+        configure_command_prefix()
         for module in ("tenko_t_external", "tenko_t_unmanaged"):
             unload_plugin(module)
             sys.modules.pop(module, None)

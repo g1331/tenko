@@ -17,7 +17,7 @@ def test_default_config_is_local_and_does_not_send() -> None:
     assert config.basic.prefix == ["/"]
     assert config.basic.log.save is None
     assert config.onebot.reverse_ws_url == "ws://127.0.0.1:8080/onebot/v11/ws"
-    assert config.runtime.command_prefix == "/"
+    assert config.command_prefix == "/"
     assert config.debug.enabled is False
     assert config.debug.masters == ()
     assert config.exception.message_buffer_size == 10
@@ -78,11 +78,8 @@ create_table_at = "prepared"
     assert config.basic.log.level == "DEBUG"
     assert "entari" not in config.entari_config.data
     assert "runtime" not in config.entari_config.data
-    assert config.runtime.log_level == "DEBUG"
-    assert config.runtime.command_prefix == "!"
-    assert config.runtime.superusers == {
-        "onebot": ("12345", "67890"),
-    }
+    assert config.command_prefix == "!"
+    assert config.basic.superusers == {"onebot": ["12345", "67890"]}
     assert config.debug.enabled is True
     assert config.debug.masters == ("12345", "67890")
     assert config.notify_group == "40001"
@@ -137,9 +134,8 @@ enabled = true
     assert config.basic.network[0].type == "ws"
     assert config.basic.network[0].port == 5140
     assert config.onebot.listen_port == 9000
-    assert config.runtime.log_level == "WARNING"
-    assert config.runtime.command_prefix == "/"
-    assert config.runtime.superusers == {"onebot": ("12345", "67890")}
+    assert config.basic.log.level == "WARNING"
+    assert config.basic.superusers == {"onebot": ["12345", "67890"]}
     assert config.debug.masters == ("12345", "67890")
     assert config.entari_config is NativeEntariConfig.instance
 
@@ -152,7 +148,7 @@ def test_config_example_is_loadable_with_official_basic_section(tmp_path) -> Non
 
     assert config.basic.prefix == ["/"]
     assert config.basic.log.save is None
-    assert config.entari.superusers == {"onebot": ("YOUR_QQ_ID",)}
+    assert config.basic.superusers == {"onebot": ["YOUR_QQ_ID"]}
     assert config.notify_group is None
 
 
@@ -222,9 +218,7 @@ def test_official_basic_takes_precedence_over_legacy_sections() -> None:
 
     assert config.basic.prefix == ["!"]
     assert config.basic.log.level == "WARNING"
-    assert config.runtime.command_prefix == "!"
-    assert config.runtime.log_level == "WARNING"
-    assert config.runtime.superusers == {"onebot": ("official",)}
+    assert config.basic.superusers == {"onebot": ["official"]}
 
 
 def test_exception_evidence_configuration_is_loaded_and_validated() -> None:
@@ -280,11 +274,7 @@ def test_entari_superusers_are_inherited_by_debug_and_upgrade() -> None:
         }
     )
 
-    assert config.entari.superusers == {
-        "onebot": ("12345",),
-        "satori": ("67890",),
-    }
-    assert config.runtime.superusers == config.entari.superusers
+    assert config.basic.superusers == {"onebot": ["12345"], "satori": ["67890"]}
     assert config.debug.masters == ("12345", "67890")
     assert config.upgrade.superuser_ids == ("12345", "67890")
 
@@ -299,8 +289,7 @@ def test_explicit_debug_and_upgrade_superusers_override_inheritance() -> None:
         }
     )
 
-    assert config.entari.superusers == {"onebot": ("10001",)}
-    assert config.runtime.superusers == config.entari.superusers
+    assert config.basic.superusers == {"onebot": ["10001"]}
     assert config.debug.masters == ("20001",)
     assert config.upgrade.superuser_ids == ("30001",)
 

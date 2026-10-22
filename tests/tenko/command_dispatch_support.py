@@ -90,7 +90,7 @@ def entari_command_dispatch(policy=None) -> Iterator[None]:
         commands._apply = None
     config = EntariConfig.instance.basic
     old = (config.prefix, config.nickname)
-    configure_command_prefix("/", use_entari_prefix=True)
+    configure_command_prefix(())
     config.prefix = ["/"]
     config.nickname = NICKNAME
     subscriber = (
@@ -102,7 +102,7 @@ def entari_command_dispatch(policy=None) -> Iterator[None]:
         if subscriber is not None:
             subscriber.dispose()
         config.prefix, config.nickname = old
-        configure_command_prefix("/")
+        configure_command_prefix()
 
 
 # Entari 识别命令前会去掉这些外壳；策略必须对它们一视同仁。

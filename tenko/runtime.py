@@ -45,10 +45,7 @@ class TenkoRuntime:
 
     def __init__(self, config: TenkoConfig) -> None:
         self.config = config
-        configure_command_prefix(
-            config.command_prefixes,
-            use_entari_prefix=True,
-        )
+        configure_command_prefix(())
         self.accounts = account_registry
         self.accounts.configure(None)
         self.actions = action_service
@@ -86,7 +83,7 @@ class TenkoRuntime:
         self.message_handler = MessageEventHandler(
             account_registry=self.accounts,
             debug_config=config.debug,
-            command_prefix=config.runtime.command_prefix,
+            command_prefix=config.command_prefix,
             metrics=self.message_metrics,
             action_service=self.actions,
         )
@@ -376,7 +373,7 @@ class TenkoRuntime:
             self.feature_service,
             self.rate_limiter,
             plugin_runtime=self.plugin_runtime,
-            command_prefix=self.config.runtime.command_prefix,
+            command_prefix=self.config.command_prefix,
             rate_limit_override_permission=self.config.ratelimit.override_permission,
         )
         le.on(CommandParse, policy.enforce, priority=0)
