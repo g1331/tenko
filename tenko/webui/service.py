@@ -410,6 +410,7 @@ class WebUIService(Service):
                     "id": str(account.self_id),
                     "ref": str(account_id),
                     "platform": str(platform or "unknown"),
+                    "name": self._account_name(account),
                     "online": bool(self.accounts.is_available(account_id)),
                     "group_count": len(self.accounts.groups_for_account(account_id)),
                 }

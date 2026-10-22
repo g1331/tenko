@@ -3,7 +3,7 @@ import { computed } from 'vue'
 import { Lock, Search } from '@element-plus/icons-vue'
 import PagePanel from '@/components/PagePanel.vue'
 import ExternalTag from '@/components/ExternalTag.vue'
-import GroupAvatar from '@/components/GroupAvatar.vue'
+import QqAvatar from '@/components/QqAvatar.vue'
 import StatusTag from '@/components/StatusTag.vue'
 import { featureStatus, isSwitchable } from '@/composables/status'
 import type { FeatureInfo } from '@/api'
@@ -205,7 +205,7 @@ function onGlobal(mode: string | number | boolean | undefined) {
               :name="groupLabel(group)"
               :code="group.name ? group.id : undefined"
             >
-              <template #lead><GroupAvatar :id="group.id" :name="group.name" /></template>
+              <template #lead><QqAvatar :id="group.id" :name="group.name" /></template>
               <StateText :on="isOn(feature, group.id)" />
               <el-switch
                 :model-value="isOn(feature, group.id)"

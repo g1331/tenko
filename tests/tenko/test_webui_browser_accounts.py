@@ -30,6 +30,7 @@ def summary(account_id, *, online=True, groups=0):
         "id": account_id,
         "ref": account_id,
         "platform": "onebot",
+        "name": None,
         "online": online,
         "group_count": groups,
     }

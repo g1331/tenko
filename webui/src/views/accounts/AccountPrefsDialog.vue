@@ -1,8 +1,9 @@
 <script setup lang="ts">
 import { ref, watch } from 'vue'
 import { api, type CapabilityOverrides, type ManagedAccount } from '@/api'
+import QqAvatar from '@/components/QqAvatar.vue'
 import { platformText } from '@/composables/format'
-import { CAPABILITY_LABELS } from './helpers'
+import { accountName, CAPABILITY_LABELS } from './helpers'
 
 // 账户偏好：别名与能力覆盖。保存成功后关闭并通知页面刷新；失败以 toast 提示并保持打开。
 const props = defineProps<{ account: ManagedAccount | null; capabilities: string[] }>()
@@ -53,7 +54,17 @@ async function save() {
   <el-dialog v-model="visible" title="账户偏好" width="min(560px, calc(100vw - 24px))" align-center>
     <template v-if="account">
       <p class="who">
-        {{ platformText(account.platform) }} · <span class="tk-mono">{{ account.id }}</span>
+        <QqAvatar
+          :id="account.id"
+          :name="accountName(account)"
+          :platform="account.platform"
+          :size="28"
+          kind="user"
+        />
+        <span
+          >{{ accountName(account) }} · {{ platformText(account.platform) }} ·
+          <span class="tk-mono">{{ account.id }}</span></span
+        >
       </p>
       <el-form label-position="top" @submit.prevent="save">
         <el-form-item label="别名">
@@ -93,6 +104,9 @@ async function save() {
 
 <style scoped>
 .who {
+  display: flex;
+  align-items: center;
+  gap: 8px;
   margin: 0 0 14px;
   color: var(--tk-muted);
   font-size: 12px;

@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import type { AccountAction, GroupStatus, ManagedAccount } from '@/api'
+import QqAvatar from '@/components/QqAvatar.vue'
 import StatusTag from '@/components/StatusTag.vue'
 import { numberText, platformText } from '@/composables/format'
 import { useNarrow } from '@/composables/useNarrow'
@@ -59,8 +60,18 @@ const rows = computed(() =>
     <template #empty>尚无账户。展开上方“配对接入”连接第一个账户。</template>
     <el-table-column label="账号" min-width="150">
       <template #default="{ row }">
-        <strong class="name">{{ accountName(row.account) }}</strong>
-        <span class="tk-mono sub">{{ row.account.id }}</span>
+        <div class="who">
+          <QqAvatar
+            :id="row.account.id"
+            :name="accountName(row.account)"
+            :platform="row.account.platform"
+            kind="user"
+          />
+          <div>
+            <strong class="name">{{ accountName(row.account) }}</strong>
+            <span class="tk-mono sub">{{ row.account.id }}</span>
+          </div>
+        </div>
       </template>
     </el-table-column>
     <el-table-column label="平台" min-width="96">
@@ -110,9 +121,17 @@ const rows = computed(() =>
     />
     <article v-for="row in rows" :key="row.key" class="card">
       <header>
-        <div class="title">
-          <strong class="name">{{ accountName(row.account) }}</strong>
-          <span class="tk-mono sub">{{ row.account.id }}</span>
+        <div class="title who">
+          <QqAvatar
+            :id="row.account.id"
+            :name="accountName(row.account)"
+            :platform="row.account.platform"
+            kind="user"
+          />
+          <div>
+            <strong class="name">{{ accountName(row.account) }}</strong>
+            <span class="tk-mono sub">{{ row.account.id }}</span>
+          </div>
         </div>
         <StatusTag :kind="row.status.kind">{{ row.status.label }}</StatusTag>
       </header>
@@ -164,6 +183,11 @@ const rows = computed(() =>
 .account-table :deep(th.el-table__cell) {
   font-size: 12px;
   letter-spacing: 0.04em;
+}
+.who {
+  display: flex;
+  align-items: center;
+  gap: 10px;
 }
 .name {
   display: block;

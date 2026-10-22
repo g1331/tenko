@@ -2,6 +2,7 @@
 import { computed } from 'vue'
 import PageContainer from '@/components/PageContainer.vue'
 import PagePanel from '@/components/PagePanel.vue'
+import QqAvatar from '@/components/QqAvatar.vue'
 import ResourceBoundary from '@/components/ResourceBoundary.vue'
 import StatusTag from '@/components/StatusTag.vue'
 import {
@@ -257,10 +258,16 @@ function percent(value: number) {
                 v-for="account in data.accounts.slice(0, 6)"
                 :key="`${account.platform}/${account.id}`"
               >
-                <span class="dot" :class="account.online ? 'is-on' : 'is-off'" aria-hidden="true" />
+                <QqAvatar
+                  :id="account.id"
+                  :name="account.name"
+                  :platform="account.platform"
+                  kind="user"
+                />
                 <div>
-                  <span class="account-id">{{ account.id }}</span>
+                  <span class="account-id">{{ account.name || account.id }}</span>
                   <div class="meta">
+                    <template v-if="account.name">{{ account.id }} · </template>
                     {{ platformText(account.platform) }} ·
                     {{ numberText(account.group_count) }} 个群
                   </div>

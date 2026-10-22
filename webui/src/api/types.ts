@@ -92,6 +92,8 @@ export interface AccountSummary {
   /** 写接口里引用该账号的键；OneBot 下等于 id。 */
   ref: string
   platform: string
+  /** 协议端昵称；尚未取到时为 null。 */
+  name: string | null
   online: boolean
   group_count: number
 }

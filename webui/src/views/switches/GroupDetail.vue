@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { Lock, WarningFilled } from '@element-plus/icons-vue'
-import GroupAvatar from '@/components/GroupAvatar.vue'
+import QqAvatar from '@/components/QqAvatar.vue'
 import PagePanel from '@/components/PagePanel.vue'
 import StatusTag from '@/components/StatusTag.vue'
 import FeaturePills from './FeaturePills.vue'
@@ -44,7 +44,7 @@ function describe(feature: SwitchModel['features'][number]) {
   <PagePanel class="sw-panel">
     <div class="sw-head">
       <div class="sw-title">
-        <GroupAvatar :id="group.id" :name="group.name" :size="40" />
+        <QqAvatar :id="group.id" :name="group.name" :size="40" />
         <div>
           <h2>{{ groupLabel(group) }}</h2>
           <div class="sw-id">

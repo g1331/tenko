@@ -2,7 +2,7 @@
 import { computed, ref } from 'vue'
 import { WarningFilled } from '@element-plus/icons-vue'
 import { api, ApiError, type GroupAccount, type GroupStatus } from '@/api'
-import GroupAvatar from '@/components/GroupAvatar.vue'
+import QqAvatar from '@/components/QqAvatar.vue'
 import PagePanel from '@/components/PagePanel.vue'
 import { numberText, platformText } from '@/composables/format'
 import { usePanelData } from '@/composables/usePanelData'
@@ -115,7 +115,7 @@ const optionLabel = (account: GroupAccount) =>
         <el-table-column label="群" min-width="200">
           <template #default="{ row }">
             <div class="group">
-              <GroupAvatar :id="row.group_id" :name="row.name" />
+              <QqAvatar :id="row.group_id" :name="row.name" />
               <div class="group-text">
                 <strong class="name">{{ row.name || row.group_id }}</strong>
                 <span v-if="row.name" class="tk-mono sub">{{ row.group_id }}</span>
@@ -136,6 +136,13 @@ const optionLabel = (account: GroupAccount) =>
                 :title="platformText(account.platform)"
               >
                 <i class="dot" aria-hidden="true" />
+                <QqAvatar
+                  :id="account.id"
+                  :name="memberName(account)"
+                  :platform="account.platform"
+                  :size="20"
+                  kind="user"
+                />
                 <span class="member-name">{{ memberName(account) }}</span>
                 <span v-if="account.name" class="tk-mono member-id">{{ account.id }}</span>
                 <span v-if="isTarget(row as Row, account)" class="badge is-target">定向</span>
