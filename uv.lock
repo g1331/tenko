@@ -1034,19 +1034,19 @@ wheels = [
 
 [[package]]
 name = "satori-python-adapter-onebot11"
-version = "0.5.0"
+version = "0.5.1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "satori-python-server" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/ec/fa/ee0a5e80446e0da46e85982d8e0270b36dd8bb24a004b786afbd806bfaf9/satori_python_adapter_onebot11-0.5.0.tar.gz", hash = "sha256:2ffd70f2e25afa64d69715102e5392124fdf3b1c27a2ebddd57f30bf929f8d6b", size = 17458, upload-time = "2026-07-08T14:36:21.851Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/2d/e0/64fd7a2589750c98bc9babbdcda34740ccbf2fcd95954bc8c05aa64c9264/satori_python_adapter_onebot11-0.5.1.tar.gz", hash = "sha256:cd1109e4a5d5e77d188af72865ec1634c0dcc41b7749cc2db4604f85bc13f97a", size = 17547, upload-time = "2026-10-22T09:39:38.698Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/c3/38/ab1675c69cb3253f85cfe50af3d17b6176bde99a0ed4804a6da4cc88cbd6/satori_python_adapter_onebot11-0.5.0-py3-none-any.whl", hash = "sha256:d9d52cf581152dff369f8833cb66a0b9349d0c6e6d796bd2f14db4e93ac020a9", size = 22304, upload-time = "2026-07-08T14:36:21.04Z" },
+    { url = "https://files.pythonhosted.org/packages/47/67/5fa85c7fe288d91a102a39938f7ef954b3d39f8cd5d009cb21369150fb60/satori_python_adapter_onebot11-0.5.1-py3-none-any.whl", hash = "sha256:054f1cb0ddbb282f4f262546a0a3736efe9c599731a0dfa1c7c45c8fb4715711", size = 22413, upload-time = "2026-10-22T09:39:37.8Z" },
 ]
 
 [[package]]
 name = "satori-python-client"
-version = "1.3.7"
+version = "1.3.10"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "aiohttp" },
@@ -1056,26 +1056,26 @@ dependencies = [
     { name = "satori-python-core" },
     { name = "yarl" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/a9/54/1da138108e2899cb1cba6c729c8f7a97c0c570e3d6b552a27b699b38856e/satori_python_client-1.3.7.tar.gz", hash = "sha256:94343cd06d00a23bf5951c9f5c25efe43aec25c7a49e3ef521ce603e3207a7a9", size = 20925, upload-time = "2026-07-08T14:33:06.262Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/d6/de/b078a6c612a3a899efba0df93e64b83c6c9d2eff0d32bc499110e1168762/satori_python_client-1.3.10.tar.gz", hash = "sha256:bf904cccf988ee5e07551e8b2b6c32508e96b5a9baf6e0d4ea4cd064acdeb452", size = 20918, upload-time = "2026-10-22T09:38:22.953Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/2d/8c/3ef67ea920d6eb677fab4991e51e9fb800d1cbab51b88704dcb520b2a0eb/satori_python_client-1.3.7-py3-none-any.whl", hash = "sha256:748470043b23f8585b894b36d3d333a6b92759da47b99069c0f9c3edc078505d", size = 24113, upload-time = "2026-07-08T14:33:05.366Z" },
+    { url = "https://files.pythonhosted.org/packages/d1/7c/60068aa21f3c9e9d16f39035e5da6ccfb926a58c1e1d4ca861c81d72fe34/satori_python_client-1.3.10-py3-none-any.whl", hash = "sha256:d7ac4fdb0121759969e798b35931f191d8d34037127dc32bc72934d8830e270f", size = 24099, upload-time = "2026-10-22T09:38:22.023Z" },
 ]
 
 [[package]]
 name = "satori-python-core"
-version = "1.3.9.post1"
+version = "1.3.10"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "typing-extensions" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/a2/2e/fde1e47cd45608cf8dbf871d99aaf2cacdc008846e714f25a1a482a38bdc/satori_python_core-1.3.9.post1.tar.gz", hash = "sha256:61058ef4357f6c687d7dccb61bba031d1a44a7e988c57a0ca897ad5a64b4de5c", size = 22797, upload-time = "2026-07-20T03:46:22.814Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/ce/a0/8be9da892442d7b47b31c33cbe2cadc78ef938ac2cbdc81eea0209009cf1/satori_python_core-1.3.10.tar.gz", hash = "sha256:7f0a14877a359c146e89055da88c4ff4c899d0a3d81ea7e97a980d681c566754", size = 22850, upload-time = "2026-10-22T09:38:09.446Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/b6/89/a8153b3b1c2c6d07ac097b0cf0376138317696cfd37c235360bcb08c2804/satori_python_core-1.3.9.post1-py3-none-any.whl", hash = "sha256:4c0f6a3d9cb455f695473ed78fb8ffdd78e8d485c184baae8b9d82d0a2c2449c", size = 23866, upload-time = "2026-07-20T03:46:21.884Z" },
+    { url = "https://files.pythonhosted.org/packages/82/f6/1396c147a1bc48fde6076875d26d0634ee2fa649a74faa9cbff31abaa51e/satori_python_core-1.3.10-py3-none-any.whl", hash = "sha256:4bd94198ef6d8dbac27981fa455ffddcad8b40ad7e17cc934f70c61874e1d665", size = 23872, upload-time = "2026-10-22T09:38:08.465Z" },
 ]
 
 [[package]]
 name = "satori-python-server"
-version = "1.3.7"
+version = "1.3.10"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "aiohttp" },
@@ -1088,9 +1088,9 @@ dependencies = [
     { name = "websockets" },
     { name = "yarl" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/4f/4a/e2791d2aa3f351c48846be9495864a60dfb911fb38d224911a8eb4c8e961/satori_python_server-1.3.7.tar.gz", hash = "sha256:97c1f75a1037a1a5dd2ed33a5a38738015c58d1f133dad1621c4f5c419598182", size = 14983, upload-time = "2026-07-08T14:33:17.337Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/f8/02/61bf614af853aa33bab6413f1e58c79e4b85abe6ba78a1b89589f16433dc/satori_python_server-1.3.10.tar.gz", hash = "sha256:08aa9f7144442b130899850c77e0de846fb0c15f0ad0328d5f8de6dacd538f68", size = 15008, upload-time = "2026-10-22T09:38:32.103Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/d0/c7/2d0997754e55e278ca4517bf899995d19e50d1f63f8a7c85f02b30bda359/satori_python_server-1.3.7-py3-none-any.whl", hash = "sha256:a5fc16320c673120cb4d6a985ffaf84ba228a30eff00d221af7ef22af568d6de", size = 15901, upload-time = "2026-07-08T14:33:16.508Z" },
+    { url = "https://files.pythonhosted.org/packages/14/d9/837c7ebb6a72e1d6a63ca30839308a8da23ad5242fddb4f66a1dca25bca4/satori_python_server-1.3.10-py3-none-any.whl", hash = "sha256:3730a2826b59d3bf86d617e70db4698450fd87c54e4296b8d1d6ba9cb288ac40", size = 15922, upload-time = "2026-10-22T09:38:31.226Z" },
 ]
 
 [[package]]
@@ -1294,9 +1294,9 @@ requires-dist = [
     { name = "psutil", specifier = ">=5.9.8" },
     { name = "pygments", specifier = ">=2.19.1" },
     { name = "pyyaml", specifier = ">=6.0.1" },
-    { name = "satori-python-adapter-onebot11", specifier = "==0.5.0" },
-    { name = "satori-python-client", specifier = "==1.3.7" },
-    { name = "satori-python-server", specifier = "==1.3.7" },
+    { name = "satori-python-adapter-onebot11", specifier = "==0.5.1" },
+    { name = "satori-python-client", specifier = "==1.3.10" },
+    { name = "satori-python-server", specifier = "==1.3.10" },
     { name = "sqlalchemy", specifier = "==2.0.52" },
     { name = "tenko-api", editable = "packages/tenko-api" },
     { name = "tomli-w", specifier = ">=1.0" },
@@ -1314,10 +1314,10 @@ entari = [
     { name = "aiosqlite", specifier = ">=0.21.0" },
     { name = "arclet-entari", specifier = "==0.19.1" },
     { name = "entari-plugin-database", specifier = "==0.4.2" },
-    { name = "satori-python-adapter-onebot11", specifier = "==0.5.0" },
-    { name = "satori-python-client", specifier = "==1.3.7" },
-    { name = "satori-python-core", specifier = "==1.3.9.post1" },
-    { name = "satori-python-server", specifier = "==1.3.7" },
+    { name = "satori-python-adapter-onebot11", specifier = "==0.5.1" },
+    { name = "satori-python-client", specifier = "==1.3.10" },
+    { name = "satori-python-core", specifier = "==1.3.10" },
+    { name = "satori-python-server", specifier = "==1.3.10" },
     { name = "sqlalchemy", extras = ["asyncio"], specifier = ">=2.0.42" },
     { name = "tomli", specifier = "==2.2.1" },
 ]

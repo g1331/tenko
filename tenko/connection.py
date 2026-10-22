@@ -107,11 +107,11 @@ class _ManagedConnection(_Connection):
             yield connection, data
 
     async def message_handle(self) -> None:
-        """替换 satori-python-adapter-onebot11 0.5.0 的同名方法。
+        """替换 satori-python-adapter-onebot11 的同名方法。
 
-        原实现在循环里定义解析任务的闭包，任务真正运行时才读取 ``data`` 等循环
-        变量：同一批到达的两条事件，前一条会被后一条覆盖（前一条丢失、后一条
-        处理两次）。这里把每条事件的数据作为参数交给任务。
+        上游实现会用内部的 ``_login_add``（0.5.1 起平台名为 ``qq-client``），
+        登录完成前收到事件会结束整个接收循环。这里沿用 Tenko 的 ``onebot``
+        平台名、只丢弃登录前的事件，并把每条事件的数据作为参数交给任务。
         """
 
         async for _connection, data in self.message_receive():
