@@ -1,0 +1,66 @@
+{% extends "_base.html" %}
+{#- 插件市场与已安装插件列表：图标、名称与 ID、标签、简介，右侧是版本。 #}
+
+{% block style %}
+  .rows { border-top: 1px solid rgba(255,255,255,.08); }
+  .row { display: grid; grid-template-columns: 56px 1fr auto; gap: 18px; padding: 16px 0; align-items: start;
+    border-bottom: 1px solid rgba(255,255,255,.08); }
+  .nm { display: flex; align-items: baseline; gap: 10px; font-size: 18px; font-weight: 800; letter-spacing: .03em; }
+  .nm .id { font-family: "Cat"; font-size: 13px; font-weight: 500; opacity: .5; letter-spacing: .04em; }
+  .chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 7px; }
+  .chip { font-size: 11px; line-height: 18px; padding: 0 7px; border-radius: 5px; letter-spacing: .06em;
+    border: 1px solid rgba(255,255,255,.3); opacity: .8; }
+  .chip.accent { border-color: transparent; background: rgba(255,255,255,.18); font-weight: 700; opacity: 1; }
+  .chip.ok { color: #b9f2cc; border-color: rgba(185,242,204,.45); opacity: 1; }
+  .chip.warn { color: #ffb4a8; border-color: rgba(255,180,168,.5); opacity: 1; }
+  .desc { font-size: 13px; line-height: 1.65; opacity: .75; margin-top: 7px; letter-spacing: .02em; }
+  .meta { font-size: 12px; opacity: .5; margin-top: 4px; letter-spacing: .04em; }
+  .note { font-size: 12.5px; margin-top: 5px; letter-spacing: .03em; }
+  .note.warn { color: #ffb4a8; }
+  .note.accent { opacity: .9; }
+  .ver { text-align: right; white-space: nowrap; font-family: "Cat"; font-size: 22px; font-weight: 600; line-height: 1.2; }
+  .ver small { display: block; font-family: "SC"; font-size: 11px; font-weight: 400; opacity: .5; letter-spacing: .08em; }
+  .more { font-size: 12.5px; opacity: .55; padding-top: 12px; letter-spacing: .04em; }
+  .alert { margin-top: 14px; font-size: 13px; color: #ffb4a8; letter-spacing: .03em; }
+{% endblock %}
+
+{% block hero_copy %}
+  <div class="eyebrow">{{ eyebrow }}</div>
+  <div class="h1">{{ title }}</div>
+  <div class="sub">{{ subtitle }}</div>
+  <div class="stats">
+  {%- for value, label in stats %}
+    <div{% if not value %} class="dim"{% endif %}><b>{{ value }}</b>{{ label }}</div>
+  {%- endfor %}
+  </div>
+{% endblock %}
+
+{% block content %}
+  <div class="sec"><div class="sh"><span class="t">{{ section }}</span>{% if section_note %}<span class="who">{{ section_note }}</span>{% endif %}</div>
+  {%- if items %}
+    <div class="rows">
+    {%- for item in items %}
+      <div class="row">
+        <div class="ico"><img src="{{ item.icon }}" alt=""></div>
+        <div>
+          <div class="nm">{{ item.name }}{% if item.id != item.name %}<span class="id">{{ item.id }}</span>{% endif %}</div>
+          {%- if item.chips %}
+          <div class="chips">{% for chip in item.chips %}<span class="chip {{ chip.tone }}">{{ chip.text }}</span>{% endfor %}</div>
+          {%- endif %}
+          {%- if item.description %}<div class="desc">{{ item.description }}</div>{% endif %}
+          {%- if item.meta %}<div class="meta">{{ item.meta }}</div>{% endif %}
+          {%- if item.note %}<div class="note {{ item.note_tone }}">{{ item.note }}</div>{% endif %}
+        </div>
+        <div class="ver">{{ item.version or "—" }}<small>{{ item.version_label }}</small></div>
+      </div>
+    {%- endfor %}
+    </div>
+    {%- if more %}<div class="more">{{ more }}</div>{% endif %}
+  {%- else %}
+    <div class="empty">{{ empty_text }}</div>
+  {%- endif %}
+  {%- if alert %}<div class="alert">{{ alert }}</div>{% endif %}
+  </div>
+{% endblock %}
+
+{% block foot_note %}{{ foot }}{% endblock %}

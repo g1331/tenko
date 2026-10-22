@@ -1,6 +1,6 @@
 """第三方插件的目录、安装、更新、卸载与回滚命令（Master，群聊和私聊都可用）。
 
-操作都在重启后才生效，复用 ``/重启``。插件目录里的插件直接安装；不在目录里的来源
+新装插件首次启用时多数可直接加载，更新、卸载和回滚在 ``/重启`` 后生效。插件目录里的插件直接安装；不在目录里的来源
 安装前要二次确认，确认只接受发起命令的同一个人在同一个会话里的回复。目录每小时刷新
 一次，已安装的插件被目录封禁时立即停用，并私聊通知 Master。
 """
@@ -29,6 +29,7 @@ from satori import Text
 from tenko.host.accounts import account_registry
 from tenko.host.guards import require
 from tenko.host.perm import Permission, superuser_ids
+from tenko.host.plugin_docs import plugin_icon_path
 from tenko.host.plugin_manager import (
     PluginChange,
     PluginManagerError,
@@ -48,7 +49,8 @@ from tenko.host.registry import (
     source_for,
     why_incompatible,
 )
-from tenko.plugins._common import context_from_session
+from tenko.plugins._common import context_from_session, render_or_text
+from tenko.render import RenderService, data_uri
 
 plugin.metadata(
     "插件管理",
@@ -326,13 +328,13 @@ list_command = Alconna(
 
 @command.on(list_command)
 @require(Permission.Master)
-async def list_plugins(session: Session):
+async def list_plugins(session: Session, *, render_service: RenderService):
     manager = get_plugin_manager()
     rows = manager.status()
     if not rows:
         return "没有已安装的第三方插件"
     index = get_registry().cached()  # 不联网；目录每小时刷新
-    lines = []
+    lines, items, updates = [], [], 0
     for row in rows:
         state = "已启用" if row.enabled else "未启用"
         restart = "，需要重启" if row.restart_required else ""
@@ -341,20 +343,85 @@ async def list_plugins(session: Session):
             f"{row.plugin_id} {row.version}（{_TIER.get(row.trust, row.trust)}，"
             f"{state}{restart}）{note}"
         )
+        notes = (
+            installed_notes(index, row.plugin_id, row.dist, row.version, row.trust)
+            if index
+            else {"blocked": None, "yanked": None, "update": None}
+        )
+        entry = index.find(row.plugin_id) if index else None
+        chips = [
+            _tier_chip(row.trust),
+            {"text": state, "tone": "ok" if row.enabled else ""},
+        ]
+        if row.restart_required:
+            chips.append({"text": "需要重启", "tone": "warn"})
+        if notes["update"]:
+            updates += 1
+            chips.append({"text": f"可更新到 {notes['update']}", "tone": "accent"})
+        warning = notes["blocked"] and f"已被目录封禁：{notes['blocked']}"
+        warning = warning or (notes["yanked"] and f"此版本已撤回：{notes['yanked']}")
+        items.append(
+            {
+                "icon": _icon(row.plugin_id),
+                "name": entry.name if entry else row.plugin_id,
+                "id": row.plugin_id,
+                "chips": chips,
+                "description": entry.description if entry else "",
+                "meta": row.dist,
+                "note": warning,
+                "note_tone": "warn",
+                "version": row.version,
+                "version_label": "当前版本",
+            }
+        )
     try:
         drift = await asyncio.to_thread(manager.drift)
     except PluginManagerError:
         drift = []
-    if drift:
-        lines.append("环境缺少或版本不符：" + "、".join(drift) + "，请 /同步插件环境")
-    return "\n".join(lines)
+    alert = (
+        "环境缺少或版本不符：" + "、".join(drift) + "，请 /同步插件环境"
+        if drift
+        else None
+    )
+    if alert:
+        lines.append(alert)
+    data = {
+        "eyebrow": "TENKO · PLUGINS",
+        "title": "插件列表",
+        "subtitle": "由插件管理器安装的第三方插件",
+        "stats": [
+            (len(rows), "已安装"),
+            (sum(r.enabled for r in rows), "已启用"),
+            (updates, "可更新"),
+        ],
+        "section": "第三方插件",
+        "section_note": "",
+        "items": items,
+        "more": "",
+        "alert": alert,
+        "foot": "/启用插件 /停用插件 <ID> · /更新插件 [ID] · /卸载插件 <ID>",
+    }
+    return await render_or_text(render_service, "plugins.html", data, "\n".join(lines))
+
+
+def _icon(plugin_id: str) -> str:
+    """目录缓存里的图标，没有时用默认图标。"""
+
+    return data_uri(plugin_icon_path(plugin_id, "external"))
+
+
+def _tier_chip(tier: str) -> dict[str, str]:
+    return {
+        "text": _TIER.get(tier, tier),
+        "tone": "accent" if tier == "official" else "",
+    }
 
 
 enable_command = Alconna(
     "启用插件",
     Args["plugin_id", str],
     meta=CommandMeta(
-        "启用已安装的第三方插件；首次启用需要重启",
+        "启用已安装的第三方插件；首次启用时多数可直接加载",
         usage="启用插件 <插件ID>",
         example="/启用插件 example",
         compact=False,
@@ -454,15 +521,18 @@ async def _index() -> RegistryIndex | str:
 
 @command.on(market_command)
 @require(Permission.Master)
-async def market(keyword: Query[str] = Query("keyword")):
+async def market(
+    keyword: Query[str] = Query("keyword"), *, render_service: RenderService
+):
     index = await _index()
     if isinstance(index, str):
         return index
-    hits = index.search(keyword.result if keyword.available else "")
+    word = keyword.result if keyword.available else ""
+    hits = index.search(word)
     if not hits:
         return "插件目录里没有匹配的插件"
     installed = {r.plugin_id for r in get_plugin_manager().status()}
-    lines = []
+    lines, items = [], []
     for entry in hits[:_MARKET_LIMIT]:
         latest = compatible(entry)
         tags = "".join(
@@ -474,19 +544,53 @@ async def market(keyword: Query[str] = Query("keyword")):
             )
             if on
         )
+        chips = [_tier_chip(entry.tier)]
+        chips += [{"text": "已安装", "tone": "ok"}] if entry.id in installed else []
+        chips += [{"text": "不兼容", "tone": "warn"}] if latest is None else []
         version = latest.version if latest else ""
         summary = entry.description[:40]
         lines.append(f"{entry.id} {entry.name} {version}{tags} — {summary}".strip())
+        items.append(
+            {
+                "icon": _icon(entry.id),
+                "name": entry.name,
+                "id": entry.id,
+                "chips": chips,
+                "description": entry.description,
+                "meta": "作者：" + ("、".join(entry.authors) or "未署名"),
+                "note": None,
+                "note_tone": "",
+                "version": version,
+                "version_label": "可安装" if latest else "无可用版本",
+            }
+        )
     more = (
         f"（共 {len(hits)} 个，只显示前 {_MARKET_LIMIT} 个）"
         if len(hits) > _MARKET_LIMIT
         else ""
     )
-    return (
+    text = (
         f"插件目录{more}：\n"
         + "\n".join(lines)
         + "\n/插件详情 <ID> 查看详情，/安装插件 <ID> 安装"
     )
+    data = {
+        "eyebrow": "TENKO · PLUGIN MARKET",
+        "title": "插件市场",
+        "subtitle": f"搜索「{word}」" if word else "插件目录 tenko-registry",
+        "stats": [
+            (len(hits), "个插件"),
+            (sum(p.tier == "official" for p in hits), "官方"),
+            (sum(compatible(p) is not None for p in hits), "可安装"),
+        ],
+        "section": "目录插件",
+        "section_note": "官方与可安装的排在前面",
+        "items": items,
+        "more": more.strip("（）"),
+        "alert": None,
+        "foot": "/插件详情 <ID> 查看详情 · /安装插件 <ID> 安装",
+    }
+    return await render_or_text(render_service, "plugins.html", data, text)
 
 
 def format_detail(entry: RegistryPlugin, installed: str | None) -> str:
@@ -521,9 +625,63 @@ def format_detail(entry: RegistryPlugin, installed: str | None) -> str:
     return "\n".join(lines)
 
 
+def detail_data(entry: RegistryPlugin, installed: str | None) -> dict[str, object]:
+    """``plugin_detail.html`` 的渲染数据，与 :func:`format_detail` 内容一致。"""
+
+    source = (
+        f"PyPI {entry.package}"
+        if entry.source_type == "pypi"
+        else f"Git {entry.git_url}"
+        + (f"（{entry.subdirectory}）" if entry.subdirectory else "")
+    )
+    latest = compatible(entry)
+    fields = [("作者", "、".join(entry.authors) or "未署名"), ("来源", source)]
+    fields += [("主页", entry.homepage)] if entry.homepage else []
+    fields += [("许可证", entry.license)] if entry.license else []
+    fields += [("标签", "、".join(entry.tags))] if entry.tags else []
+    versions = []
+    for item in entry.versions[:5]:
+        reason = why_incompatible(item)
+        versions.append(
+            {
+                "version": item.version,
+                "state": reason or "可安装",
+                "tone": "warn" if reason else "ok",
+                "installed": item.version == installed,
+            }
+        )
+    if latest:
+        state = f"可安装 {latest.version}"
+    elif entry.versions:
+        state = f"不能安装：{why_incompatible(entry.versions[0])}"
+    else:
+        state = "目录里还没有版本"
+    return {
+        "item": {
+            "id": entry.id,
+            "name": entry.name,
+            "icon": _icon(entry.id),
+            "tier_label": _TIER[entry.tier],
+            "description": entry.description,
+            "latest": latest.version if latest else None,
+            "installed": installed,
+            "state": state,
+        },
+        "fields": fields,
+        "versions": versions,
+        "foot": (
+            f"/安装插件 {entry.id} 安装"
+            if not installed
+            else "已是可安装的最新版本"
+            if latest is None or installed == latest.version
+            else f"/更新插件 {entry.id} 更新到 {latest.version}"
+        ),
+    }
+
+
 @command.on(detail_command)
 @require(Permission.Master)
-async def detail(plugin_id: Match[str]):
+async def detail(plugin_id: Match[str], *, render_service: RenderService):
     index = await _index()
     if isinstance(index, str):
         return index
@@ -535,7 +693,13 @@ async def detail(plugin_id: Match[str]):
     row = next(
         (r for r in get_plugin_manager().status() if r.plugin_id == entry.id), None
     )
-    return format_detail(entry, row.version if row else None)
+    installed = row.version if row else None
+    return await render_or_text(
+        render_service,
+        "plugin_detail.html",
+        detail_data(entry, installed),
+        format_detail(entry, installed),
+    )
 
 
 async def enforce_blocklist(index: RegistryIndex) -> list[str]:

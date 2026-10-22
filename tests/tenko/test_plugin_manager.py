@@ -397,3 +397,38 @@ async def test_blocked_plugins_are_disabled_but_kept(
     assert stopped == ["<evil>：恶意代码"]
     assert runtime.read_state()["enabled"] == ["fine"]
     assert "evil" in {i.name for i in runtime.discover()}  # 只停用，不卸载
+
+
+@pytest.mark.parametrize("loaded_plugin", ["plugin_manager"], indirect=True)
+def test_plugin_detail_data_renders_with_template(loaded_plugin) -> None:
+    from tenko.host.registry import parse_index
+    from tenko.render import RenderService
+
+    def version(v: str, api: str) -> dict:
+        pin = {"sha256": ["a" * 64]}
+        return {"version": v, "pin": pin, "requires_api": api, "valid": True}
+
+    index = parse_index(
+        {
+            "schema_version": 1,
+            "plugins": {
+                "foo": {
+                    "name": "Foo",
+                    "tier": "official",
+                    "source": {"type": "pypi", "package": "tenko-plugin-foo"},
+                    "versions": [
+                        version("0.2.0", ">=99"),  # 宿主装不了
+                        version("0.1.0", f">={API_VERSION}"),
+                    ],
+                }
+            },
+        }
+    )
+    entry = index.find("foo")
+
+    # 模板用 StrictUndefined，数据少一个键就会退回文字，这里直接渲染 HTML 兜住。
+    html = RenderService()._render_html(
+        "plugin_detail.html", loaded_plugin.detail_data(entry, "0.1.0")
+    )
+
+    assert "可安装 0.1.0" in html and "已是可安装的最新版本" in html

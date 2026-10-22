@@ -1,0 +1,54 @@
+{% extends "_base.html" %}
+{#- 插件目录里单个插件的详情：简介、来源等信息，以及最近版本能否装在当前宿主上。 #}
+
+{% block style %}
+  .title { display: flex; align-items: center; gap: 20px; margin: 14px 0 12px; }
+  .title .ico { width: 72px; height: 72px; border-radius: 19px; }
+  .title .ico img { width: 36px; height: 36px; }
+  .title .h1 { margin: 0; font-size: {{ 64 if item.name | length <= 4 else 46 }}px; }
+  .stats b.cn { font-family: "SC"; font-size: 30px; font-weight: 700; line-height: 1.45; }
+
+  .intro { font-size: 15px; line-height: 1.8; opacity: .88; letter-spacing: .03em; white-space: pre-line; }
+  .fld { display: grid; grid-template-columns: 72px 1fr; gap: 14px; padding: 6px 0; font-size: 13.5px; line-height: 1.7; }
+  .fld .k { opacity: .55; letter-spacing: .08em; }
+  .fld .v { opacity: .9; word-break: break-all; }
+  .ver { display: grid; grid-template-columns: 150px 1fr; gap: 14px; align-items: baseline; padding: 10px 0;
+    border-top: 1px solid rgba(255,255,255,.08); }
+  .ver:first-child { border-top: 0; }
+  .ver .n { font-family: "Cat"; font-size: 20px; font-weight: 600; }
+  .ver .s { font-size: 13px; letter-spacing: .04em; opacity: .85; }
+  .ver .s.ok { color: #b9f2cc; }
+  .ver .s.warn { color: #ffb4a8; }
+  .ver .s .tag { font-size: 11px; padding: 0 6px; margin-left: 8px; border-radius: 4px; background: rgba(255,255,255,.16); color: #fff; }
+{% endblock %}
+
+{% block hero_copy %}
+  <div class="eyebrow">TENKO · {{ item.tier_label }}</div>
+  <div class="title"><div class="ico"><img src="{{ item.icon }}" alt=""></div><div class="h1">{{ item.name }}</div></div>
+  <div class="sub">{{ item.id }}</div>
+  <div class="stats">
+    <div{% if not item.latest %} class="dim"{% endif %}><b>{{ item.latest or "—" }}</b>可安装版本</div>
+    <div{% if not item.installed %} class="dim"{% endif %}><b>{{ item.installed or "—" }}</b>已安装</div>
+  </div>
+{% endblock %}
+
+{% block content %}
+  {%- if item.description %}
+  <div class="sec"><div class="sh"><span class="t">简介</span></div><div class="intro">{{ item.description }}</div></div>
+  {%- endif %}
+  <div class="sec"><div class="sh"><span class="t">信息</span></div>
+  {%- for label, value in fields %}
+    <div class="fld"><span class="k">{{ label }}</span><span class="v">{{ value }}</span></div>
+  {%- endfor %}
+  </div>
+  <div class="sec"><div class="sh"><span class="t">版本</span><span class="who">{{ item.state }}</span></div>
+  {%- for version in versions %}
+    <div class="ver"><span class="n">{{ version.version }}</span>
+      <span class="s {{ version.tone }}">{{ version.state }}{% if version.installed %}<span class="tag">已安装</span>{% endif %}</span></div>
+  {%- else %}
+    <div class="empty">目录里还没有版本</div>
+  {%- endfor %}
+  </div>
+{% endblock %}
+
+{% block foot_note %}{{ foot }}{% endblock %}
