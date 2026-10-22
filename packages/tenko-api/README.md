@@ -1,6 +1,6 @@
 # tenko-api
 
-[Tenko](https://github.com/g1331/tenko) 第三方插件使用的稳定宿主接口。
+[Tenko](https://github.com/g1331/tenko) 扩展插件使用的稳定宿主接口。
 
 插件依赖它，而不是依赖 `tenko` 本体：`tenko-api` 没有任何运行时依赖，
 只是转发到正在运行的 Tenko 宿主，因此不会影响插件自己的依赖解析。插件声明
