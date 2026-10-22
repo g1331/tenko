@@ -710,3 +710,17 @@ def test_activity_counts_messages_per_minute_and_fills_gaps() -> None:
     metrics.record_sent(**sent, channel_id="1", text="b")
 
     assert metrics.activity(4) == [(0, 0), (0, 2), (0, 0), (0, 1)]
+
+
+def test_send_log_text_unwraps_standalone_message_elements() -> None:
+    # 复读插件把回复包在 <message> 里避开自动引用；日志曾经只显示 "<message/>"。
+    from satori.element import Emoji, Image, Message, Text
+
+    from tenko.host.metrics import _display
+
+    repeated = MessageChain([Message(content=[Text("今天死了2万个薯条"), Emoji("5")])])
+    assert _display(repeated) == '今天死了2万个薯条<emoji id="5"/>'
+    # base64 图片仍只显示占位，不把整段数据写进日志。
+    assert (
+        _display(MessageChain([Image(src="data:image/png;base64,AAAA")])) == "<image/>"
+    )

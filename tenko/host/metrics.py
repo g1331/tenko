@@ -8,9 +8,10 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import datetime
 
-from arclet.entari import SendResponse
+from arclet.entari import MessageChain, SendResponse
 from arclet.entari.logger import escape_tag, log
 import arclet.letoderea as le
+from satori.element import Message
 
 from ..context import MessageContext
 from .chat_log import chat_log
@@ -255,9 +256,7 @@ class MessageMetrics:
             chat_type = context.chat_type
             channel_id = context.channel_id
 
-        message = getattr(response, "message", "")
-        display = getattr(message, "display", None)
-        text = display() if callable(display) else str(message)
+        text = _display(getattr(response, "message", ""))
         result = getattr(response, "result", ())
         try:
             result_items = tuple(result or ())
@@ -291,6 +290,24 @@ def configure_message_metrics(buffer_size: int) -> MessageMetrics:
     return message_metrics
 
 
+def _display(message: object) -> str:
+    """出站消息的日志文本。
+
+    ``<message>`` 只是“单独成条”的包装（复读等插件用它避开自动引用），``display()``
+    不展开它，日志里只剩 ``<message/>``；这里展开子元素再显示。
+    """
+
+    if isinstance(message, MessageChain):
+        return "".join(
+            _display(MessageChain(element.children))
+            if isinstance(element, Message)
+            else MessageChain([element]).display()
+            for element in message
+        )
+    display = getattr(message, "display", None)
+    return display() if callable(display) else str(message)
+
+
 def _send_scene(event: SendResponse) -> str:
     channel = getattr(getattr(event.session, "event", None), "channel", None)
     if channel is not None and channel.id == event.channel and channel.name:
@@ -311,7 +328,7 @@ async def _record_entari_send(event: SendResponse) -> None:
     user = getattr(getattr(account, "self_info", None), "user", None)
     name = getattr(user, "name", None) or account.self_id
     # bot 的发言用青色与收到的消息区分；颜色只作用于终端，文件和 WebUI 日志是纯文本。
-    text = f"{name}({account.self_id}) -> {event.message.display()!r}"
+    text = f"{name}({account.self_id}) -> {_display(event.message)!r}"
     log.message.opt(colors=True).info(
         f"{escape_tag(_send_scene(event))} <c>{escape_tag(text)}</c>"
     )
