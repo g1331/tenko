@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import secrets
 from collections.abc import Callable
 from dataclasses import dataclass, field
@@ -24,6 +25,17 @@ from .config import OneBotConfig
 
 # Server 仍对外提供 Satori HTTP API（账号调用平台接口走这里），路径固定即可。
 _SATORI_PATH = "satori"
+
+
+def _hide_local_api_access(record: logging.LogRecord) -> bool:
+    """隐藏本进程账号调用 Satori API 的访问日志：每次发消息都有一行，内容另有消息日志。"""
+
+    args = record.args if isinstance(record.args, tuple) else ()
+    return not (
+        len(args) >= 3
+        and str(args[0]).startswith(("127.0.0.1:", "::1:"))
+        and str(args[2]).startswith(f"/{_SATORI_PATH}/")
+    )
 
 
 @dataclass(eq=False)
@@ -194,6 +206,7 @@ class OneBotConnection:
 
         manager.add_component(self.server.asgi_service)
         manager.add_component(self.server)
+        logging.getLogger("uvicorn.access").addFilter(_hide_local_api_access)
 
     def attach(self, app: App, manager: Launart) -> None:
         """让适配器事件直接进入 ``app``。"""

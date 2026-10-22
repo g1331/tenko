@@ -9,6 +9,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 
 from arclet.entari import SendResponse
+from arclet.entari.logger import log
 import arclet.letoderea as le
 
 from ..context import MessageContext
@@ -288,8 +289,17 @@ def configure_message_metrics(buffer_size: int) -> MessageMetrics:
     return message_metrics
 
 
+def _send_scene(event: SendResponse) -> str:
+    channel = getattr(getattr(event.session, "event", None), "channel", None)
+    if channel is not None and channel.id == event.channel and channel.name:
+        return f"[{channel.name}({channel.id})]"
+    return f"[{event.channel}]"
+
+
 @le.on(SendResponse)
 async def _record_entari_send(event: SendResponse) -> None:
-    # Entari 的 Session.send 在 action 成功后发布 SendResponse；插件发送
-    # 不会经过 Account.protocol.send，因此在这里补齐出站统计和取证日志。
+    # Entari 的每条发送（Session.send、ActionService、account.protocol）都在成功后
+    # 发布 SendResponse；在这里补齐出站统计和取证日志。
     message_metrics.record_send_response(event)
+    # 与 Entari 记录收到消息的 “[群名(群号)] 昵称(QQ) -> 内容” 对应。
+    log.message.info(f"{_send_scene(event)} <- {event.message.display()!r}")

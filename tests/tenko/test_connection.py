@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
@@ -38,3 +39,26 @@ async def test_events_wait_until_blocking_and_then_go_through_app_post() -> None
     manager.status.stage = "blocking"
     await asyncio.sleep(0.01)
     client.post.assert_awaited_once_with(event, connection.server.network)
+
+
+def test_only_local_satori_api_access_lines_are_hidden() -> None:
+    from tenko.connection import _hide_local_api_access
+
+    def access(client: str, path: str) -> logging.LogRecord:
+        return logging.LogRecord(
+            "uvicorn.access",
+            logging.INFO,
+            "",
+            0,
+            '%s - "%s %s HTTP/%s" %d',
+            (client, "POST", path, "1.1", 200),
+            None,
+        )
+
+    assert not _hide_local_api_access(
+        access("127.0.0.1:4339", "/satori/v1/message.create")
+    )
+    assert not _hide_local_api_access(access("::1:4339", "/satori/v1/message.create"))
+    # 外部访问内部接口、以及 WebUI 等其他路径照常记录。
+    assert _hide_local_api_access(access("8.8.8.8:4339", "/satori/v1/message.create"))
+    assert _hide_local_api_access(access("127.0.0.1:4339", "/webui/api/overview"))
