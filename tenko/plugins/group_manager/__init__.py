@@ -4,6 +4,7 @@ import asyncio
 import inspect
 from collections.abc import Mapping
 from dataclasses import dataclass, replace
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from arclet.alconna import Alconna, Args, CommandMeta, MultiVar, Option
@@ -19,6 +20,7 @@ from tenko.host.actions import action_service
 from tenko.host.accounts import account_registry
 from tenko.context import MessageContext
 from tenko.host.guards import group_only, private_only, require
+from tenko.host.inbox import InboxItem, inbox
 from tenko.host.perm import Permission, PermissionChecker
 from tenko.host.ratelimit import rate_limit_service
 from tenko.plugins._common import NotifyGroupConfig, list_data, render_or_text
@@ -69,7 +71,8 @@ def _dispose_invite_state() -> None:
     for task in tuple(invite_expiry_tasks.values()):
         task.cancel()
     invite_expiry_tasks.clear()
-    pending_invites.clear()
+    for pending in tuple(pending_invites.values()):
+        _forget_invite(pending)
 
 
 collect_disposes(_dispose_invite_state)
@@ -252,6 +255,14 @@ def _cancel_invite_expiry(request_id: str) -> None:
         task.cancel()
 
 
+def _forget_invite(pending: PendingInvite) -> None:
+    pending_invites.pop(pending.request_id, None)
+    _cancel_invite_expiry(pending.request_id)
+    inbox.discard(
+        "group", str(getattr(pending.account, "self_id", "")), pending.request_id
+    )
+
+
 async def _expire_invite(request_id: str) -> None:
     try:
         await asyncio.sleep(INVITE_TIMEOUT_SECONDS)
@@ -271,8 +282,8 @@ async def _expire_invite(request_id: str) -> None:
         logger.exception("Failed to auto-reject expired invite {}", request_id)
         invite_expiry_tasks.pop(request_id, None)
         return
-    pending_invites.pop(request_id, None)
     invite_expiry_tasks.pop(request_id, None)
+    _forget_invite(pending)
     await _send_reviewer_notice(
         pending,
         f"入群邀请 {request_id} 已超过 1 小时，已自动拒绝。",
@@ -355,6 +366,22 @@ async def invited_event(event: GuildRequestEvent):
     invite_expiry_tasks[pending.request_id] = asyncio.create_task(
         _expire_invite(pending.request_id)
     )
+    inbox.add(
+        InboxItem(
+            kind="group",
+            request_id=pending.request_id,
+            account=pending.account,
+            user_id=pending.inviter_id,
+            user_name=pending.inviter_name,
+            comment=pending.comment,
+            decide=lambda approved, comment: _decide_from_panel(
+                pending, approved, comment
+            ),
+            group_id=pending.group_id,
+            group_name=pending.group_name,
+            expires_at=datetime.now(UTC) + timedelta(seconds=INVITE_TIMEOUT_SECONDS),
+        )
+    )
     await _send_reviewer_notice(pending, _invite_notice(pending))
     logger.info(
         "Recorded pending group invite: request={} group={} inviter={}",
@@ -362,6 +389,15 @@ async def invited_event(event: GuildRequestEvent):
         pending.group_id,
         pending.inviter_id,
     )
+
+
+async def _decide_from_panel(
+    pending: PendingInvite, approved: bool, comment: str
+) -> None:
+    # 面板只对已登录的 Master 开放，权限在 WebUI 层校验。
+    default = "已同意您的邀请~" if approved else "BOT拒绝了你的入群邀请!"
+    await _apply_invite_decision(pending, approved, comment or default, system=True)
+    _forget_invite(pending)
 
 
 def _pending_invite(request_id: str) -> PendingInvite | None:
@@ -408,8 +444,7 @@ async def approve_invite(session: Session, request_id: Match[str]):
         logger.exception("Failed to approve invite {}", pending.request_id)
         await report_action_error(error, session)
         return "处理邀请失败，已通知开发者"
-    pending_invites.pop(pending.request_id, None)
-    _cancel_invite_expiry(pending.request_id)
+    _forget_invite(pending)
     return f"已同意邀请 {pending.request_id}"
 
 
@@ -451,8 +486,7 @@ async def reject_invite(
         logger.exception("Failed to reject invite {}", pending.request_id)
         await report_action_error(error, session)
         return "处理邀请失败，已通知开发者"
-    pending_invites.pop(pending.request_id, None)
-    _cancel_invite_expiry(pending.request_id)
+    _forget_invite(pending)
     return f"已拒绝邀请 {pending.request_id}"
 
 

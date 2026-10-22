@@ -20,6 +20,7 @@ from tenko.host.friend_requests import (
     should_approve,
 )
 from tenko.host.guards import private_only, require
+from tenko.host.inbox import InboxItem, inbox
 from tenko.host.perm import Permission, PermissionChecker
 from tenko.host.perm import master_id_for_account
 
@@ -62,7 +63,7 @@ def _notice(user_id: str, name: str, comment: str, request_id: str, reason: str)
         f"申请人: {name}({user_id})\n"
         f"验证消息: {comment or '（无）'}\n"
         f"请求 ID: {request_id}\n"
-        "请在 QQ 的新朋友/好友通知中手动同意或拒绝；"
+        "请在 WebUI 的待处理页或 QQ 的新朋友通知中同意或拒绝；"
         "发送 /好友申请 查看或修改处理策略。"
     )
 
@@ -100,6 +101,21 @@ async def friend_request_event(event: FriendRequestEvent):
             logger.info("Approved friend request {} from {}", request_id, user_id)
             return
 
+    async def decide(approved: bool, comment: str) -> None:
+        del comment  # 好友申请的拒绝不带理由
+        await action_service.approve_friend_request(account, request_id, approved)
+
+    inbox.add(
+        InboxItem(
+            kind="friend",
+            request_id=request_id,
+            account=account,
+            user_id=user_id,
+            user_name=str(event.user.name or user_id),
+            comment=str(event.message.content or ""),
+            decide=decide,
+        )
+    )
     master_id = master_id_for_account(account, permission_checker)
     if master_id is None:
         logger.warning(

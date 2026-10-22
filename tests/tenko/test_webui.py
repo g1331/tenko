@@ -467,6 +467,7 @@ async def test_webui_overview_uses_status_data_metrics_and_counts(
             "activity": [[0, 0]] * 60,
             "online_accounts": 1,
             "active_groups": expected_status["active_groups"],
+            "inbox": 0,
             "messages": {
                 "received_count": expected_status["metrics"]["received_count"],
                 "sent_count": expected_status["metrics"]["sent_count"],
@@ -1015,3 +1016,49 @@ async def test_webui_features_apply_plugin_declared_default_off(tenko_database):
     (row,) = response.json()["data"]["features"]
     assert row["source"] == "external"
     assert row["groups"] == {"40001": False, "40002": True}
+
+
+@pytest.mark.asyncio
+async def test_inbox_decisions_run_the_plugin_callback(tenko_database):
+    from tenko.host.actions import ActionServiceError
+    from tenko.host.inbox import InboxItem, inbox
+
+    decisions = []
+
+    async def record(approved, comment):
+        decisions.append((approved, comment))
+
+    async def expired(approved, comment):
+        raise ActionServiceError("请求已失效")
+
+    account = SimpleNamespace(self_id="10001", platform="onebot")
+    friend = inbox.add(
+        InboxItem("friend", "f-1", account, "20001", "甲", "你好", record)
+    )
+    group = inbox.add(InboxItem("group", "g-1", account, "20002", "乙", "", expired))
+    server, _ = _service(WebUIConfig(enabled=True))
+    url = "/webui/api/manage/inbox"
+
+    async with _session_client(server.app) as client:
+        listed = (await client.get(url)).json()["data"]["items"]
+        unconfirmed = await client.post(
+            f"{url}/{friend.id}", json={"action": "approve"}
+        )
+        approved = await client.post(
+            f"{url}/{friend.id}",
+            json={"action": "reject", "confirm": True, "comment": " 不认识 "},
+        )
+        failed = await client.post(
+            f"{url}/{group.id}", json={"action": "approve", "confirm": True}
+        )
+        kept = len(inbox)
+        dismissed = await client.post(
+            f"{url}/{group.id}", json={"action": "dismiss", "confirm": True}
+        )
+
+    assert [item["user_name"] for item in listed] == ["甲", "乙"]
+    assert unconfirmed.status_code == 400
+    assert approved.status_code == 200 and decisions == [(False, "不认识")]
+    # 平台动作失败时请求留在列表里，可以重试或忽略。
+    assert failed.status_code == 409 and "请求已失效" in failed.text and kept == 1
+    assert dismissed.json()["data"]["items"] == [] and len(decisions) == 1

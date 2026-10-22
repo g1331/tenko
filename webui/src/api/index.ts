@@ -8,6 +8,8 @@ import type {
   AccountUpdateResult,
   GroupResponseBody,
   GroupResponseResult,
+  InboxAction,
+  InboxData,
   AuthState,
   CoreConfigData,
   FeaturesData,
@@ -96,6 +98,11 @@ export const api = {
       request<CoreConfigData>('/manage/config', { body: { values } }),
     settings: () => request<SettingsData>('/manage/settings'),
     saveSettings: (body: SettingsBody) => request<SettingsData>('/manage/settings', { body }),
+    inbox: () => request<InboxData>('/manage/inbox'),
+    inboxAction: (id: string, action: InboxAction, comment = '') =>
+      request<InboxData>(`/manage/inbox/${segment(id)}`, {
+        body: { action, confirm: true, comment },
+      }),
     logs: (query: LogQuery = {}) => request<LogData>('/manage/logs', { query: { ...query } }),
   },
 }

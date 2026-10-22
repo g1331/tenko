@@ -65,6 +65,8 @@ export interface OverviewData {
   activity: [number, number][]
   online_accounts: number
   active_groups: number
+  /** 待处理的好友申请和群邀请数。 */
+  inbox: number
   messages: {
     received_count: number
     sent_count: number
@@ -502,3 +504,24 @@ export interface UpgradeStartBody {
   confirm: true
   drop_incompatible: boolean
 }
+
+/** 待处理的好友申请和群邀请；时间为 ISO 8601 UTC。 */
+export interface InboxItem {
+  id: string
+  kind: 'friend' | 'group'
+  platform: string
+  /** 收到请求的 bot 账号。 */
+  account_id: string
+  user_id: string | null
+  user_name: string
+  comment: string
+  group_id: string | null
+  group_name: string | null
+  created_at: string
+  /** 超时自动拒绝的时间；好友申请没有。 */
+  expires_at: string | null
+}
+export interface InboxData {
+  items: InboxItem[]
+}
+export type InboxAction = 'approve' | 'reject' | 'dismiss'

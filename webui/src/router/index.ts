@@ -39,6 +39,16 @@ export const router = createRouter({
           },
         },
         {
+          path: 'inbox',
+          name: 'inbox',
+          component: () => import('@/views/InboxView.vue'),
+          meta: {
+            title: '待处理',
+            subtitle: '需要你决定的好友申请和群邀请',
+            nav: { label: '待处理', short: '待处理', group: '管理' },
+          },
+        },
+        {
           path: 'accounts',
           name: 'accounts',
           component: () => import('@/views/AccountsView.vue'),

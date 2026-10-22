@@ -32,6 +32,7 @@ from tenko.host.actions import (
 )
 from tenko.host.accounts import AccountRegistry
 from tenko.host.guards import REQUIRES_ATTR
+from tenko.host.inbox import inbox
 from tenko.host.perm import Permission, PermissionChecker, PermissionRegistry
 from tenko.plugins._common import NotifyGroupConfig
 from tenko.host.action_errors import action_error_message
@@ -708,7 +709,7 @@ async def test_privileged_inviter_is_automatically_approved(loaded_plugin) -> No
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("loaded_plugin", ["group_manager"], indirect=True)
-async def test_unprivileged_inviter_is_recorded_for_command_review(
+async def test_unprivileged_inviter_is_recorded_for_command_and_panel_review(
     loaded_plugin,
 ) -> None:
     protocol = InviteProtocol()
@@ -723,6 +724,12 @@ async def test_unprivileged_inviter_is_recorded_for_command_review(
         assert pending.group_id == "40001"
         assert pending.inviter_id == "20001"
         assert protocol.approvals == []
+
+        (item,) = inbox.items()
+        assert (item.kind, item.group_id, item.user_id) == ("group", "40001", "20001")
+        await item.decide(True, "")
+        assert protocol.approvals == [("request-1", True, "已同意您的邀请~")]
+        assert loaded_plugin.pending_invites == {} and len(inbox) == 0
     finally:
         await clear_pending_invites(loaded_plugin)
 

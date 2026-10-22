@@ -12,6 +12,7 @@ from test_perm_manager import make_private_session
 from tenko.host.accounts import AccountRegistry
 from tenko.host.actions import ActionService
 from tenko.host.guards import REQUIRES_ATTR
+from tenko.host.inbox import inbox
 from tenko.host.perm import Permission, PermissionChecker, PermissionRegistry
 
 MASTER, ADMIN, STRANGER = "90001", "90002", "20001"
@@ -102,6 +103,8 @@ async def test_friend_request_decision_per_mode_and_role(
     assert account.protocol.approvals == ([("flag-1", True)] if approved else [])
     messages = account.protocol.private_messages
     assert [user for user, _ in messages] == ([MASTER] if notified else [])
+    # 留给 Master 处理的申请同时出现在面板的待处理列表里。
+    assert len(inbox) == int(notified)
     if notified:
         text = messages[0][1]
         assert applicant in text and "我是群友" in text and "flag-1" in text

@@ -46,6 +46,7 @@ from .plugins import PluginMarket
 from ..host.metrics import MessageMetrics, message_metrics
 from . import core_config
 from .live import MAX_STREAMS, TOPICS, LiveStreams
+from ..host.inbox import Inbox, inbox as default_inbox
 from ..host.accounts import AccountRegistry, account_reference, account_registry
 from ..host.features import FeatureService, feature_service as default_feature_service
 from ..host.plugins.runtime import PluginRuntime
@@ -188,6 +189,7 @@ class WebUIService(Service):
         management: AccountManagement | None = None,
         connection: Any | None = None,
         tenko_config: TenkoConfig | None = None,
+        inbox: Inbox = default_inbox,
     ) -> None:
         super().__init__()
         self.server = server
@@ -201,6 +203,7 @@ class WebUIService(Service):
         self.management = management
         self.connection = connection
         self.tenko_config = tenko_config
+        self.inbox = inbox
         self.auth = WebUIAuth()
         self._write_lock = management.lock if management is not None else asyncio.Lock()
         self.logs = LogReader(self._secrets)
@@ -270,6 +273,8 @@ class WebUIService(Service):
             ("/api/manage/settings", ["GET", "POST"], self.settings),
             ("/api/manage/config", ["GET", "POST"], self.core_config),
             ("/api/manage/logs", ["GET"], self.log_view),
+            ("/api/manage/inbox", ["GET"], self.inbox_view),
+            ("/api/manage/inbox/{id}", ["POST"], self.inbox_action),
             ("/api/events", ["GET"], self.live_events),
         )
         self.market = PluginMarket(self)
@@ -332,6 +337,7 @@ class WebUIService(Service):
             "activity": [list(pair) for pair in self.metrics.activity()],
             "online_accounts": online_accounts,
             "active_groups": status_data["active_groups"],
+            "inbox": len(self.inbox),
             "messages": {
                 "received_count": metrics["received_count"],
                 "sent_count": metrics["sent_count"],
@@ -972,6 +978,55 @@ class WebUIService(Service):
             }
 
         return await self._manage(request, change)
+
+    def _inbox_data(self) -> dict[str, Any]:
+        return {
+            "items": [
+                {
+                    "id": item.id,
+                    "kind": item.kind,
+                    "platform": item.platform,
+                    "account_id": item.account_id,
+                    "user_id": item.user_id,
+                    "user_name": item.user_name,
+                    "comment": item.comment,
+                    "group_id": item.group_id,
+                    "group_name": item.group_name,
+                    "created_at": item.created_at.isoformat(),
+                    "expires_at": item.expires_at.isoformat()
+                    if item.expires_at
+                    else None,
+                }
+                for item in self.inbox.items()
+            ]
+        }
+
+    async def inbox_view(self, request: Request) -> JSONResponse:
+        del request
+        return await self._read("inbox", self._inbox_data)
+
+    async def inbox_action(self, request: Request) -> JSONResponse:
+        async def action():
+            body = await read_json(request)
+            decision = body.get("action")
+            comment = body.get("comment", "")
+            if (
+                set(body) - {"action", "confirm", "comment"}
+                or decision not in {"approve", "reject", "dismiss"}
+                or body.get("confirm") is not True
+            ):
+                raise ValueError("请确认要执行的操作")
+            if not isinstance(comment, str) or len(comment) > 100:
+                raise ValueError("理由必须是 100 字以内的文本")
+            item = self.inbox.get(request.path_params["id"])
+            request.state.webui_action = f"inbox-{decision}"
+            # 忽略只从列表移除，平台上的请求保持原样。
+            if decision != "dismiss":
+                await item.decide(decision == "approve", comment.strip())
+            self.inbox.discard(item.kind, item.account_id, item.request_id)
+            return self._inbox_data()
+
+        return await self._manage(request, action)
 
     async def settings(self, request: Request) -> JSONResponse:
         async def action():

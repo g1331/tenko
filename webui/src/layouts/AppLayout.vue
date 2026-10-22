@@ -3,6 +3,7 @@ import { computed, type Component } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import {
   Connection,
+  Message,
   Odometer,
   Setting,
   Switch,
@@ -27,6 +28,7 @@ const activeNav = computed(() => `/${route.path.split('/')[1] ?? ''}`)
 
 const icons: Record<string, Component> = {
   overview: Odometer,
+  inbox: Message,
   accounts: User,
   plugins: Connection,
   switches: Switch,
@@ -41,6 +43,7 @@ interface NavItem {
   short: string
   icon: Component
   group: string
+  badge: number
 }
 // 路由表顺序即导航顺序。
 const navItems = computed<NavItem[]>(() =>
@@ -53,6 +56,7 @@ const navItems = computed<NavItem[]>(() =>
       short: item.meta.nav!.short,
       icon: icons[item.name as string] ?? Odometer,
       group: item.meta.nav!.group,
+      badge: item.name === 'inbox' ? (overview.data.value?.inbox ?? 0) : 0,
     })),
 )
 const groups = computed(() =>
@@ -84,6 +88,7 @@ const version = computed(() => {
           <el-menu-item v-for="item in group.items" :key="item.path" :index="item.path">
             <el-icon><component :is="item.icon" /></el-icon>
             <span>{{ item.label }}</span>
+            <span v-if="item.badge" class="nav-badge">{{ item.badge }}</span>
           </el-menu-item>
         </el-menu-item-group>
       </el-menu>
@@ -110,6 +115,7 @@ const version = computed(() => {
       >
         <el-menu-item v-for="item in navItems" :key="item.path" :index="item.path">
           {{ item.short }}
+          <span v-if="item.badge" class="nav-badge">{{ item.badge }}</span>
         </el-menu-item>
       </el-menu>
 
@@ -124,6 +130,22 @@ const version = computed(() => {
 </template>
 
 <style scoped>
+.nav-badge {
+  min-width: 18px;
+  height: 18px;
+  margin-left: auto;
+  padding: 0 5px;
+  border-radius: 9px;
+  background: var(--el-color-danger);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 18px;
+  text-align: center;
+}
+.mobile-nav .nav-badge {
+  margin-left: 4px;
+}
 .app-frame {
   display: grid;
   width: 100%;

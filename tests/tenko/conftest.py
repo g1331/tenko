@@ -3,10 +3,21 @@ from webui_browser_support import browser, open_panel  # noqa: F401
 
 from pathlib import Path
 
+import pytest
 import pytest_asyncio
 from arclet.entari.config import EntariConfig
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from sqlalchemy.pool import StaticPool
+
+
+@pytest.fixture(autouse=True)
+def empty_inbox():
+    """待处理收件箱是进程级单例，每个测试结束后清空。"""
+
+    from tenko.host.inbox import inbox
+
+    yield
+    inbox._items.clear()
 
 
 @pytest_asyncio.fixture
