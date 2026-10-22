@@ -53,6 +53,7 @@ declare module 'vue' {
     ElTooltip: typeof import('element-plus/es')['ElTooltip']
     ExternalTag: typeof import('./components/ExternalTag.vue')['default']
     GithubLink: typeof import('./components/GithubLink.vue')['default']
+    GroupAvatar: typeof import('./components/GroupAvatar.vue')['default']
     PageContainer: typeof import('./components/PageContainer.vue')['default']
     PagePanel: typeof import('./components/PagePanel.vue')['default']
     ResourceBoundary: typeof import('./components/ResourceBoundary.vue')['default']

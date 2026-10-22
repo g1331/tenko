@@ -5,6 +5,7 @@ defineProps<{ name: string; code?: string; note?: string; dim?: boolean }>()
 
 <template>
   <li class="sw-item" :class="{ 'is-dim': dim }">
+    <slot name="lead" />
     <div class="sw-item-main">
       <span class="sw-item-name">{{ name }}<slot name="pills" /></span>
       <span v-if="code || note" class="sw-item-sub">
@@ -30,6 +31,7 @@ defineProps<{ name: string; code?: string; note?: string; dim?: boolean }>()
 }
 .sw-item-main {
   display: grid;
+  flex: 1;
   min-width: 0;
   gap: 3px;
 }

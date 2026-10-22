@@ -341,7 +341,7 @@ const emptyText = computed(() => {
   font-size: 12px;
 }
 .log-output {
-  height: clamp(300px, calc(100dvh - 340px), 720px);
+  height: max(300px, calc(100dvh - 280px));
   overflow: auto;
   margin-top: 8px;
   padding: 12px 14px;

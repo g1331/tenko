@@ -3,6 +3,7 @@ import { computed } from 'vue'
 import { Lock, Search } from '@element-plus/icons-vue'
 import PagePanel from '@/components/PagePanel.vue'
 import ExternalTag from '@/components/ExternalTag.vue'
+import GroupAvatar from '@/components/GroupAvatar.vue'
 import StatusTag from '@/components/StatusTag.vue'
 import { featureStatus, isSwitchable } from '@/composables/status'
 import type { FeatureInfo } from '@/api'
@@ -196,7 +197,7 @@ function onGlobal(mode: string | number | boolean | undefined) {
             color="var(--tk-ok-solid)"
           />
         </div>
-        <el-scrollbar v-if="visible.length" max-height="520px" class="sw-groups">
+        <div v-if="visible.length" class="sw-groups">
           <ul class="sw-items">
             <SwitchItem
               v-for="group in visible"
@@ -204,6 +205,7 @@ function onGlobal(mode: string | number | boolean | undefined) {
               :name="groupLabel(group)"
               :code="group.name ? group.id : undefined"
             >
+              <template #lead><GroupAvatar :id="group.id" :name="group.name" /></template>
               <StateText :on="isOn(feature, group.id)" />
               <el-switch
                 :model-value="isOn(feature, group.id)"
@@ -214,7 +216,7 @@ function onGlobal(mode: string | number | boolean | undefined) {
               />
             </SwitchItem>
           </ul>
-        </el-scrollbar>
+        </div>
         <p v-else class="sw-empty">没有符合条件的群</p>
       </template>
       <p v-else class="sw-note sw-note-top">{{ note }}</p>
@@ -264,7 +266,6 @@ function onGlobal(mode: string | number | boolean | undefined) {
   font-variant-numeric: tabular-nums;
 }
 .sw-groups {
-  height: auto; /* el-scrollbar 默认 height:100%，在被拉伸的卡片里会撑出空白 */
   border-top: 1px solid var(--tk-line);
 }
 .sw-groups :deep(.sw-item:first-child) {
@@ -290,9 +291,6 @@ function onGlobal(mode: string | number | boolean | undefined) {
   }
   .sw-bulk-actions {
     margin-left: 0;
-  }
-  .sw-groups :deep(.el-scrollbar__wrap) {
-    max-height: none !important;
   }
 }
 </style>

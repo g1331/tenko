@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 import { api, ApiError, type AccountSummary } from '@/api'
+import GroupAvatar from '@/components/GroupAvatar.vue'
 import PagePanel from '@/components/PagePanel.vue'
 import { numberText, platformText } from '@/composables/format'
 import { usePanelData } from '@/composables/usePanelData'
@@ -103,12 +104,17 @@ const setStrategy = (row: Row, value: string | number | boolean) =>
           <el-option label="定向" value="deterministic" />
         </el-select>
       </div>
-      <el-table :data="filtered" row-key="groupId" max-height="380" class="strategy-table">
+      <el-table :data="filtered" row-key="groupId" class="strategy-table">
         <template #empty>没有匹配的群</template>
         <el-table-column label="群" min-width="150">
           <template #default="{ row }">
-            <strong class="name">{{ row.groupName || row.groupId }}</strong>
-            <span v-if="row.groupName" class="tk-mono sub">{{ row.groupId }}</span>
+            <div class="group">
+              <GroupAvatar :id="row.groupId" :name="row.groupName" />
+              <div>
+                <strong class="name">{{ row.groupName || row.groupId }}</strong>
+                <span v-if="row.groupName" class="tk-mono sub">{{ row.groupId }}</span>
+              </div>
+            </div>
           </template>
         </el-table-column>
         <el-table-column label="绑定账号" min-width="110">
@@ -181,6 +187,11 @@ const setStrategy = (row: Row, value: string | number | boolean) =>
 .strategy-table :deep(th.el-table__cell) {
   font-size: 12px;
   letter-spacing: 0.04em;
+}
+.group {
+  display: flex;
+  align-items: center;
+  gap: 10px;
 }
 .name {
   display: block;

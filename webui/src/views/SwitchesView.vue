@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, nextTick } from 'vue'
 import ExternalTag from '@/components/ExternalTag.vue'
+import GroupAvatar from '@/components/GroupAvatar.vue'
 import PageContainer from '@/components/PageContainer.vue'
 import ResourceBoundary from '@/components/ResourceBoundary.vue'
 import StatusTag from '@/components/StatusTag.vue'
@@ -93,6 +94,7 @@ async function pickAndReveal(id: string) {
             @pick="pickAndReveal"
           >
             <template #row="{ item }">
+              <GroupAvatar :id="item.id" :name="item.name" />
               <span class="row-main">
                 <span class="row-name">{{ groupLabel(item) }}</span>
                 <span v-if="item.name" class="row-sub tk-mono">{{ item.id }}</span>
@@ -200,6 +202,7 @@ async function pickAndReveal(id: string) {
 }
 .row-main {
   display: grid;
+  flex: 1;
   min-width: 0;
   gap: 2px;
 }
