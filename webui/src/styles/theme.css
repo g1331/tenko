@@ -212,6 +212,11 @@ html.dark .el-tag--dark {
 }
 html {
   min-width: 320px;
+  /* 细滚动条、无箭头，颜色跟随主题（scrollbar-color 会继承）。 */
+  scrollbar-color: var(--tk-line-strong) transparent;
+}
+* {
+  scrollbar-width: thin;
 }
 body {
   min-height: 100vh;

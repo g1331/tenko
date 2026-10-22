@@ -511,6 +511,7 @@ async function send(content: ChatSendSegment[]) {
 .conversations {
   flex: 1;
   min-height: 0;
+  overflow-x: hidden;
   overflow-y: auto;
   padding: 6px;
 }
@@ -544,6 +545,7 @@ async function send(content: ChatSendSegment[]) {
 .conversation-body {
   display: grid;
   flex: 1;
+  grid-template-columns: minmax(0, 1fr);
   gap: 2px;
   min-width: 0;
 }
