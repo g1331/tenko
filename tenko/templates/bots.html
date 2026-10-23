@@ -1,0 +1,63 @@
+{% extends "_base.html" %}
+{#- 当前群绑定的 BOT：头像、昵称与账号、状态标签；右侧是状态。 #}
+
+{% block style %}
+  .rows { border-top: 1px solid rgba(255,255,255,.08); }
+  .row { display: grid; grid-template-columns: 64px 1fr auto; gap: 18px; padding: 16px 0; align-items: center;
+    border-bottom: 1px solid rgba(255,255,255,.08); }
+  .row.off { opacity: .55; }
+  .av { position: relative; width: 64px; height: 64px; }
+  .av img, .av .ph { width: 64px; height: 64px; border-radius: 50%; object-fit: cover; display: block;
+    border: 2px solid rgba(255,255,255,.22); box-shadow: 0 6px 16px rgba(0,0,0,.25); box-sizing: border-box; }
+  .av .ph { display: grid; place-items: center; background: rgba(255,255,255,.14); font-size: 24px; font-weight: 800; }
+  .av .dot { position: absolute; right: 1px; bottom: 1px; width: 15px; height: 15px; border-radius: 50%;
+    border: 3px solid #1b2142; box-sizing: border-box; background: #8b93ad; }
+  .av .dot.ok { background: #5fd38d; }
+  .av .dot.warn { background: #ffb15c; }
+  .nm { font-size: 19px; font-weight: 800; letter-spacing: .03em; }
+  .id { font-family: "Cat"; font-size: 15px; font-weight: 500; opacity: .6; letter-spacing: .06em; margin-top: 2px; }
+  .chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 7px; }
+  .chip { font-size: 11px; line-height: 18px; padding: 0 7px; border-radius: 5px; letter-spacing: .06em;
+    border: 1px solid rgba(255,255,255,.3); opacity: .8; }
+  .chip.accent { border-color: transparent; background: rgba(255,255,255,.18); font-weight: 700; opacity: 1; }
+  .state { text-align: right; white-space: nowrap; font-size: 16px; font-weight: 700; letter-spacing: .06em; }
+  .state small { display: block; font-size: 11px; font-weight: 400; opacity: .55; margin-top: 3px; letter-spacing: .04em; }
+  .state.ok { color: #b9f2cc; }
+  .state.warn { color: #ffcf9e; }
+{% endblock %}
+
+{% block hero_copy %}
+  <div class="eyebrow">TENKO · {{ group }}</div>
+  <div class="h1">BOT列表</div>
+  <div class="sub">{{ subtitle }}</div>
+  <div class="stats">
+  {%- for value, label in stats %}
+    <div{% if not value %} class="dim"{% endif %}><b>{{ value }}</b>{{ label }}</div>
+  {%- endfor %}
+  </div>
+{% endblock %}
+
+{% block content %}
+  <div class="sec"><div class="sh"><span class="t">本群 BOT</span><span class="who">{{ note }}</span></div>
+    <div class="rows">
+    {%- for bot in bots %}
+      <div class="row{% if bot.tone == 'off' %} off{% endif %}">
+        <div class="av">
+          {%- if bot.avatar %}<img src="{{ bot.avatar }}" alt="">{% else %}<div class="ph">{{ bot.initial }}</div>{% endif %}
+          <span class="dot {{ bot.tone }}"></span>
+        </div>
+        <div>
+          <div class="nm">{{ bot.name }}</div>
+          {%- if bot.name != bot.id %}<div class="id">{{ bot.id }}</div>{% endif %}
+          {%- if bot.chips %}
+          <div class="chips">{% for chip in bot.chips %}<span class="chip {{ chip.tone }}">{{ chip.text }}</span>{% endfor %}</div>
+          {%- endif %}
+        </div>
+        <div class="state {{ bot.tone }}">{{ bot.state }}{% if bot.state_note %}<small>{{ bot.state_note }}</small>{% endif %}</div>
+      </div>
+    {%- endfor %}
+    </div>
+  </div>
+{% endblock %}
+
+{% block foot_note %}/设定响应 [random|deterministic] · /指定BOT &lt;账号&gt;{% endblock %}

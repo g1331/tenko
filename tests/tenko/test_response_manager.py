@@ -94,24 +94,10 @@ def make_query(path: str, result):
 
 
 @pytest.mark.parametrize("loaded_plugin", ["response_manager"], indirect=True)
-def test_query_format_only_includes_aggregate_counts(loaded_plugin) -> None:
-    registry = make_registry()
-    group_text = loaded_plugin.format_group_bots(registry, 40001)
-    online_text = loaded_plugin.format_online_bots(registry)
-
-    assert "群40001BOT数: 2；可用数: 0" in group_text
-    assert "禁言至" not in group_text
-    assert "在线BOT列表:1/2" in online_text
-    assert "10001" not in online_text
-    assert "10002" not in online_text
-
-
-@pytest.mark.parametrize("loaded_plugin", ["response_manager"], indirect=True)
 def test_query_commands_use_prefix_and_reject_bare_words(loaded_plugin) -> None:
     commands = (
         (loaded_plugin.bot_list_command, "/BOT列表", "/BOT列表 40001"),
         (loaded_plugin.bot_group_list_command, "/BOT群列表", "/BOT群列表 10001"),
-        (loaded_plugin.online_bot_command, "/在线BOT", "/在线BOT 40001"),
     )
     for command, first, second in commands:
         assert command.prefixes == ["/"]
@@ -150,25 +136,6 @@ def test_specified_bot_command_accepts_numeric_id_or_clear(loaded_plugin) -> Non
     assert not command.parse("/指定BOT 10001abc").matched
     assert not command.parse("/指定BOT 10001 extra").matched
     assert not command.parse("指定BOT 10001").matched
-
-
-@pytest.mark.asyncio
-@pytest.mark.parametrize("loaded_plugin", ["response_manager"], indirect=True)
-async def test_query_handler_reads_the_shared_account_registry(
-    loaded_plugin, monkeypatch
-) -> None:
-    registry = make_registry()
-    loaded_plugin.account_registry = registry
-    monkeypatch.setattr(
-        "tenko.plugins._common.try_render", AsyncMock(return_value=None)
-    )
-
-    result = await loaded_plugin.bot_list.callable_target(
-        make_session(), render_service=loaded_plugin.RenderService()
-    )
-
-    assert "群40001BOT数: 2；可用数: 0" in str(result)
-    assert "禁言至" not in str(result)
 
 
 @pytest.mark.asyncio
@@ -263,24 +230,6 @@ async def test_specified_bot_handler_hides_unknown_account_details(
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("loaded_plugin", ["response_manager"], indirect=True)
-async def test_online_bot_uses_only_current_group_counts(
-    loaded_plugin, monkeypatch
-) -> None:
-    registry = make_registry()
-    loaded_plugin.account_registry = registry
-    monkeypatch.setattr(
-        "tenko.plugins._common.try_render", AsyncMock(return_value=None)
-    )
-
-    result = await loaded_plugin.online_bot.callable_target(
-        make_session(), render_service=loaded_plugin.RenderService()
-    )
-
-    assert str(result) == "群40001在线BOT: 0/2"
-
-
-@pytest.mark.asyncio
-@pytest.mark.parametrize("loaded_plugin", ["response_manager"], indirect=True)
 async def test_bot_group_list_lists_every_account_group(
     loaded_plugin, monkeypatch
 ) -> None:
@@ -303,25 +252,41 @@ async def test_bot_group_list_lists_every_account_group(
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("loaded_plugin", ["response_manager"], indirect=True)
-async def test_response_list_wraps_successful_render_as_image(
+async def test_bot_list_shows_each_bot_with_avatar_name_and_state(
     loaded_plugin, monkeypatch
 ) -> None:
     registry = make_registry()
     loaded_plugin.account_registry = registry
+    fetch = AsyncMock(return_value="data:image/png;base64,AA==")
+    monkeypatch.setattr(loaded_plugin, "_fetch_avatar", fetch)
     renderer = AsyncMock(return_value=b"jpeg-bytes")
     monkeypatch.setattr("tenko.plugins._common.try_render", renderer)
-    render_service = loaded_plugin.RenderService()
 
     result = await loaded_plugin.bot_list.callable_target(
-        make_session(), render_service=render_service
+        make_session(), render_service=loaded_plugin.RenderService()
     )
 
     assert isinstance(result[0], Image)
-    renderer.assert_awaited_once()
-    assert renderer.await_args.args[:2] == (
-        render_service.render_template,
-        "list.html",
-    )
+    assert renderer.await_args.args[1] == "bots.html"
     data = renderer.await_args.args[2]
-    assert data["summary"] == "群40001BOT数: 2；可用数: 0"
-    assert data["items"][0]["name"] == "群40001"
+    first, second = data["bots"]
+    assert (first["id"], first["state"], first["chips"][0]["text"]) == (
+        "10001",
+        "禁言中",
+        "负责回复",
+    )
+    assert first["avatar"].startswith("data:image/png")
+    assert (second["state"], second["chips"][0]["text"]) == ("离线", "候补")
+    assert data["stats"][:2] == [(0, "可回复"), (2, "已绑定")]
+    fetch.assert_any_await("https://q1.qlogo.cn/g?b=qq&nk=10001&s=100")
+
+    # 渲染失败时退回纯文本，同样列出每个 BOT。
+    monkeypatch.setattr(
+        "tenko.plugins._common.try_render", AsyncMock(return_value=None)
+    )
+    text = str(
+        await loaded_plugin.bot_list.callable_target(
+            make_session(), render_service=loaded_plugin.RenderService()
+        )
+    )
+    assert "可回复 0/2（定向）" in text and "10002：离线 · 候补" in text

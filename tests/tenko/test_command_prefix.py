@@ -97,10 +97,6 @@ _POSITIVE_CASES: dict[str, dict[str, tuple[str, ...]]] = {
         "positive": ("/BOT群列表", "/BOT群列表 10001"),
         "boundary": ("/BOT群列表-1", "/ BOT群列表"),
     },
-    "在线BOT": {
-        "positive": ("/在线BOT",),
-        "boundary": ("/在线BOT-1", "/ 在线BOT"),
-    },
     "授权": {
         "positive": ("/授权 群管理 30001", "/授权 群管理 30001 30002 -g 40001"),
         "boundary": ("/授权-1", "/ 授权"),

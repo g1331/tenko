@@ -1,14 +1,24 @@
 from __future__ import annotations
 
+import asyncio
+import base64
+import time
+
+import httpx
 from arclet.alconna import Alconna, Args, CommandMeta
 from arclet.entari import Session, command, plugin
 from arclet.entari.command import Match, Query
 from arclet.entari.plugin import PluginRole
 
-from tenko.host.accounts import AccountRegistry, account_registry
+from tenko.host.accounts import (
+    AccountRegistry,
+    account_key,
+    account_reference,
+    account_registry,
+)
 from tenko.host.guards import group_only, private_only, require
 from tenko.host.perm import Permission
-from tenko.context import context_from_session, group_reference
+from tenko.context import QQ_PLATFORM, context_from_session, group_reference
 from tenko.plugins._common import list_data, render_or_text
 from tenko.host.render import RenderService
 
@@ -38,16 +48,123 @@ def _account_label(
     return status
 
 
-def format_group_bots(registry: AccountRegistry, group_id: str | int) -> str:
-    """格式化单个群的绑定数和可用数。"""
+_AVATAR_TTL = 3600
+_AVATAR_BYTES = 512 * 1024
+# 头像地址 -> (取到的时间, data URI 或 None)；失败也缓存，避免每次都等超时。
+_avatar_cache: dict[str, tuple[float, str | None]] = {}
+_STRATEGY = {"random": "随机", "deterministic": "定向"}
 
-    normalized_group = str(group_id)
-    accounts = registry.bound_accounts_for_group(normalized_group)
-    if not accounts:
-        return f"没有找到目标群:{normalized_group}"
 
-    available = registry.accounts_for_group(normalized_group)
-    return f"群{normalized_group}BOT数: {len(accounts)}；可用数: {len(available)}"
+def _bot_user(account: object) -> object | None:
+    return getattr(getattr(account, "self_info", None), "user", None)
+
+
+def _avatar_url(account: object) -> str | None:
+    url = getattr(_bot_user(account), "avatar", None)
+    if isinstance(url, str) and url.startswith(("https://", "http://")):
+        return url
+    platform, account_id = account_key(account)
+    if platform == QQ_PLATFORM and account_id.isdigit():
+        return f"https://q1.qlogo.cn/g?b=qq&nk={account_id}&s=100"
+    return None
+
+
+async def _fetch_avatar(url: str) -> str | None:
+    """下载头像嵌进图片：渲染页面不联网，远程图片加载慢会拖到渲染超时。"""
+
+    now = time.monotonic()
+    if (hit := _avatar_cache.get(url)) and now - hit[0] < _AVATAR_TTL:
+        return hit[1]
+    value = None
+    try:
+        async with httpx.AsyncClient(timeout=3, follow_redirects=True) as client:
+            response = await client.get(url)
+        kind = response.headers.get("content-type", "").split(";")[0].strip()
+        if (
+            response.is_success
+            and kind.startswith("image/")
+            and len(response.content) <= _AVATAR_BYTES
+        ):
+            encoded = base64.b64encode(response.content).decode()
+            value = f"data:{kind};base64,{encoded}"
+    except httpx.HTTPError:
+        pass
+    _avatar_cache[url] = (now, value)
+    return value
+
+
+async def bot_avatars(accounts) -> dict[str, str | None]:
+    urls = {url for account in accounts if (url := _avatar_url(account))}
+    found = await asyncio.gather(*(_fetch_avatar(url) for url in urls))
+    return dict(zip(urls, found, strict=True))
+
+
+def build_bots_data(
+    registry: AccountRegistry, group_id: str, avatars: dict[str, str | None]
+) -> tuple[dict[str, object], str] | None:
+    """当前群绑定的 BOT：头像、昵称、账号和状态；返回模板数据和纯文本。"""
+
+    bound = registry.bound_accounts_for_group(group_id)
+    if not bound:
+        return None
+    strategy = registry.response_type_for_group(group_id) or "random"
+    leader = registry.deterministic_account_for_group(group_id)
+    bots, lines, leader_name = [], [], "未指定的 BOT"
+    for account in bound:
+        ref = account_reference(account_key(account))
+        user = _bot_user(account)
+        name = str(getattr(user, "name", None) or ref)
+        if not registry.is_available(account):
+            tone, state, note = "off", "离线", ""
+        elif registry.is_muted(account, group_id):
+            until = registry.mute_until(account, group_id)
+            tone, state = "warn", "禁言中"
+            note = "永久" if until is None else f"至 {until.astimezone():%m-%d %H:%M}"
+        else:
+            tone, state, note = "ok", "在线", ""
+        chips = []
+        if ref == leader:
+            leader_name = name
+        if strategy == "deterministic":
+            chips.append(
+                {"text": "负责回复", "tone": "accent"}
+                if ref == leader
+                else {"text": "候补", "tone": ""}
+            )
+        bots.append(
+            {
+                "id": account_key(account)[1],
+                "name": name,
+                "initial": name[:1],
+                "avatar": avatars.get(_avatar_url(account) or ""),
+                "tone": tone,
+                "state": state,
+                "state_note": note,
+                "chips": chips,
+            }
+        )
+        bot_id = bots[-1]["id"]
+        label = bot_id if name == bot_id else f"{name}({bot_id})"
+        extra = "".join(f" · {c['text']}" for c in chips)
+        lines.append(f"- {label}：{state}{f' {note}' if note else ''}{extra}")
+    usable = len(registry.accounts_for_group(group_id))
+    muted = sum(bot["tone"] == "warn" for bot in bots)
+    if strategy == "deterministic":
+        subtitle = f"响应策略 · 定向：由 {leader_name} 回复，其余候补"
+    else:
+        subtitle = "响应策略 · 随机：可回复的 BOT 轮流响应"
+    data = {
+        "group": f"群 {group_id}",
+        "subtitle": subtitle,
+        "stats": [(usable, "可回复"), (len(bound), "已绑定"), (muted, "禁言中")],
+        "note": "按绑定顺序",
+        "bots": bots,
+    }
+    text = (
+        f"群{group_id} BOT：可回复 {usable}/{len(bound)}（{_STRATEGY[strategy]}）\n"
+        + "\n".join(lines)
+    )
+    return data, text
 
 
 def format_account_groups(registry: AccountRegistry, account_id: str | int) -> str:
@@ -73,47 +190,6 @@ def format_account_groups(registry: AccountRegistry, account_id: str | int) -> s
             f"{_account_label(registry, normalized_account, group_id)}"
         )
     return "\n".join(lines)
-
-
-def format_online_bots(registry: AccountRegistry) -> str:
-    """格式化所有已注册账号的总体可用情况。"""
-
-    accounts = tuple(registry.accounts.items())
-    online_count = sum(registry.is_available(account_id) for account_id, _ in accounts)
-    lines = [f"在线BOT列表:{online_count}/{len(accounts)}"]
-    if not accounts:
-        lines.append("当前没有注册BOT")
-    return "\n".join(lines)
-
-
-def build_group_bots_data(
-    registry: AccountRegistry, group_id: str | int
-) -> dict[str, object] | None:
-    """构建当前群的数量汇总，不暴露账号身份。"""
-
-    normalized_group = str(group_id)
-    bound = registry.bound_accounts_for_group(normalized_group)
-    if not bound:
-        return None
-    available = registry.accounts_for_group(normalized_group)
-    summary = f"群{normalized_group}BOT数: {len(bound)}；可用数: {len(available)}"
-    items = (
-        {
-            "number": 1,
-            "name": f"群{normalized_group}",
-            "meta": f"BOT 数量：{len(bound)}",
-            "detail": f"当前可用：{len(available)}",
-            "badge": "当前群",
-        },
-    )
-    return list_data(
-        "BOT列表",
-        "当前群 · 多账号绑定数量",
-        f"群 {normalized_group}",
-        summary,
-        items,
-        f"没有找到目标群:{normalized_group}",
-    )
 
 
 def _account_group_labels(
@@ -195,42 +271,12 @@ def build_all_account_groups_data(
     )
 
 
-def build_online_bots_data(
-    registry: AccountRegistry, group_id: str | int
-) -> dict[str, object] | None:
-    """构建当前群的在线数量汇总，不暴露账号身份。"""
-
-    normalized_group = str(group_id)
-    bound = registry.bound_accounts_for_group(normalized_group)
-    if not bound:
-        return None
-    available = registry.accounts_for_group(normalized_group)
-    summary = f"群{normalized_group}在线BOT: {len(available)}/{len(bound)}"
-    items = (
-        {
-            "number": 1,
-            "name": f"群{normalized_group}",
-            "meta": f"在线 BOT：{len(available)} / {len(bound)}",
-            "detail": "仅显示当前群汇总",
-            "badge": "当前群",
-        },
-    )
-    return list_data(
-        "在线 BOT",
-        "当前群 · 在线数量",
-        f"群 {normalized_group}",
-        summary,
-        items,
-        f"没有找到目标群:{normalized_group}",
-    )
-
-
 bot_list_command = Alconna(
     "BOT列表",
     meta=CommandMeta(
-        "查询当前群的多账号绑定和可用数量",
+        "查看本群绑定的 BOT：头像、昵称、账号、在线和禁言状态，以及谁负责回复",
         usage="BOT列表",
-        example="$BOT列表",
+        example="/BOT列表",
         compact=True,
     ),
 )
@@ -238,14 +284,15 @@ bot_list_command = Alconna(
 
 @command.on(bot_list_command)
 @group_only()
-@require(Permission.BotAdmin)
+@require(Permission.User)
 async def bot_list(session: Session, *, render_service: RenderService):
-    context = context_from_session(session)
-    result = format_group_bots(account_registry, group_reference(context.group))
-    data = build_group_bots_data(account_registry, group_reference(context.group))
-    if data is None:
-        return result
-    return await render_or_text(render_service, "list.html", data, result)
+    group = group_reference(context_from_session(session).group)
+    bound = account_registry.bound_accounts_for_group(group)
+    built = build_bots_data(account_registry, group, await bot_avatars(bound))
+    if built is None:
+        return f"本群还没有绑定 BOT：{group}"
+    data, text = built
+    return await render_or_text(render_service, "bots.html", data, text)
 
 
 bot_group_list_command = Alconna(
@@ -287,36 +334,6 @@ async def bot_group_list(
         render_service,
         "list.html",
         build_all_account_groups_data(account_registry, account_ids),
-        result,
-    )
-
-
-online_bot_command = Alconna(
-    "在线BOT",
-    meta=CommandMeta(
-        "查询当前群在线 BOT 数量",
-        usage="在线BOT",
-        example="$在线BOT",
-        compact=True,
-    ),
-)
-
-
-@command.on(online_bot_command)
-@group_only()
-@require(Permission.User)
-async def online_bot(session: Session, *, render_service: RenderService):
-    context = context_from_session(session)
-    normalized_group = group_reference(context.group)
-    bound = account_registry.bound_accounts_for_group(normalized_group)
-    available = account_registry.accounts_for_group(normalized_group)
-    if not bound:
-        return f"没有找到目标群:{normalized_group}"
-    result = f"群{normalized_group}在线BOT: {len(available)}/{len(bound)}"
-    return await render_or_text(
-        render_service,
-        "list.html",
-        build_online_bots_data(account_registry, normalized_group),
         result,
     )
 
