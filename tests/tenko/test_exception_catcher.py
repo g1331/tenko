@@ -6,6 +6,8 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 import pytest
+
+from tenko.host.errors import error_book
 from arclet.entari import ExceptionEvent
 from arclet.entari.config import EntariConfig
 from arclet.letoderea import Subscriber
@@ -25,6 +27,12 @@ from satori.model import Event
 
 from tenko.host.metrics import MessageLog
 from tenko.host.actions import ActionCapability, ActionExecutionError, ActionFailure
+
+
+@pytest.fixture(autouse=True)
+def _fresh_error_book():
+    # 异常聚合是宿主级单例，测试之间不清空会把同类异常当成重复。
+    error_book.clear()
 
 
 def make_exception_event(message: str) -> ExceptionEvent:
@@ -55,7 +63,6 @@ def test_exception_listener_declares_render_service_for_entari_injection(
 @pytest.mark.asyncio
 @pytest.mark.parametrize("loaded_plugin", ["exception_catcher"], indirect=True)
 async def test_exception_cooldown_filters_duplicate_error(loaded_plugin) -> None:
-    loaded_plugin.last_error_time.clear()
     sent: list[str] = []
     event = ExceptionEvent(
         origin=_delivering_origin(sent),
@@ -80,7 +87,6 @@ async def test_exception_cooldown_filters_duplicate_error(loaded_plugin) -> None
 async def test_exception_listener_filters_legacy_unreportable_platform_errors(
     loaded_plugin,
 ) -> None:
-    loaded_plugin.last_error_time.clear()
     loaded_plugin.send_error_report = AsyncMock()
     failures = (
         NotFoundException("target not found"),
@@ -553,7 +559,6 @@ async def test_action_error_path_respects_cooldown(loaded_plugin, monkeypatch) -
     monkeypatch.setitem(sys.modules, "tenko.plugins.exception_catcher", loaded_plugin)
     from tenko.host.action_errors import report_action_error
 
-    loaded_plugin.last_error_time.clear()
     sent: list[str] = []
     origin = _delivering_origin(sent)
     original = EntariConfig.instance.basic.superusers
@@ -568,15 +573,10 @@ async def test_action_error_path_respects_cooldown(loaded_plugin, monkeypatch) -
 
 
 @pytest.mark.parametrize("loaded_plugin", ["exception_catcher"], indirect=True)
-def test_evidence_and_cooldown_records_are_pruned(loaded_plugin, tmp_path) -> None:
+def test_evidence_files_are_pruned(loaded_plugin, tmp_path) -> None:
     loaded_plugin.MAX_EVIDENCE_FILES = 3
     for index in range(5):
         loaded_plugin._write_local_evidence(
             RuntimeError(f"e{index}"), "report", evidence_dir=tmp_path
         )
     assert len(tuple(tmp_path.glob("*.log"))) == 3
-
-    loaded_plugin.last_error_time.clear()
-    loaded_plugin.last_error_time["old"] = -1000.0
-    assert not loaded_plugin._in_cooldown(RuntimeError("fresh"))
-    assert "old" not in loaded_plugin.last_error_time

@@ -4,11 +4,12 @@ import hashlib
 import time
 import traceback
 from collections.abc import Iterable
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
-from arclet.entari import BasicConfModel, ExceptionEvent, plugin
+from arclet.entari import BasicConfModel, ExceptionEvent, plugin, scheduler
+from arclet.entari.plugin import get_plugins
 from arclet.entari.plugin import PluginRole, plugin_config
 from loguru import logger
 from satori import Image, Text
@@ -22,6 +23,7 @@ from tenko.host.actions import (
     ActionTargetUnavailable,
 )
 from tenko.host import sandbox as sandbox_module
+from tenko.host.errors import error_book, summary_text
 from tenko.host.notify import notify
 from tenko.host.sandbox import SandboxRefused
 from tenko.host.render import RenderService, try_render
@@ -44,8 +46,6 @@ class Config(BasicConfModel):
 
 
 config = plugin_config(Config)
-ERROR_COOLDOWN = 30.0
-last_error_time: dict[str, float] = {}
 MAX_EVIDENCE_FILES = 200
 _IGNORED_EXCEPTION_NAMES = frozenset(
     {"AccountMuted", "UnknownTarget", "ActionTargetUnavailable"}
@@ -121,15 +121,19 @@ def _compact(value: object, limit: int = 160) -> str:
     return text if len(text) <= limit else f"{text[: limit - 1]}…"
 
 
-def _context_details(origin: Any) -> tuple[str, ...]:
+def _origin_event(origin: Any) -> tuple[Any, MessageContext | None]:
     event = getattr(origin, "_origin", None)
     if event is None:
         event = getattr(origin, "event", origin)
     raw_event = getattr(event, "_origin", event)
     try:
-        context = MessageContext.from_event(raw_event)
+        return event, MessageContext.from_event(raw_event)
     except (AttributeError, TypeError, ValueError):
-        context = None
+        return event, None
+
+
+def _context_details(origin: Any) -> tuple[str, ...]:
+    event, context = _origin_event(origin)
     if context is not None:
         group = context.channel_id if context.chat_type == "group" else "-"
         message = _compact(context.text)
@@ -260,17 +264,17 @@ def _prune_evidence(directory: Path) -> None:
         logger.exception("清理异常取证文件失败: {}", directory)
 
 
-def _in_cooldown(exception: BaseException) -> bool:
-    """同一异常在冷却期内只报告一次，并顺带清理过期记录。"""
+def _is_new_error(exception: BaseException, origin: Any) -> bool:
+    """登记到异常聚合；只有首次出现的错误立即报告，重复的留给每小时汇总。"""
 
-    now = time.monotonic()
-    for key in [k for k, t in last_error_time.items() if now - t >= ERROR_COOLDOWN]:
-        del last_error_time[key]
-    error_hash = get_error_hash(exception)
-    if error_hash in last_error_time:
-        return True
-    last_error_time[error_hash] = now
-    return False
+    modules = tuple(p.module.__name__ for p in get_plugins(True))
+    _, context = _origin_event(origin)
+    group = (
+        context.channel_id
+        if context is not None and context.chat_type == "group"
+        else None
+    )
+    return error_book.record(exception, modules, group)
 
 
 async def send_error_report(
@@ -293,7 +297,7 @@ async def send_error_report(
         # 不发报告：报告本身也是一条消息，协议端忙时同样会超时，只会越积越多。
         logger.warning("消息发送确认超时，通常已送达，不发异常报告：{}", exception)
         return
-    if _in_cooldown(exception):
+    if not _is_new_error(exception, origin):
         return
     report = generate_error_report(exception, origin)
     image = (
@@ -343,3 +347,11 @@ async def except_handle(
         event.origin,
         render_service=render_service,
     )
+
+
+@scheduler.schedule(lambda: timedelta(minutes=5), label="tenko-error-summary")
+async def send_error_summaries():
+    for record in error_book.due():
+        if not await notify(summary_text(record), direct=True):
+            logger.warning("异常汇总未全部送达:\n{}", summary_text(record))
+        error_book.settle(record)
