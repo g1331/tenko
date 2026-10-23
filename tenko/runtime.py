@@ -53,7 +53,6 @@ class TenkoRuntime:
         self.accounts = account_registry
         self.accounts.configure(None)
         self.actions = action_service
-        self.actions.configure_capability_overrides(config.onebot.capability_overrides)
         self.feature_service = configure_feature_service(
             default_enabled=config.features.default_enabled,
         )
@@ -173,12 +172,7 @@ class TenkoRuntime:
 
         state_loaders = (
             ("account routes", self.accounts.initialize),
-            (
-                "account preferences",
-                lambda: self.account_management.initialize(
-                    self.config.onebot.capability_overrides
-                ),
-            ),
+            ("account preferences", self.account_management.initialize),
             ("feature switches", self.feature_service.initialize),
             ("rate limit", self.rate_limiter.initialize),
             ("startup duration history", startup_history.load),

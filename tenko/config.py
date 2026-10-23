@@ -302,34 +302,6 @@ def _path(*parts: str) -> str:
     return "/" + "/".join(clean_parts)
 
 
-def _capability_overrides(
-    section: Mapping[str, Any], key: str = "capability_overrides"
-) -> Mapping[str, Mapping[str, bool]]:
-    value = section.get(key, {})
-    if not isinstance(value, Mapping):
-        raise ValueError(f"配置项 {key!r} 必须是 TOML table")
-
-    normalized: dict[str, dict[str, bool]] = {}
-    for account_id, account_value in value.items():
-        if not isinstance(account_value, Mapping):
-            raise ValueError(
-                f"账号 {account_id!r} 的 capability_overrides 必须是 TOML table"
-            )
-        account_key = str(account_id)
-        if not account_key:
-            raise ValueError("capability_overrides 的账号 ID 不能为空")
-        normalized[account_key] = {}
-        for capability, enabled in account_value.items():
-            if not isinstance(capability, str) or not capability:
-                raise ValueError("capability 名称必须是非空字符串")
-            if type(enabled) is not bool:
-                raise ValueError(
-                    f"账号 {account_key} 的 capability {capability!r} 必须是布尔值"
-                )
-            normalized[account_key][capability] = enabled
-    return normalized
-
-
 def _is_loopback_host(host: str) -> bool:
     if host == "localhost":
         return True
@@ -354,7 +326,6 @@ class OneBotConfig:
     reverse_ws_endpoint: str = "ws"
     access_token: str | None = None
     api_timeout: int = 60
-    capability_overrides: Mapping[str, Mapping[str, bool]] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         if not self.listen_host:
@@ -365,11 +336,6 @@ class OneBotConfig:
             raise ValueError("reverse WebSocket path 和 endpoint 不能为空")
         if self.api_timeout <= 0:
             raise ValueError("api_timeout 必须大于 0")
-
-        normalized_overrides = _capability_overrides(
-            {"capability_overrides": self.capability_overrides}
-        )
-        object.__setattr__(self, "capability_overrides", normalized_overrides)
 
         if self.access_token == "":
             object.__setattr__(self, "access_token", None)
@@ -425,7 +391,6 @@ class OneBotConfig:
                 section, "access_token", defaults.access_token
             ),
             api_timeout=_integer(section, "api_timeout", defaults.api_timeout),
-            capability_overrides=_capability_overrides(section),
         )
 
 
@@ -854,6 +819,7 @@ class TenkoConfig:
     exception: ExceptionConfig = field(default_factory=ExceptionConfig)
     chat_log: ChatLogConfig = field(default_factory=ChatLogConfig)
     database: DatabaseConfig = field(default_factory=DatabaseConfig)
+    # ``[notify] group``：面板或命令修改通知设置之前的默认通知群。
     notify_group: str | None = None
     # 扩展插件配置 ``[plugin_config.<id>]``，加载时按 ID 传给 load_plugin。
     plugin_config: Mapping[str, Mapping[str, Any]] = field(default_factory=dict)
@@ -876,7 +842,7 @@ class TenkoConfig:
             return None
         return (
             "没有配置通知接收方：请在 [basic] superusers 中填写 Master 的 QQ 号，"
-            "或在顶层设置 notify_group"
+            "或在 [notify] 节设置 group"
         )
 
     @property
@@ -894,6 +860,8 @@ class TenkoConfig:
         entari_config: NativeEntariConfig | None = None,
     ) -> TenkoConfig:
         normalized = _normalize_legacy_mapping(data)
+        if "notify_group" in normalized:
+            raise ValueError("顶层 notify_group 已移除，请改写为 [notify] 节的 group")
         basic = _basic_from_mapping(normalized) if basic is None else basic
         superusers = _basic_superusers(basic)
         superuser_ids = _flatten_identifiers(superusers)
@@ -916,7 +884,9 @@ class TenkoConfig:
             exception=ExceptionConfig.from_mapping(_section(normalized, "exception")),
             chat_log=ChatLogConfig.from_mapping(_section(normalized, "chat_log")),
             database=DatabaseConfig.from_mapping(_section(normalized, "database")),
-            notify_group=_optional_identifier(normalized, "notify_group", None),
+            notify_group=_optional_identifier(
+                _section(normalized, "notify"), "group", None
+            ),
             plugin_config=_plugin_config(normalized),
         )
 

@@ -195,7 +195,7 @@ async def test_official_database_plugin_preserves_legacy_schema_and_rows(
         "TenkoRateLimitSubjectState": RateLimitSubjectState,
         "TenkoStartupTime": StartupTime,
         "TenkoAccountPreference": AccountPreference,
-        "TenkoWebUISetting": WebUISetting,
+        "TenkoSetting": WebUISetting,
         "TenkoWebUIAccount": WebUIAccount,
         "TenkoWebUISession": WebUISession,
         "TenkoChatMessage": ChatMessage,

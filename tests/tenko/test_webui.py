@@ -498,7 +498,7 @@ async def test_management_auth_persistence_and_failure_boundaries(
     await accounts.initialize()
     management = AccountManagement(accounts, ActionService(registry=accounts))
     management.repository = ManagementRepository()
-    await management.initialize({})
+    await management.initialize()
     first = SimpleNamespace(self_id="10001", platform="qq-client")
     second = SimpleNamespace(self_id="10001", platform="telegram")
     accounts.register(first, available=True, groups=("40001",))
@@ -604,7 +604,7 @@ async def test_management_auth_persistence_and_failure_boundaries(
 
     restored = AccountManagement(AccountRegistry(), ActionService())
     restored.repository = ManagementRepository()
-    await restored.initialize({})
+    await restored.initialize()
     restored.accounts.register(first, available=True)
     assert not restored.accounts.is_available(first)
     feature = FeatureService(default_enabled=True)
@@ -744,7 +744,7 @@ async def test_plugin_and_group_switches_use_host_state_and_protect_control_plan
     await features.initialize()
     management = AccountManagement(accounts, ActionService(registry=accounts))
     management.repository = ManagementRepository()
-    await management.initialize({})
+    await management.initialize()
     runtime = PluginRuntime()
     state = {"status": True, "updater": True}
     monkeypatch.setattr(runtime, "is_protected", lambda info: info.name == "updater")
@@ -879,24 +879,6 @@ async def test_group_response_strategy_can_be_set_from_panel(tenko_database):
     assert unknown_group.status_code == 400
 
 
-@pytest.mark.asyncio
-async def test_capability_import_is_once_even_after_forgetting_account(tenko_database):
-    from tenko.db.repositories import ManagementRepository
-    from tenko.host.account_management import AccountManagement
-    from tenko.host.actions import ActionService
-
-    preferences = AccountManagement(AccountRegistry(), ActionService())
-    preferences.repository = ManagementRepository()
-    old = {"10001": {"set_group_ban": False}}
-    await preferences.initialize(old)
-    assert preferences.preferences[("qq-client", "10001")]["capabilities"] == {
-        "member_mute": False
-    }
-    await preferences.forget(("qq-client", "10001"))
-    await preferences.initialize(old)
-    assert not preferences.preferences
-
-
 def test_live_logs_include_exception_traceback():
     from tenko.webui.logs import LogReader
 
@@ -969,7 +951,7 @@ async def test_external_plugin_toggle_uses_state_file_and_reports_restart(
     await features.initialize()
     management = AccountManagement(accounts, ActionService(registry=accounts))
     management.repository = ManagementRepository()
-    await management.initialize({})
+    await management.initialize()
     state_file = tmp_path / "plugins" / "state.json"
     runtime = PluginRuntime(state_file=state_file)
     connection = OneBotConnection(config.onebot)

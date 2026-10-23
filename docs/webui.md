@@ -126,8 +126,7 @@ Master 身份通过沙盒平台的虚拟 Master ID 生效，群管理员和群�
 会失败。沙盒记录只保存在内存里，最多 200 条，重启后清空。
 
 账户偏好使用新增的 `TenkoAccountPreference` 表，运行期设置使用
-`TenkoWebUISetting` 表，面板账号和会话使用 `TenkoWebUIAccount`、`TenkoWebUISession` 表；不改变旧权限表和路由表的 schema。旧 OneBot 能力覆盖
-只导入一次，后续以数据库为准；移除账户后不会从旧 TOML 重新导入。关闭 WebUI
+`TenkoSetting` 表（旧版叫 `TenkoWebUISetting`，升级时自动把数据复制过来，旧表保留不删），面板账号和会话使用 `TenkoWebUIAccount`、`TenkoWebUISession` 表；不改变旧权限表和路由表的 schema。关闭 WebUI
 也不会取消已保存的账户停用、插件停用或功能默认策略。
 
 日志仅从当前进程缓冲区和 Entari 配置的日志目录读取，返回前会遮蔽已知令牌及

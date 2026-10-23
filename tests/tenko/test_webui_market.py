@@ -185,7 +185,7 @@ async def test_core_config_validates_and_keeps_legacy_layout(market) -> None:
     for bad in (
         {"render.quality": 0},
         {"upgrade.channel": "nightly"},
-        {"notify_group": "abc"},
+        {"notify.group": "abc"},
         {"onebot.access_token": "x"},
     ):
         response = await client.post(url, json={"values": bad})

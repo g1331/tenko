@@ -26,7 +26,7 @@ def test_main_refuses_to_start_without_any_notify_target(
     assert main_module.main(["--dry-run"]) == 2
 
     config = tmp_path / "tenko.toml"
-    config.write_text('notify_group = "40001"\n', encoding="utf-8")
+    config.write_text('[notify]\ngroup = "40001"\n', encoding="utf-8")
     assert main_module.main(["--config", str(config), "--dry-run"]) == 0
 
 

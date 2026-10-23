@@ -9,9 +9,6 @@
 config/tenko.toml 可以从 `config/tenko.toml.example` 复制后按需补充。下面的配置覆盖连接、权限、
 数据库、渲染和升级的基本入口；所有敏感字段和账号标识都是占位符：
 
-    # 通知群：邀请审批等管理通知的播报目标；留空表示私发 Master。
-    notify_group = ""
-
     [basic]
     prefix = ["/"]
     ignore_self_message = true
@@ -53,6 +50,10 @@ config/tenko.toml 可以从 `config/tenko.toml.example` 复制后按需补充。
     channel = "stable"
     policy = "check"
 
+    [notify]
+    # 通知群：启动通知、异常报告等通知的默认目标；留空表示私聊 Master。
+    group = ""
+
 不要把真实 token、平台用户标识、GitHub 凭据或其他密钥写入版本库。
 
 ## 通知
@@ -70,11 +71,12 @@ config/tenko.toml 可以从 `config/tenko.toml.example` 复制后按需补充。
 账号断开连接超过 1 分钟仍未恢复时提醒一次，恢复后再告知离线时长；协议端报告 QQ 被下线
 （NapCat 的 `bot_offline`）时立即提醒。在面板里停用账号引起的断开不提醒。
 
-| 配置 | 说明 |
+| `[notify]` 字段 | 说明 |
 | --- | --- |
-| notify_group | 顶层键。面板或命令修改之前的默认通知群；留空或省略时默认私聊 Master |
+| group | 面板或命令保存通知设置之前的默认通知群；留空或省略时默认私聊 Master |
 
-`superusers` 和 `notify_group` 至少要配置一个，否则 Tenko 拒绝启动（`--dry-run` 同样检查）。
+`superusers` 和 `[notify] group` 至少要配置一个，否则 Tenko 拒绝启动（`--dry-run` 同样检查）。
+旧版写在顶层的 `notify_group` 已移除，留在配置里会直接报错，请改写到 `[notify]` 节。
 
 ## [onebot]
 
@@ -87,10 +89,11 @@ config/tenko.toml 可以从 `config/tenko.toml.example` 复制后按需补充。
 | reverse_ws_endpoint | WebSocket 端点名，默认 ws |
 | access_token | 可选的 OneBot 访问 token；不设置时可留空 |
 | api_timeout | OneBot action 超时时间，默认 60 秒 |
-| capability_overrides | 按账号覆盖平台能力学习结果的映射，值为布尔开关 |
 
 旧版的 `satori_host`、`satori_path`、`satori_token` 已不再使用：OneBot 事件在进程内直接交给
 Entari，内部接口的令牌每次启动随机生成。配置里留着这几项也能启动，只会打印一条弃用提示。
+
+旧版的 `[onebot.capability_overrides]` 已移除，按账号覆盖能力改在面板“账户”页设置。
 
 ## [basic] 与 [debug]
 
@@ -213,5 +216,9 @@ control 使用的 `local_data` 状态文件（包括全局插件/函数控制）
 | data_dir | 仅传给自定义健康检查命令的外部目录，默认 data；Tenko 自身持久化数据仍在 .tenko |
 | health_command | 可选健康检查命令参数列表；设置后取代默认检查（含导入检查） |
 | health_timeout | 健康检查超时时间，默认 30 秒 |
+| restart_watch_timeout | 等待旧进程退出的最长时间，默认 300 秒；超时只留痕，不会强制拉起 |
 | check_interval_hours | 定时检查间隔，默认 24 小时 |
 | superuser_ids | 可执行升级命令的用户 ID；省略时继承 basic.superusers |
+
+`current_version`、`config_version`、`asset_name`、`install_root`、`config_path`、`data_dir`、
+`health_command`、`health_timeout`、`restart_watch_timeout` 是高级项，用于测试或特殊部署，一般保持默认。

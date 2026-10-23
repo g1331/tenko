@@ -195,3 +195,30 @@ def test_guard_refuses_to_install_when_private_api_disappears(monkeypatch) -> No
     monkeypatch.delattr(_official(), "_execute_table_drops")
     with pytest.raises(DatabaseUnavailableError, match="私有接口已变化"):
         install_forward_only_guard()
+
+
+@pytest.mark.asyncio
+async def test_renamed_table_keeps_rows(guard: GuardHarness) -> None:
+    """只改 ``__tablename__``、类名不变：启动时 create_all 先建空的新表，
+    迁移器再把旧表数据复制过去，旧表保留。"""
+
+    old = next(m for m in guard.models if m.__name__ == EVOLVE)
+    Base.metadata.remove(old.__table__)
+    table = Table(
+        "guard_renamed",
+        Base.metadata,
+        Column("id", Integer, primary_key=True),
+        Column("title", String(20)),
+    )
+    renamed = type(EVOLVE, (), {"__table__": table, "__module__": MODULE})
+    guard.models = [m for m in guard.models if m is not old] + [renamed]
+    try:
+        async with guard.service.engines[""].begin() as connection:
+            await connection.run_sync(table.create)
+        await guard.migrate()
+        assert await guard.sql("SELECT title FROM guard_renamed") == [("旧数据",)]
+        assert await guard.sql(f"SELECT title FROM {EVOLVE}") == [("旧数据",)]
+        assert "guard_renamed" in guard.state()
+        assert not guard.errors
+    finally:
+        Base.metadata.remove(table)

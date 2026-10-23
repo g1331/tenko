@@ -177,9 +177,10 @@ class AccountPreference(BaseOrm):
 
 
 class WebUISetting(BaseOrm):
-    """管理面板写入的运行期设置，与连接配置分开保存。"""
+    """面板和命令写入的运行期设置，与连接配置分开保存。"""
 
-    __tablename__ = "TenkoWebUISetting"
+    # 旧表名 TenkoWebUISetting；官方迁移器按类名识别改名，所以类名不能改。
+    __tablename__ = "TenkoSetting"
 
     name: Mapped[str] = mapped_column(String(128), primary_key=True)
     value: Mapped[str] = mapped_column(String, nullable=False)

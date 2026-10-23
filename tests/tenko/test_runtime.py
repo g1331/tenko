@@ -118,7 +118,7 @@ async def test_run_async_loads_plugins_before_starting_entari(
     monkeypatch.setattr(
         runtime_module, "OneBotConnection", Mock(return_value=connection)
     )
-    runtime = TenkoRuntime(TenkoConfig.from_mapping({"notify_group": "40002"}))
+    runtime = TenkoRuntime(TenkoConfig.from_mapping({"notify": {"group": "40002"}}))
     manager = Mock()
     app = Mock()
     app.required = set()

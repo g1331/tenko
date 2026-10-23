@@ -1,11 +1,6 @@
 # Tenko 配置示例。
 # 复制为 config/tenko.toml 后按 NapCat 实际地址修改；不要把真实 token 提交到仓库。
 
-# 通知群：启动通知、异常报告、邀请审批等通知的默认目标；留空表示私聊 Master。该键必须位于 TOML 顶层。
-# 面板“设置 > 通知”或 Master 私聊 /通知设置 修改后以那里为准，并可指定发送账号。
-# superusers 和 notify_group 至少要配置一个，否则 Tenko 拒绝启动。
-notify_group = ""
-
 # 旧版 [runtime] / [entari] 中的通用字段统一放在 Entari 官方 [basic] 节。
 # Tenko 默认保留 / 作为命令前缀；也可以配置多个前缀，例如 ["/", "!"]。
 [basic]
@@ -54,13 +49,6 @@ reverse_ws_endpoint = "ws"
 # NapCat 配置了 token 时，在这里填写相同 token；本地无鉴权时可留空字符串。
 access_token = "replace-with-napcat-token"
 api_timeout = 60
-
-# 可选：按账号覆盖 action service 的能力学习结果。键为逻辑能力名；未配置的能力
-# 仍采用“首次调用成功/失败”探测。NapCat 扩展的真实失败语义待第⑧步实测确认。
-# [onebot.capability_overrides."10001"]
-# member_mute = true
-# group_mute = true
-# group_essence = false
 
 [webui]
 # 默认关闭；开启后复用上面的 OneBot/Satori 监听端口，不会新开端口。
@@ -133,6 +121,12 @@ urls = [
   "https://cdn.jsdelivr.net/gh/g1331/tenko-registry@gh-pages/index.json",
 ]
 
+[notify]
+# 通知群：启动通知、异常报告、邀请审批等通知的默认目标；留空表示私聊 Master。
+# 面板“设置 > 通知”或 Master 私聊 /通知设置 修改后以那里为准，并可指定发送账号。
+# [basic].superusers 和这里的 group 至少要配置一个，否则 Tenko 拒绝启动。
+group = ""
+
 [upgrade]
 # 宿主升级默认只检查，不自动下载或安装。不要把旧 config/config_demo.yaml 的
 # auto_upgrade=true 直接迁移过来；新系统不会执行 git pull 式原地更新。
@@ -150,6 +144,7 @@ tag_prefix = "v"
 channel = "stable"
 # check = 只检查并记录；download = 自动准备制品；install = 自动生成外部安装接管记录。
 policy = "check"
+# 以下为高级项，用于测试或特殊部署，一般保持默认。
 # 留空时从项目 pyproject.toml 的 [project].version 读取。
 current_version = ""
 # 用户配置的兼容版本；制品可在 upgrade-manifest.json 中声明 min_config_version。

@@ -36,7 +36,8 @@ def test_config_loads_reverse_ws_and_runtime_options(tmp_path) -> None:
     path = tmp_path / "tenko.toml"
     path.write_text(
         """
-notify_group = 40001
+[notify]
+group = 40001
 
 [onebot]
 listen_host = "0.0.0.0"
@@ -45,10 +46,6 @@ access_token = "secret"
 # 旧版内部 Satori 配置：识别后忽略，不影响启动。
 satori_token = "satori-secret"
 satori_host = "127.0.0.1"
-
-[onebot.capability_overrides."10001"]
-member_mute = true
-group_essence = false
 
 [runtime]
 log_level = "DEBUG"
@@ -72,9 +69,6 @@ create_table_at = "prepared"
     assert config.onebot.reverse_ws_url == "ws://0.0.0.0:9000/onebot/v11/ws"
     assert config.onebot.access_token == "secret"
     assert config.onebot.local_host == "127.0.0.1"
-    assert config.onebot.capability_overrides == {
-        "10001": {"member_mute": True, "group_essence": False}
-    }
     assert config.basic.prefix == ["!"]
     assert config.basic.log.level == "DEBUG"
     assert "entari" not in config.entari_config.data
@@ -87,6 +81,11 @@ create_table_at = "prepared"
     assert config.database.url == "sqlite+aiosqlite:///tmp/tenko.db"
     assert config.database.echo is True
     assert config.database.create_table_at == "prepared"
+
+
+def test_top_level_notify_group_is_rejected() -> None:
+    with pytest.raises(ValueError, match=r"\[notify\]"):
+        TenkoConfig.from_mapping({"notify_group": "40001"})
 
 
 def test_config_loads_official_basic_and_tenko_sections_together(tmp_path) -> None:

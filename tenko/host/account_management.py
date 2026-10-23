@@ -5,7 +5,6 @@ from __future__ import annotations
 import asyncio
 from typing import TYPE_CHECKING, Any
 
-from ..context import QQ_PLATFORM
 from .accounts import AccountRegistry, account_key, account_reference
 from .actions import ActionCapability, ActionService
 
@@ -22,27 +21,12 @@ class AccountManagement:
         self.ready = False
         self.lock = asyncio.Lock()
 
-    async def initialize(self, legacy_capabilities: Any) -> None:
+    async def initialize(self) -> None:
         if self.repository is None:
             raise RuntimeError("账户管理数据库未配置")
         self.ready = False
         rows = await self.repository.accounts()
         preferences = {(row["platform"], row["id"]): row for row in rows}
-        # 导入标记与账户行分开保存，忘记账户后不会被旧 TOML 再次创建。
-        if not await self.repository.setting("account-capabilities-imported"):
-            from .actions import _capability
-
-            for account_id, capabilities in legacy_capabilities.items():
-                key = (QQ_PLATFORM, str(account_id))
-                if key not in preferences:
-                    value = self.default(key)
-                    value["capabilities"] = {
-                        _capability(name).value: enabled
-                        for name, enabled in capabilities.items()
-                    }
-                    await self.repository.save_account(value)
-                    preferences[key] = value
-            await self.repository.save_setting("account-capabilities-imported", True)
         self.preferences = preferences
         for key, value in preferences.items():
             self.accounts.set_enabled(key, value["enabled"])

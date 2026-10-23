@@ -44,12 +44,12 @@ class ConfigField:
 
 FIELDS: tuple[ConfigField, ...] = (
     ConfigField(
-        "notify_group",
+        "notify.group",
         "basic",
-        "通知群",
+        "默认通知群",
         "identifier",
         "",
-        "启动通知、加群和权限变更等提醒发到这个群；留空则不发送。",
+        "「通知设置」从未保存过时，通知发到这个群；留空则私聊 Master。",
     ),
     ConfigField(
         "log_level",
