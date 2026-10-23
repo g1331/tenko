@@ -1422,7 +1422,8 @@ class PluginManager:
         current = _lock_entries(self._read_lock())
         if any(current.get(name) != entry for name, entry in self._live_lock.items()):
             return "启动之后已有的插件包发生过变化"
-        if info.qualified_name.split(".")[0] in sys.modules:
+        package = info.qualified_name.split(".")[0]
+        if (info.qualified_name if info.is_local else package) in sys.modules:
             return "插件模块在本次运行中已导入过"
         if not self._busy.acquire(blocking=False):
             return "有插件任务正在执行"

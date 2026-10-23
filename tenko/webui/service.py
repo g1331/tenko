@@ -558,6 +558,7 @@ class WebUIService(Service):
                     "icon": icon,
                     "scope": scope,
                     "source": source,
+                    "local": bool(getattr(info, "is_local", False)),
                     "controlled": controlled,
                     "controlled_declared": plugin_name
                     in self.feature_service.controlled,

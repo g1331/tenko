@@ -9,7 +9,7 @@ defineProps<{ feature: FeatureInfo }>()
 </script>
 
 <template>
-  <ExternalTag v-if="feature.source === 'external'" />
+  <ExternalTag v-if="feature.source === 'external'" :local="feature.local" />
   <StatusTag v-if="feature.controlled" kind="pending" title="受控插件：群里需 BOT 管理员开启"
     ><el-icon class="tag-icon"><Lock /></el-icon>受控</StatusTag
   >

@@ -38,6 +38,7 @@ from tenko.host.plugins.manager import (
     parse_source,
 )
 from tenko.host.plugins.runtime import PluginRuntime, api_incompatibility
+from tenko.host.plugins.storage import PluginMigrationError
 from tenko.host.plugins.registry import (
     RegistryError,
     RegistryIndex,
@@ -359,7 +360,9 @@ list_command = Alconna(
 async def list_plugins(session: Session, *, render_service: RenderService):
     manager = get_plugin_manager()
     rows, suspended = manager.status(), manager.suspended()
-    if not rows and not suspended:
+    runtime = PluginRuntime()
+    local = [i for i in runtime.discover() if i.is_local]
+    if not rows and not suspended and not local:
         return "没有已安装的扩展插件"
     index = get_registry().cached()  # 不联网；目录每小时刷新
     lines, items, updates = [], [], 0
@@ -424,6 +427,26 @@ async def list_plugins(session: Session, *, render_service: RenderService):
                 "version_label": "停用前版本",
             }
         )
+    for info in local:
+        state = "已启用" if runtime.is_enabled(info) else "未启用"
+        lines.append(f"{info.name}（本地，{state}）")
+        items.append(
+            {
+                "icon": _icon(info.name),
+                "name": info.display_name,
+                "id": info.name,
+                "chips": [
+                    {"text": "本地", "tone": ""},
+                    {"text": state, "tone": "ok" if state == "已启用" else ""},
+                ],
+                "description": "",
+                "meta": str(info.path),
+                "note": f"改了代码后 /重载插件 {info.name} 生效",
+                "note_tone": "",
+                "version": None,
+                "version_label": "",
+            }
+        )
     try:
         drift = await asyncio.to_thread(manager.drift)
     except PluginManagerError:
@@ -449,7 +472,8 @@ async def list_plugins(session: Session, *, render_service: RenderService):
         "items": items,
         "more": "",
         "alert": alert,
-        "foot": "/启用插件 /停用插件 <ID> · /更新插件 [ID] · /卸载插件 <ID>",
+        "foot": "/启用插件 /停用插件 <ID> · /更新插件 [ID] · /卸载插件 <ID>"
+        + (" · /重载插件 <ID>" if local else ""),
     }
     return await render_or_text(render_service, "plugins.html", data, "\n".join(lines))
 
@@ -538,6 +562,41 @@ async def enable(plugin_id: Match[str]):
 @require(Permission.Master)
 async def disable(plugin_id: Match[str]):
     return await _toggle(plugin_id.result, False)
+
+
+reload_command = Alconna(
+    "重载插件",
+    Args["plugin_id", str],
+    meta=CommandMeta(
+        "让本地插件（.tenko/plugins/local/<ID>/）改过的代码立即生效，不用重启",
+        usage="重载插件 <插件ID>",
+        example="/重载插件 hello",
+        compact=False,
+    ),
+)
+
+
+@command.on(reload_command)
+@require(Permission.Master)
+async def reload_local(plugin_id: Match[str]):
+    pid = plugin_id.result
+    runtime = PluginRuntime()
+    info = next((i for i in runtime.discover() if i.name == pid and i.is_local), None)
+    if info is None:
+        return f"没有本地插件 {pid}，本地插件放在 .tenko/plugins/local/<ID>/ 目录"
+    if not runtime.is_enabled(info):
+        return f"本地插件<{pid}>未启用，先 /启用插件 {pid}"
+    try:
+        if runtime.is_loaded(info):
+            await runtime.swap(info)
+        else:  # 上次加载失败，改好后直接加载
+            await runtime.load_external(info)
+    except PluginMigrationError as error:
+        return f"已重载本地插件<{pid}>，但{error}"
+    except Exception as error:  # noqa: BLE001 - 插件代码的任何错误
+        cause = error.__cause__ or error.__context__ or error
+        return f"重载失败，旧代码继续运行：{type(cause).__name__}: {cause}"
+    return f"已重载本地插件<{pid}>"
 
 
 market_command = Alconna(

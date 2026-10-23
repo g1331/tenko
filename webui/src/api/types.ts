@@ -142,6 +142,8 @@ export interface FeatureInfo {
   scope: FeatureScope
   /** builtin 内置；external 扩展插件（tenko.plugins 入口，默认关闭）。 */
   source: 'builtin' | 'external' | 'unmanaged'
+  /** 本地插件目录（.tenko/plugins/local/）里的扩展插件。 */
+  local?: boolean
   /** 控制平面插件，不能通过面板停用或改开关。 */
   protected: boolean
   /** 受控插件：默认关闭，群里需 BOT 管理员开启，私聊仅 BOT 管理员可用。 */
@@ -177,6 +179,7 @@ export interface PluginDetail {
   plugin: string
   name: string
   source: FeatureInfo['source']
+  local?: boolean
   description: string
   /** 内置插件为 Tenko 版本，扩展插件为已安装版本。 */
   version: string | null

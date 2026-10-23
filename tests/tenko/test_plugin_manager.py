@@ -545,3 +545,33 @@ async def test_update_swaps_running_plugin_and_rolls_back_a_broken_one(
         assert version() == "1.1.0" and manager.status()[0].version == "1.1.0"
     finally:
         drop_module("tenko_plugin_swap")
+
+
+@pytest.mark.asyncio
+async def test_local_plugin_loads_from_its_directory_and_reloads_edits(
+    entari_plugin_host, monkeypatch, tmp_path
+) -> None:
+    import asyncio
+
+    from arclet.letoderea.utils import _EventSystem
+    from external_plugin_support import drop_module
+
+    monkeypatch.setattr(_EventSystem, "loop", asyncio.get_running_loop())
+    monkeypatch.chdir(tmp_path)
+    source = tmp_path / ".tenko/plugins/local/hello/__init__.py"
+    source.parent.mkdir(parents=True)
+    source.write_text(SWAP_PLUGIN.format("1"), encoding="utf-8")
+    runtime = PluginRuntime(tmp_path / "none")
+    runtime.write_state({"enabled": ["hello"]})
+    try:
+        await runtime.load_all()
+        info = runtime._info("hello")
+        assert info.is_local and info.qualified_name == "tenko_local.hello"
+        version = lambda: runtime.loaded_plugins["hello"].module.VERSION  # noqa: E731
+        assert version() == "1"
+
+        source.write_text(SWAP_PLUGIN.format("2"), encoding="utf-8")
+        await runtime.swap(info)
+        assert version() == "2"
+    finally:
+        drop_module("tenko_local.hello")

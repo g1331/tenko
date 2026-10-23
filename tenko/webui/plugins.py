@@ -321,6 +321,7 @@ class PluginMarket:
                 "plugin": info.name,
                 "name": info.display_name,
                 "source": info.source,
+                "local": bool(getattr(info, "is_local", False)),
                 "description": getattr(meta, "description", None)
                 or (entry.description if entry else ""),
                 "version": version,

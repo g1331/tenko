@@ -200,6 +200,10 @@ _POSITIVE_CASES: dict[str, dict[str, tuple[str, ...]]] = {
         "positive": ("/停用插件 example",),
         "boundary": ("/停用插件-1", "/ 停用插件"),
     },
+    "重载插件": {
+        "positive": ("/重载插件 example",),
+        "boundary": ("/重载插件-1", "/ 重载插件"),
+    },
 }
 
 

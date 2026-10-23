@@ -67,7 +67,7 @@ const detail = computed(() => ({ name: 'plugin-detail', params: { plugin: props.
       >
         维护中
       </el-tag>
-      <ExternalTag v-if="feature.source === 'external'" />
+      <ExternalTag v-if="feature.source === 'external'" :local="feature.local" />
       <el-tag v-if="feature.protected" size="small" effect="plain" disable-transitions
         >受保护</el-tag
       >

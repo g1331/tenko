@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 import importlib
+import importlib.machinery
 import importlib.util
 import json
 import os
 import re
 import shutil
+import sys
 from collections.abc import Mapping
 from contextlib import AbstractAsyncContextManager, nullcontext
 from dataclasses import dataclass
@@ -38,6 +40,9 @@ _DEFAULT_PLUGIN_DIR = Path(__file__).resolve().parents[2] / "plugins"
 # 扩展插件入口组；不能用 Entari 的 ``entari.plugin``，它会被无条件自动加载。
 EXTERNAL_ENTRY_POINT_GROUP = "tenko.plugins"
 _DEFAULT_STATE_FILE = Path(".tenko/plugins/state.json")
+# 本地插件：``<目录>/<id>/__init__.py``，作为 ``tenko_local.<id>`` 导入，只能用环境里已有的依赖。
+LOCAL_PLUGIN_DIR = Path(".tenko/plugins/local")
+LOCAL_NAMESPACE = "tenko_local"
 # ``[plugin_config.<id>]``：启动时读入，面板保存后由 ``apply_config`` 更新。
 _external_configs: Mapping[str, Mapping[str, Any]] = {}
 _PLUGIN_ID = re.compile(r"[a-z][a-z0-9_]*")
@@ -59,6 +64,31 @@ __all__ = [
 ]
 
 
+def local_plugins() -> dict[str, Path]:
+    """本地插件目录里的插件 ID 和目录；ID 不合法或缺少 ``__init__.py`` 的跳过。"""
+
+    if not LOCAL_PLUGIN_DIR.is_dir():
+        return {}
+    return {
+        path.name: path
+        for path in sorted(LOCAL_PLUGIN_DIR.iterdir())
+        if _PLUGIN_ID.fullmatch(path.name) and (path / "__init__.py").is_file()
+    }
+
+
+def _mount_local_namespace() -> None:
+    """让 ``tenko_local.<id>`` 从本地插件目录导入（目录随工作目录解析）。"""
+
+    path = str(LOCAL_PLUGIN_DIR.resolve())
+    module = sys.modules.get(LOCAL_NAMESPACE)
+    if module is None:
+        spec = importlib.machinery.ModuleSpec(LOCAL_NAMESPACE, None, is_package=True)
+        module = importlib.util.module_from_spec(spec)
+        sys.modules[LOCAL_NAMESPACE] = module
+    module.__path__ = [path]
+    module.__spec__.submodule_search_locations = [path]
+
+
 def external_plugin_for_module(module_name: str) -> str | None:
     """按模块名返回所属扩展插件的 ID。
 
@@ -66,6 +96,9 @@ def external_plugin_for_module(module_name: str) -> str | None:
     不属于任何扩展插件（包括被发现阶段拒绝的入口）时返回 ``None``。
     """
 
+    if module_name.startswith(f"{LOCAL_NAMESPACE}."):
+        local = module_name.split(".")[1]
+        return local if local in local_plugins() else None
     best: Any = None
     for entry in entry_points(group=EXTERNAL_ENTRY_POINT_GROUP):
         if not (
@@ -88,7 +121,7 @@ def external_plugin_version(plugin_id: str) -> str:
         if entry.name == plugin_id:
             dist = getattr(entry, "dist", None)
             return str(getattr(dist, "version", None) or "unknown")
-    return "unknown"
+    return "local" if plugin_id in local_plugins() else "unknown"
 
 
 def api_incompatibility(plugin_id: str) -> str | None:
@@ -156,6 +189,12 @@ class PluginInfo:
         return getattr(
             getattr(self.native_plugin, "metadata", None), "rate_weight", None
         )
+
+    @property
+    def is_local(self) -> bool:
+        """本地插件目录里的扩展插件：没有安装记录，改了代码用 ``/重载插件`` 生效。"""
+
+        return self.qualified_name.startswith(f"{LOCAL_NAMESPACE}.")
 
     @property
     def lookup_names(self) -> tuple[str, ...]:
@@ -285,6 +324,14 @@ class PluginRuntime:
                     name,
                 )
             external[name] = PluginInfo(name, None, False, module, "external")
+        for name, path in local_plugins().items():
+            if name in builtin or name in candidates:
+                logger.error("忽略本地插件 {}：与内置或已安装的插件同名", name)
+                continue
+            _mount_local_namespace()
+            external[name] = PluginInfo(
+                name, path, True, f"{LOCAL_NAMESPACE}.{name}", "external"
+            )
         return external
 
     def read_state(self) -> dict[str, Any]:

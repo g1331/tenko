@@ -147,7 +147,7 @@ async function pickAndReveal(id: string) {
                 >
               </span>
               <span class="row-side">
-                <ExternalTag v-if="item.source === 'external'" />
+                <ExternalTag v-if="item.source === 'external'" :local="item.local" />
                 <template v-if="item.scope === 'global' || isSwitchable(item)">
                   <StatusTag v-if="featureStatus(item).kind === 'pending'" kind="pending">{{
                     featureStatus(item).label
