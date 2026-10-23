@@ -1,1 +1,0 @@
-import{Jr as e,Pr as t,Ti as n,gr as r,lr as i,mr as a}from"./css-DAuBXJz-.js";import{n as o}from"./css-BQyl06Uk.js";var s=r({__name:`ExternalTag`,props:{local:{type:Boolean}},setup(r){return(s,c)=>{let l=o;return t(),i(l,{size:`small`,effect:`plain`,type:`warning`,"disable-transitions":``},{default:e(()=>[a(n(r.local?`本地`:`扩展`),1)]),_:1})}}});export{s as t};

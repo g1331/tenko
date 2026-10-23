@@ -1,5 +1,14 @@
+<script lang="ts">
+/** 给设置页目录和搜索用的分组索引：text 是分组内全部字段名和说明。 */
+export interface CoreConfigIndex {
+  key: string
+  title: string
+  text: string
+}
+</script>
+
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { api, ApiError } from '@/api'
 import type { CoreConfigData, CoreConfigField, CoreConfigGroup } from '@/api/types'
 import PagePanel from '@/components/PagePanel.vue'
@@ -17,6 +26,9 @@ const GROUPS: [CoreConfigGroup, string][] = [
   ['exception', '异常报告'],
   ['registry', '插件市场'],
 ]
+
+const props = defineProps<{ query?: string }>()
+const emit = defineEmits<{ index: [groups: CoreConfigIndex[]] }>()
 
 const config = resource<CoreConfigData>()
 const { refresh } = usePanelData()
@@ -52,12 +64,42 @@ function edit(field: CoreConfigField, value: unknown) {
 
 const writable = computed(() => !!config.data.value?.writable)
 const dirty = computed(() => Object.keys(draft.value).length > 0)
-const groups = computed(() =>
-  GROUPS.map(([group, title]) => ({
+const fieldText = (field: CoreConfigField) =>
+  [field.label, field.help, field.key, ...field.options.map((o) => o.label)].join(' ')
+const allGroups = computed(() =>
+  GROUPS.map(([key, title]) => ({
+    key,
     title,
-    fields: (config.data.value?.fields ?? []).filter((field) => field.group === group),
+    fields: (config.data.value?.fields ?? []).filter((field) => field.group === key),
   })).filter((item) => item.fields.length),
 )
+watch(
+  allGroups,
+  (items) =>
+    emit(
+      'index',
+      items.map(({ key, title, fields }) => ({
+        key,
+        title,
+        text: fields.map(fieldText).join(' '),
+      })),
+    ),
+  { immediate: true },
+)
+const terms = computed(() => (props.query ?? '').trim().toLowerCase().split(/\s+/).filter(Boolean))
+const hit = (text: string) => terms.value.every((term) => text.toLowerCase().includes(term))
+/** 搜索时：组名命中显示整组，否则只显示命中的字段。 */
+const groups = computed(() =>
+  allGroups.value
+    .map((group) => ({
+      ...group,
+      fields: hit(`宿主配置 ${group.title}`)
+        ? group.fields
+        : group.fields.filter((field) => hit(`宿主配置 ${group.title} ${fieldText(field)}`)),
+    }))
+    .filter((group) => group.fields.length),
+)
+const dirtyCount = computed(() => Object.keys(draft.value).length)
 
 async function load() {
   try {
@@ -143,7 +185,12 @@ async function restart() {
         <p class="desc">写入配置文件，所有修改在重启后生效。</p>
 
         <el-form label-position="top" :disabled="!writable" @submit.prevent="save">
-          <section v-for="group in groups" :key="group.title" class="group">
+          <section
+            v-for="group in groups"
+            :id="`set-core-${group.key}`"
+            :key="group.key"
+            class="group core-group"
+          >
             <h4>{{ group.title }}</h4>
             <div class="fields">
               <el-form-item v-for="field in group.fields" :key="field.key" :label="field.label">
@@ -203,7 +250,8 @@ async function restart() {
             </div>
           </section>
 
-          <div class="actions">
+          <div class="actions" :class="{ floating: dirty }">
+            <span v-if="dirty" class="pending">已修改 {{ dirtyCount }} 项，保存后重启生效</span>
             <el-button
               type="primary"
               :disabled="!dirty || !writable"
@@ -265,8 +313,25 @@ async function restart() {
 .actions {
   display: flex;
   flex-wrap: wrap;
+  align-items: center;
   gap: 10px 12px;
   margin-top: 8px;
+}
+/* 有未保存的修改时吸附在视口底部，不用滚到最后才能保存。 */
+.actions.floating {
+  position: sticky;
+  bottom: 12px;
+  z-index: 3;
+  padding: 10px 14px;
+  border: 1px solid var(--tk-line);
+  border-radius: 10px;
+  background: var(--tk-surface);
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.14);
+}
+.pending {
+  margin-right: auto;
+  color: var(--tk-heading);
+  font-size: 13px;
 }
 @media (max-width: 1100px) {
   .fields {

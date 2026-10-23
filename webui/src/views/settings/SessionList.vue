@@ -12,6 +12,15 @@ const loading = ref(false)
 const working = ref(false)
 
 const others = computed(() => (sessions.value ?? []).filter((item) => !item.current).length)
+/** 当前会话在前，其余按最近活动排序；默认只显示最近几个。 */
+const PREVIEW = 4
+const expanded = ref(false)
+const ordered = computed(() =>
+  [...(sessions.value ?? [])].sort(
+    (a, b) => Number(b.current) - Number(a.current) || b.last_seen_at.localeCompare(a.last_seen_at),
+  ),
+)
+const listed = computed(() => (expanded.value ? ordered.value : ordered.value.slice(0, PREVIEW)))
 
 async function reload() {
   loading.value = true
@@ -66,6 +75,16 @@ function revokeOthers() {
   <PagePanel title="登录会话">
     <template #extra>
       <el-button size="small" :loading="loading" @click="reload">刷新</el-button>
+      <el-button
+        v-if="others"
+        size="small"
+        type="danger"
+        plain
+        :disabled="working"
+        @click="revokeOthers"
+      >
+        注销其他会话（{{ others }}）
+      </el-button>
     </template>
     <p class="hint">已登录的浏览器与设备。看到不认识的会话时请立即注销，并修改密码。</p>
 
@@ -76,53 +95,43 @@ function revokeOthers() {
     <el-empty v-else-if="!sessions.length" :image-size="64" description="暂无有效会话" />
     <template v-else>
       <ul class="list">
-        <li v-for="item in sessions" :key="item.id" class="item" :class="{ current: item.current }">
-          <div class="head">
-            <div class="who">
-              <div class="title">
-                {{ deviceText(item.user_agent) }}
-                <StatusTag v-if="item.current" kind="on">当前</StatusTag>
-              </div>
-              <div class="ua" :title="item.user_agent">
-                {{ item.user_agent || '无 User-Agent' }}
-              </div>
+        <li v-for="item in listed" :key="item.id" class="item" :class="{ current: item.current }">
+          <div class="who">
+            <div class="title">
+              {{ deviceText(item.user_agent) }}
+              <StatusTag v-if="item.current" kind="on">当前</StatusTag>
             </div>
-            <el-tooltip
-              :disabled="!item.current"
-              content="当前会话请使用“退出登录”"
-              placement="top"
-            >
-              <span>
-                <el-button
-                  size="small"
-                  type="danger"
-                  plain
-                  :disabled="item.current || working"
-                  @click="revoke(item)"
-                >
-                  注销
-                </el-button>
-              </span>
-            </el-tooltip>
+            <div class="meta" :title="item.user_agent || '无 User-Agent'">
+              {{ item.ip || '未知 IP' }} ·
+              <span :title="timeText(item.last_seen_at)"
+                >{{ relativeText(item.last_seen_at) }}活动</span
+              >
+              · 登录于 {{ timeText(item.created_at) }} · 到期 {{ timeText(item.expires_at) }}
+            </div>
           </div>
-          <el-descriptions :column="2" direction="vertical" size="small">
-            <el-descriptions-item label="IP">{{ item.ip || '—' }}</el-descriptions-item>
-            <el-descriptions-item label="最近活动">
-              <span :title="timeText(item.last_seen_at)">{{
-                relativeText(item.last_seen_at)
-              }}</span>
-            </el-descriptions-item>
-            <el-descriptions-item label="登录于">{{
-              timeText(item.created_at)
-            }}</el-descriptions-item>
-            <el-descriptions-item label="到期">{{
-              timeText(item.expires_at)
-            }}</el-descriptions-item>
-          </el-descriptions>
+          <el-tooltip :disabled="!item.current" content="当前会话请使用“退出登录”" placement="top">
+            <span>
+              <el-button
+                size="small"
+                type="danger"
+                link
+                :disabled="item.current || working"
+                @click="revoke(item)"
+              >
+                注销
+              </el-button>
+            </span>
+          </el-tooltip>
         </li>
       </ul>
-      <el-button :disabled="!others || working" @click="revokeOthers">
-        注销其他会话{{ others ? `（${others}）` : '' }}
+      <el-button
+        v-if="ordered.length > PREVIEW"
+        size="small"
+        text
+        class="more"
+        @click="expanded = !expanded"
+      >
+        {{ expanded ? '收起' : `显示全部 ${ordered.length} 个会话` }}
       </el-button>
     </template>
   </PagePanel>
@@ -135,29 +144,24 @@ function revokeOthers() {
   font-size: 12px;
 }
 .list {
-  margin: 0 0 14px;
+  margin: 0;
   padding: 0;
   list-style: none;
 }
 .item {
-  padding: 12px 14px;
-  border: 1px solid var(--tk-line);
-  border-radius: 10px;
-}
-.item + .item {
-  margin-top: 10px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--tk-line);
 }
 .item.current {
+  border-radius: 8px;
+  border-bottom-color: transparent;
   background: var(--tk-ok-bg);
 }
-.head {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 12px;
-  margin-bottom: 8px;
-}
 .who {
+  flex: 1;
   min-width: 0;
 }
 .title {
@@ -167,32 +171,13 @@ function revokeOthers() {
   color: var(--tk-heading);
   font-weight: 700;
 }
-.ua {
-  overflow: hidden;
+.meta {
+  margin-top: 2px;
   color: var(--tk-muted);
   font-size: 12px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  line-height: 1.5;
 }
-.item :deep(.el-descriptions__body) {
-  background: transparent;
-}
-.item :deep(.el-descriptions__label) {
-  color: var(--tk-muted);
-  font-size: 12px;
-  font-weight: 400;
-}
-.item
-  :deep(.el-descriptions__label.el-descriptions__cell:not(.is-bordered-label).is-vertical-label) {
-  padding-bottom: 1px;
-}
-.item :deep(.el-descriptions__body .el-descriptions__table .el-descriptions__cell) {
-  line-height: 1.4;
-}
-.item :deep(.el-descriptions__content.is-vertical-content) {
-  padding-bottom: 8px;
-}
-.item :deep(.el-descriptions__table tr:last-child .is-vertical-content) {
-  padding-bottom: 0;
+.more {
+  margin-top: 8px;
 }
 </style>
