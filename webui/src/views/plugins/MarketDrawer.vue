@@ -5,6 +5,7 @@ import { confirmAction } from '@/composables/confirm'
 import { relativeText, timeText } from '@/composables/format'
 import { usePluginOps } from '@/composables/usePluginOps'
 import PluginIcon from './PluginIcon.vue'
+import CategoryTag from './CategoryTag.vue'
 import TierTag from './TierTag.vue'
 
 // 市场插件详情：版本清单与安装。面板只能安装目录里的插件。
@@ -54,6 +55,7 @@ async function install() {
           <code>{{ plugin.id }}</code>
           <div class="tags">
             <TierTag :tier="plugin.tier" />
+            <CategoryTag v-if="plugin.category" :name="plugin.category" />
             <el-tag
               v-if="plugin.installed_version"
               size="small"
@@ -94,19 +96,15 @@ async function install() {
         </dd>
         <dt>许可证</dt>
         <dd>{{ plugin.license || '—' }}</dd>
-        <dt>标签</dt>
+        <dt>分类</dt>
         <dd>
+          <CategoryTag v-if="plugin.category" :name="plugin.category" />
+          <template v-else>—</template>
+        </dd>
+        <dt>标签</dt>
+        <dd class="tags-line">
           <template v-if="plugin.tags.length">
-            <el-tag
-              v-for="item in plugin.tags"
-              :key="item"
-              size="small"
-              type="info"
-              effect="plain"
-              disable-transitions
-            >
-              {{ item }}
-            </el-tag>
+            <span v-for="item in plugin.tags" :key="item" class="tag">#{{ item }}</span>
           </template>
           <template v-else>—</template>
         </dd>
@@ -170,7 +168,16 @@ async function install() {
 .tags {
   display: flex;
   flex-wrap: wrap;
+  align-items: center;
   gap: 6px;
+}
+.tags-line {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px 10px;
+}
+.tag {
+  color: var(--tk-muted);
 }
 .desc {
   margin: 14px 0;

@@ -3,6 +3,7 @@ import { computed, ref } from 'vue'
 import type { MarketPlugin } from '@/api'
 import ResourceBoundary from '@/components/ResourceBoundary.vue'
 import { usePluginOps } from '@/composables/usePluginOps'
+import CategoryTag, { categoryColor } from './CategoryTag.vue'
 import MarketDrawer from './MarketDrawer.vue'
 import PluginIcon from './PluginIcon.vue'
 import TierTag from './TierTag.vue'
@@ -11,7 +12,7 @@ import TierTag from './TierTag.vue'
 const ops = usePluginOps()
 const query = ref('')
 const tier = ref('')
-const tag = ref('')
+const category = ref('')
 const refreshing = ref(false)
 const selectedId = ref<string | null>(null)
 const drawerOpen = ref(false)
@@ -20,17 +21,22 @@ const drawerOpen = ref(false)
 const selected = computed(
   () => ops.market.data.value?.plugins.find((item) => item.id === selectedId.value) ?? null,
 )
-const tags = computed(() =>
-  [...new Set(ops.market.data.value?.plugins.flatMap((item) => item.tags) ?? [])].sort(),
-)
+/** 按目录给出的顺序列出有插件的分类，附带数量。 */
+const categories = computed(() => {
+  const data = ops.market.data.value
+  const count = (name: string) => data?.plugins.filter((item) => item.category === name).length ?? 0
+  return (data?.categories ?? [])
+    .map((name) => ({ name, count: count(name) }))
+    .filter((c) => c.count)
+})
 const filtered = (list: MarketPlugin[]) => {
   const text = query.value.trim().toLowerCase()
   return list.filter(
     (item) =>
       (!tier.value || item.tier === tier.value) &&
-      (!tag.value || item.tags.includes(tag.value)) &&
+      (!category.value || item.category === category.value) &&
       (!text ||
-        [item.name, item.id, item.description, ...item.tags]
+        [item.name, item.id, item.description, item.category ?? '', ...item.tags]
           .join('\n')
           .toLowerCase()
           .includes(text)),
@@ -70,17 +76,30 @@ async function refresh() {
       <el-option label="官方" value="official" />
       <el-option label="已收录" value="listed" />
     </el-select>
-    <el-select
-      v-model="tag"
-      class="filter"
-      clearable
-      placeholder="全部标签"
-      aria-label="按标签筛选"
-      :disabled="!tags.length"
-    >
-      <el-option v-for="item in tags" :key="item" :label="item" :value="item" />
-    </el-select>
     <el-button class="refresh" :loading="refreshing" @click="refresh">刷新目录</el-button>
+  </div>
+  <div v-if="categories.length" class="categories" role="group" aria-label="按分类筛选">
+    <button
+      type="button"
+      class="chip"
+      :class="{ on: !category }"
+      :aria-pressed="!category"
+      @click="category = ''"
+    >
+      全部<span class="count">{{ ops.market.data.value?.plugins.length ?? 0 }}</span>
+    </button>
+    <button
+      v-for="item in categories"
+      :key="item.name"
+      type="button"
+      class="chip"
+      :class="{ on: category === item.name }"
+      :style="{ '--c': categoryColor(item.name, ops.market.data.value?.categories ?? []) }"
+      :aria-pressed="category === item.name"
+      @click="category = category === item.name ? '' : item.name"
+    >
+      <span class="dot" />{{ item.name }}<span class="count">{{ item.count }}</span>
+    </button>
   </div>
 
   <ResourceBoundary :resource="ops.market" label="插件目录" :retry="() => ops.loadMarket()">
@@ -116,6 +135,10 @@ async function refresh() {
             <TierTag :tier="item.tier" />
           </span>
           <span class="desc">{{ item.description || '暂无简介' }}</span>
+          <span v-if="item.category || item.tags.length" class="meta">
+            <CategoryTag v-if="item.category" :name="item.category" />
+            <span v-for="tag in item.tags.slice(0, 3)" :key="tag" class="tag">#{{ tag }}</span>
+          </span>
           <span class="foot">
             <span v-if="item.latest" class="version">最新 {{ item.latest }}</span>
             <span v-else class="problem">{{ item.problem }}</span>
@@ -163,6 +186,69 @@ async function refresh() {
 }
 .refresh {
   margin-left: auto;
+}
+.categories {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: -4px 0 16px;
+}
+.chip {
+  --c: var(--tk-primary);
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 12px;
+  border: 1px solid var(--tk-line);
+  border-radius: 999px;
+  background: var(--tk-surface);
+  color: var(--tk-text);
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+  transition:
+    border-color 120ms ease,
+    background-color 120ms ease;
+}
+.chip:hover {
+  border-color: var(--c);
+}
+.chip.on {
+  border-color: var(--c);
+  background: color-mix(in srgb, var(--c) 12%, var(--tk-surface));
+  color: color-mix(in srgb, var(--c) 72%, var(--tk-heading));
+  font-weight: 600;
+}
+.chip:focus-visible {
+  outline: 2px solid var(--c);
+  outline-offset: 2px;
+}
+.dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--c);
+}
+.count {
+  color: var(--tk-muted);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+.chip.on .count {
+  color: inherit;
+  opacity: 0.75;
+}
+.meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 10px;
+  min-width: 0;
+}
+.tag {
+  color: var(--tk-muted);
+  font-size: 12px;
+  overflow-wrap: anywhere;
 }
 .grid {
   display: grid;
@@ -237,6 +323,14 @@ async function refresh() {
 }
 
 @media (max-width: 520px) {
+  .categories {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+  .chip {
+    flex: none;
+  }
   .search,
   .filter {
     width: 100%;

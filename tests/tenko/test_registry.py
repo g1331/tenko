@@ -163,3 +163,19 @@ def test_tested_host_is_shown_for_passed_and_failed_versions() -> None:
     assert why_incompatible(failed) == "在 Tenko 4.0.0-rc36 上实测未通过"
     assert tested_text(passed) == "可安装（Tenko 4.0.0-rc36 实测通过）"
     assert (odd.tested_on, tested_text(odd)) == (None, "可安装")
+
+
+def test_category_id_becomes_its_label_and_unknown_ones_are_dropped() -> None:
+    data = index_data()
+    data["categories"] = {"fun": "娱乐", "tool": "实用工具"}
+    data["plugins"]["example"]["category"] = "tool"
+    data["plugins"]["old"] = {**data["plugins"]["example"], "category": "gone"}
+    data["plugins"]["old"]["source"] = {"type": "pypi", "package": "tenko-plugin-old"}
+    data["plugins"]["old"].pop("icon")
+
+    index = parse_index(data)
+
+    assert index.categories == ("娱乐", "实用工具")  # 保留目录给出的顺序
+    assert index.plugins["example"].category == "实用工具"
+    assert index.plugins["old"].category is None
+    assert [p.id for p in index.search("实用工具")] == ["example"]

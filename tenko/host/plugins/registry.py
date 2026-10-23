@@ -88,6 +88,8 @@ class RegistryPlugin:
     git_url: str | None
     subdirectory: str | None
     versions: tuple[RegistryVersion, ...]
+    # 分类的显示名；目录较旧、没有分类时为 None。
+    category: str | None = None
 
     @property
     def dist(self) -> str | None:
@@ -99,6 +101,7 @@ class RegistryIndex:
     plugins: Mapping[str, RegistryPlugin]
     blocked: Mapping[str, str]  # 插件 ID 或规范化分发名 -> 原因
     url: str | None
+    categories: tuple[str, ...] = ()  # 分类显示名，按目录给出的展示顺序
 
     def find(self, name: str) -> RegistryPlugin | None:
         """按插件 ID 或 PyPI 分发名查找。"""
@@ -126,6 +129,7 @@ class RegistryIndex:
             or word in p.name.lower()
             or word in p.description.lower()
             or any(word in t.lower() for t in p.tags)
+            or word == (p.category or "").lower()
         ]
         return sorted(
             hits, key=lambda p: (p.tier != "official", compatible(p) is None, p.id)
@@ -323,7 +327,9 @@ def _version(raw: Mapping[str, Any], source_type: str) -> RegistryVersion:
     )
 
 
-def _plugin(plugin_id: str, raw: Mapping[str, Any]) -> RegistryPlugin:
+def _plugin(
+    plugin_id: str, raw: Mapping[str, Any], categories: Mapping[str, str]
+) -> RegistryPlugin:
     if not _ID.match(plugin_id):
         raise ValueError("插件 ID 不合法")
     tier = raw["tier"]
@@ -359,6 +365,9 @@ def _plugin(plugin_id: str, raw: Mapping[str, Any]) -> RegistryPlugin:
         git_url,
         subdirectory,
         tuple(sorted(versions, key=lambda v: Version(v.version), reverse=True)),
+        categories.get(raw.get("category"))
+        if isinstance(raw.get("category"), str)
+        else None,
     )
 
 
@@ -367,10 +376,17 @@ def parse_index(data: Any, url: str | None = None) -> RegistryIndex:
     if version != SCHEMA_VERSION:
         # 更高的版本由新宿主处理；load() 会退回磁盘上的旧缓存。
         raise RegistryError(f"不支持的目录格式 schema_version={version!r}")
+    raw_categories = data.get("categories")
+    categories = {
+        str(key): str(label)
+        for key, label in (
+            raw_categories if isinstance(raw_categories, dict) else {}
+        ).items()
+    }
     plugins: dict[str, RegistryPlugin] = {}
     for plugin_id, raw in (data.get("plugins") or {}).items():
         try:
-            plugins[plugin_id] = _plugin(plugin_id, raw)
+            plugins[plugin_id] = _plugin(plugin_id, raw, categories)
         except (
             KeyError,
             TypeError,
@@ -385,7 +401,7 @@ def parse_index(data: Any, url: str | None = None) -> RegistryIndex:
         blocked[plugin_id] = reason
         for dist in (raw or {}).get("dists") or ():
             blocked[canonicalize_name(str(dist))] = reason
-    return RegistryIndex(plugins, blocked, url)
+    return RegistryIndex(plugins, blocked, url, tuple(categories.values()))
 
 
 # ------------------------------------------------------------------ 拉取

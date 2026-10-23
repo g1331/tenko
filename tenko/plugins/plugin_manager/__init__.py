@@ -726,6 +726,7 @@ def format_detail(entry: RegistryPlugin, installed: str | None) -> str:
     ]
     lines += [f"主页：{entry.homepage}"] if entry.homepage else []
     lines += [f"许可证：{entry.license}"] if entry.license else []
+    lines += [f"分类：{entry.category}"] if entry.category else []
     lines += [f"标签：{'、'.join(entry.tags)}"] if entry.tags else []
     lines.append(f"状态：{state}" + (f"（已安装 {installed}）" if installed else ""))
     if entry.versions:
@@ -750,6 +751,7 @@ def detail_data(entry: RegistryPlugin, installed: str | None) -> dict[str, objec
     fields = [("作者", "、".join(entry.authors) or "未署名"), ("来源", source)]
     fields += [("主页", entry.homepage)] if entry.homepage else []
     fields += [("许可证", entry.license)] if entry.license else []
+    fields += [("分类", entry.category)] if entry.category else []
     fields += [("标签", "、".join(entry.tags))] if entry.tags else []
     versions = []
     for item in entry.versions[:5]:

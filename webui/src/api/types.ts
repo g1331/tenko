@@ -411,6 +411,8 @@ export interface MarketPlugin {
   authors: string[]
   homepage: string
   license: string
+  /** 分类的显示名；旧目录没有分类时为 null。 */
+  category?: string | null
   tags: string[]
   tier: PluginTier
   icon_url: string | null
@@ -429,6 +431,8 @@ export interface MarketData {
   error?: string
   url?: string
   host_api?: string
+  /** 目录定义的分类显示名，按展示顺序。 */
+  categories?: string[]
   plugins: MarketPlugin[]
 }
 export interface InstalledPlugin {

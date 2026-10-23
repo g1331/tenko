@@ -223,6 +223,7 @@ class PluginMarket:
                         "authors": list(entry.authors),
                         "homepage": entry.homepage,
                         "license": entry.license,
+                        "category": entry.category,
                         "tags": list(entry.tags),
                         "tier": entry.tier,
                         "icon_url": self._icon_url(entry),
@@ -245,6 +246,7 @@ class PluginMarket:
                 "available": True,
                 "url": index.url,
                 "host_api": api_version,
+                "categories": list(index.categories),
                 "plugins": plugins,
             }
 
