@@ -730,9 +730,17 @@ class AccountRegistry:
         return None
 
     def select_for_event(
-        self, group_id: GroupInput, *, source_id: object | None = None
+        self,
+        group_id: GroupInput,
+        *,
+        source_id: object | None = None,
+        mentioned: str | None = None,
     ) -> Account | None:
-        """为同一消息事件缓存 random 选路，确保多账号只处理一次。"""
+        """为同一消息事件缓存 random 选路，确保多账号只处理一次。
+
+        ``mentioned`` 是消息开头 @ 的账号：random 下由被 @ 的 bot 响应。别的 bot
+        收到 “@另一个bot /命令” 时 Entari 不会去掉这个 @，命令也就匹配不上。
+        """
 
         normalized_group = group_key(group_id)
         available = self.accounts_for_group(normalized_group)
@@ -740,6 +748,10 @@ class AccountRegistry:
             return None
         if self._response_types.get(normalized_group, "random") == "deterministic":
             return self.select_account(normalized_group)
+        if mentioned is not None:
+            for account in available:
+                if str(account.self_id) == mentioned:
+                    return account
         if source_id is None:
             # 无消息 ID（通知事件）时每个账号会各自选路，随机会让事件被 0 或多个
             # 账号处理；取共享的绑定顺序首位，使所有账号得出同一结论。

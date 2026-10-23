@@ -80,6 +80,22 @@ def _event_route_id(event: Event) -> str | None:
     return _event_message_id(event)
 
 
+def _leading_mention(event: Event) -> str | None:
+    """消息开头（引用之后）@ 的账号 ID，与 Entari 判断 “@ 我” 的位置一致。"""
+
+    try:
+        elements = [
+            item
+            for item in event.message.message  # type: ignore[union-attr]
+            if not isinstance(item, Quote)
+        ]
+    except (AttributeError, TypeError):
+        return None
+    if elements and isinstance(elements[0], At) and elements[0].id:
+        return str(elements[0].id)
+    return None
+
+
 def _event_type_value(event: Event) -> str:
     event_type = getattr(event, "type", "")
     return str(getattr(event_type, "value", event_type))
@@ -219,6 +235,7 @@ class MessageEventHandler:
             selected = self.account_registry.select_for_event(
                 group,
                 source_id=_event_route_id(event),
+                mentioned=_leading_mention(event),
             )
             if selected is not None and account_key(selected) == account_key(account):
                 return False

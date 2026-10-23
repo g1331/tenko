@@ -358,6 +358,25 @@ async def test_group_event_guard_routes_by_shared_seq_not_local_message_id(
 
 
 @pytest.mark.asyncio
+async def test_random_routing_lets_the_mentioned_bot_answer(monkeypatch) -> None:
+    # 别的 bot 收到 “@10002 /帮助” 时命令匹配不上，所以必须由被 @ 的 bot 响应。
+    first = RoutedFakeAccount("10001")
+    second = RoutedFakeAccount("10002")
+    registry = AccountRegistry()
+    registry.register(first, groups=[40001])
+    registry.register(second, groups=[40001])
+    monkeypatch.setattr(accounts_module.random, "choice", lambda _: first)
+    callback = AsyncMock()
+    guarded = MessageEventHandler(account_registry=registry).guard(callback)
+    event = make_group_event(text='<quote id="9"/><at id="10002"/> /帮助')
+
+    await guarded(first, event)
+    await guarded(second, event)
+
+    callback.assert_awaited_once_with(second, event)
+
+
+@pytest.mark.asyncio
 async def test_group_messages_from_own_bots_never_reach_plugins() -> None:
     first = RoutedFakeAccount("10001")
     registry = AccountRegistry()
