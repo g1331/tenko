@@ -733,6 +733,15 @@ export interface StatsPlugin extends StatsSummary {
   commands: StatsSummary[]
   groups: StatsGroup[]
 }
+export interface StatsFailure {
+  id: number
+  at: string
+  chat: 'group' | 'private'
+  group_id: string
+  group_name: string
+  user_id: string
+  preview: string
+}
 export interface StatsError {
   fingerprint: string
   kind: string
@@ -742,6 +751,7 @@ export interface StatsError {
   first_seen: string
   last_seen: string
   total: number
+  failures: StatsFailure[]
 }
 export interface StatsData {
   days: StatsDays

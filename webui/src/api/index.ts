@@ -134,8 +134,11 @@ export const api = {
     sandboxSend: (body: SandboxSendBody) =>
       request<{ sent: boolean }>('/manage/sandbox/send', { body }),
     sandboxClear: () => request<{ cleared: boolean }>('/manage/sandbox/clear', { body: {} }),
+    sandboxResetData: () => request<{ reset: boolean }>('/manage/sandbox/reset-data', { body: {} }),
     blacklist: () => request<BlacklistData>('/manage/blacklist'),
     setBlacklist: (body: BlacklistBody) => request<BlacklistData>('/manage/blacklist', { body }),
     stats: (days: StatsDays) => request<StatsData>('/manage/stats', { query: { days } }),
+    statsReplay: (id: number) =>
+      request<{ chat: SandboxChat }>('/manage/stats/replay', { body: { id } }),
   },
 }

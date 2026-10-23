@@ -10,10 +10,11 @@ from typing import TYPE_CHECKING, Any
 from starlette.requests import Request
 from starlette.responses import JSONResponse
 
+from ..host import sandbox as sandbox_module
 from ..host.errors import error_book
 from ..host.plugins.runtime import PluginRuntime
 from ..host.stats import hourly, load, summarize
-from .auth import error_response, success_response
+from .auth import error_response, read_json, success_response
 
 if TYPE_CHECKING:
     from .service import WebUIService
@@ -27,7 +28,33 @@ class StatsPanel:
         self.service = service
 
     def routes(self) -> tuple[tuple[str, list[str], Any], ...]:
-        return (("/api/manage/stats", ["GET"], self.stats),)
+        return (
+            ("/api/manage/stats", ["GET"], self.stats),
+            ("/api/manage/stats/replay", ["POST"], self.replay),
+        )
+
+    async def replay(self, request: Request) -> JSONResponse:
+        """把一次失败调用的原始输入以 Master 身份在沙盒里重放。"""
+
+        async def action():
+            body = await read_json(request)
+            failure_id = body.get("id")
+            failure = (
+                error_book.failure(failure_id) if type(failure_id) is int else None
+            )
+            if failure is None:
+                raise ValueError(
+                    "这条失败记录已经不在了（只保留最近 50 条，重启后清空）"
+                )
+            if sandbox_module.sandbox is None:
+                raise RuntimeError("沙盒还没有就绪，请稍后再试")
+            request.state.webui_action = f"stats-replay {failure.id}"
+            await sandbox_module.sandbox.replay(
+                failure.chat, failure.content, failure.account_id
+            )
+            return {"chat": "group" if failure.chat == "group" else "private"}
+
+        return await self.service._manage(request, action, lock=False)
 
     async def stats(self, request: Request) -> JSONResponse:
         try:
@@ -92,6 +119,19 @@ class StatsPanel:
                         "first_seen": r.first_seen.isoformat(),
                         "last_seen": r.last_seen.isoformat(),
                         "total": r.total,
+                        "failures": [
+                            {
+                                "id": f.id,
+                                "at": f.at.isoformat(),
+                                "chat": f.chat,
+                                "group_id": f.group_id,
+                                "group_name": names.get(f.group_id, ""),
+                                "user_id": f.user_id,
+                                "preview": f.preview,
+                            }
+                            for f in reversed(error_book.failures)
+                            if f.fingerprint == r.fingerprint
+                        ][:5],
                     }
                     for r in error_book.records()
                 ],

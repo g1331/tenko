@@ -1,15 +1,18 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, shallowRef, watch } from 'vue'
+import { useRouter } from 'vue-router'
 import {
   api,
   ApiError,
   type StatsData,
   type StatsDays,
+  type StatsFailure,
   type StatsPlugin,
   type StatsSummary,
 } from '@/api'
 import PageContainer from '@/components/PageContainer.vue'
 import PagePanel from '@/components/PagePanel.vue'
+import { confirmAction } from '@/composables/confirm'
 import { numberText, relativeText, timeText } from '@/composables/format'
 
 const PERIODS = [
@@ -72,6 +75,30 @@ function slotTitle(index: number, value: number) {
           hour: '2-digit',
         }) + ' 时'
   return `${label}：${value} 次`
+}
+
+const router = useRouter()
+const replaying = ref<number | null>(null)
+const whereText = (f: StatsFailure) =>
+  f.chat === 'group' ? `群 ${f.group_name || f.group_id}` : '私聊'
+
+async function replay(failure: StatsFailure) {
+  const ok = await confirmAction(
+    `将以 Master 身份在沙盒${failure.chat === 'group' ? '群聊' : '私聊'}执行「${failure.preview || '原消息'}」` +
+      `（原用户 ${failure.user_id}，${whereText(failure)}）。插件读写的是数据副本，真实账号的发送会被拦截。`,
+    '在沙盒重放',
+    '重放',
+  )
+  if (!ok) return
+  replaying.value = failure.id
+  try {
+    const { chat } = await api.manage.statsReplay(failure.id)
+    await router.push({ name: 'sandbox', query: { chat } })
+  } catch (error) {
+    ElMessage.error(`重放失败：${error instanceof ApiError ? error.message : String(error)}`)
+  } finally {
+    replaying.value = null
+  }
 }
 
 const shortKind = (kind: string) => kind.split('.').pop() ?? kind
@@ -270,6 +297,21 @@ const shortLocation = (location: string) => {
             <span :title="timeText(error.first_seen)">{{ relativeText(error.first_seen) }}</span> ·
             最近 <span :title="timeText(error.last_seen)">{{ relativeText(error.last_seen) }}</span>
           </p>
+          <ul v-if="error.failures.length" class="inputs">
+            <li v-for="failure in error.failures" :key="failure.id">
+              <span class="input">{{ failure.preview || '（非文本消息）' }}</span>
+              <span class="sub">{{ whereText(failure) }} · {{ relativeText(failure.at) }}</span>
+              <el-button
+                size="small"
+                text
+                type="primary"
+                :loading="replaying === failure.id"
+                @click="replay(failure)"
+              >
+                在沙盒重放
+              </el-button>
+            </li>
+          </ul>
           <details>
             <summary>最近一次的调用栈</summary>
             <pre class="tk-mono">{{ error.traceback }}</pre>
@@ -447,6 +489,29 @@ const shortLocation = (location: string) => {
 }
 .error p.sub {
   margin: 0;
+}
+.inputs {
+  margin: 8px 0 0;
+  padding: 0;
+  list-style: none;
+}
+.inputs li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 2px 8px;
+  padding: 2px 0;
+}
+.input {
+  max-width: 100%;
+  padding: 1px 8px;
+  border-radius: 6px;
+  background: rgba(127, 127, 127, 0.1);
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+.inputs .sub {
+  margin-left: 0;
 }
 details summary {
   margin-top: 6px;

@@ -1,4 +1,4 @@
-from tenko.host.errors import SUMMARY_INTERVAL, ErrorBook, summary_text
+from tenko.host.errors import MAX_FAILURES, SUMMARY_INTERVAL, ErrorBook, summary_text
 
 
 def _raise(message: str) -> BaseException:
@@ -32,3 +32,24 @@ def test_errors_from_different_lines_are_reported_separately() -> None:
         raise RuntimeError("a")
     except RuntimeError as error:
         assert book.record(error, (__name__,))
+
+
+def test_failures_keep_the_input_for_replay_up_to_the_limit() -> None:
+    book = ErrorBook()
+    failure = {
+        "platform": "qq-client",
+        "account_id": "10001",
+        "chat": "group",
+        "group_id": "40001",
+        "user_id": "20001",
+        "content": "/签到",
+        "preview": "/签到",
+    }
+    for _ in range(MAX_FAILURES + 5):
+        book.record(_raise("x"), (__name__,), "40001", failure)
+
+    assert len(book.failures) == MAX_FAILURES
+    latest = book.failures[-1]
+    assert book.failure(latest.id) == latest
+    assert latest.fingerprint == book.records()[0].fingerprint
+    assert book.failure(-1) is None

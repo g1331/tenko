@@ -264,17 +264,36 @@ def _prune_evidence(directory: Path) -> None:
         logger.exception("清理异常取证文件失败: {}", directory)
 
 
+def _failure(event: Any, context: MessageContext | None) -> dict[str, str] | None:
+    """触发异常的消息，留在内存里供在沙盒重放；不是消息事件时为 ``None``。"""
+
+    raw = getattr(event, "_origin", event)
+    content = getattr(getattr(raw, "message", None), "content", None)
+    if context is None or not isinstance(content, str):
+        return None
+    return {
+        "platform": context.platform,
+        "account_id": context.account_id,
+        "chat": context.chat_type,
+        "group_id": context.channel_id if context.chat_type == "group" else "",
+        "user_id": context.user_id,
+        "content": content,
+        "preview": _compact(context.text, 80)
+        or (f"[图片×{len(context.image_urls)}]" if context.image_urls else ""),
+    }
+
+
 def _is_new_error(exception: BaseException, origin: Any) -> bool:
     """登记到异常聚合；只有首次出现的错误立即报告，重复的留给每小时汇总。"""
 
     modules = tuple(p.module.__name__ for p in get_plugins(True))
-    _, context = _origin_event(origin)
+    event, context = _origin_event(origin)
     group = (
         context.channel_id
         if context is not None and context.chat_type == "group"
         else None
     )
-    return error_book.record(exception, modules, group)
+    return error_book.record(exception, modules, group, _failure(event, context))
 
 
 async def send_error_report(
@@ -341,6 +360,16 @@ async def except_handle(
             sandbox_module.sandbox.note(event.exception.channel, str(event.exception))
         return
     if is_ignored_exception(event.exception):
+        return
+    _, context = _origin_event(event.origin)
+    if context is not None and context.platform == sandbox_module.SANDBOX_PLATFORM:
+        # 沙盒（包括重放）里的报错只在沙盒会话里显示：不报告，也不计入异常聚合，
+        # 否则重放仍失败时真实的同一错误会被当成重复。
+        if sandbox_module.sandbox is not None:
+            exc = event.exception
+            sandbox_module.sandbox.note(
+                context.channel_id, f"[沙盒] 处理时报错 {type(exc).__name__}: {exc}"
+            )
         return
     await send_error_report(
         event.exception,

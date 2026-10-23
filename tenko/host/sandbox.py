@@ -31,7 +31,8 @@ from arclet.entari.session import EntariProtocol
 from launart import Launart
 from launart.status import Phase
 from satori import Api, ChannelType, EventType, LoginStatus
-from satori.element import Author, Element, Quote, Text
+from satori.element import At, Author, Element, Quote, Text, transform
+from satori.parser import parse
 from satori.model import (
     Channel,
     Event,
@@ -193,6 +194,21 @@ class SandboxAdapter(Adapter):
             message=MessageObject.from_elements(message_id, elements),
         )
         await self.server.post(event)
+
+    async def replay(self, chat_type: str, content: str, account_id: str) -> None:
+        """以 Master 身份把一条真实消息（Satori XML）重新发进沙盒。
+
+        @ 原来那个 bot 改为 @ 沙盒 bot；引用的是真实会话里的消息，沙盒里没有，去掉。
+        """
+
+        elements = [
+            At(SANDBOX_BOT_ID) if isinstance(e, At) and e.id == account_id else e
+            for e in transform(parse(content))
+            if not isinstance(e, Quote)
+        ]
+        await self.send(
+            "group" if chat_type == "group" else "private", "master", elements
+        )
 
     @staticmethod
     def _channel_id(chat_type: str) -> str:

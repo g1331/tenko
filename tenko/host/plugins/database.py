@@ -32,7 +32,13 @@ from sqlalchemy import Table
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 from sqlalchemy.orm import Session
 
-from .storage import PluginMigrationError, PluginStorageError, prepare_plugin_db
+from ..sandbox import origin as sandbox_origin
+from .storage import (
+    PluginMigrationError,
+    PluginStorageError,
+    prepare_plugin_db,
+    sandbox_dir,
+)
 from .runtime import external_plugin_for_module, external_plugin_version
 
 BIND_PREFIX = "plugin:"
@@ -183,10 +189,32 @@ class _RoutedSession(Session):
         key = getattr(getattr(mapper, "class_", mapper), "__bind_key__", None)
         if not (isinstance(key, str) and key.startswith(BIND_PREFIX)):
             return super().get_bind(mapper, clause=clause, **kw)
+        if sandbox_origin():
+            return _sandbox_engine(key.removeprefix(BIND_PREFIX)).sync_engine
         engine = _service().engines.get(key)
         if engine is None:
             raise PluginStorageError(f"插件库 {key} 正在切换，请稍后重试")
         return engine.sync_engine
+
+
+# 沙盒里的插件库副本；不登记到 service.engines，迁移器不会碰它们。
+_sandbox_engines: dict[str, Any] = {}
+
+
+def _sandbox_engine(plugin_id: str) -> Any:
+    engine = _sandbox_engines.get(plugin_id)
+    if engine is None:
+        path = sandbox_dir(plugin_id) / "data.db"
+        engine = create_async_engine(f"sqlite+aiosqlite:///{path}")
+        _sandbox_engines[plugin_id] = engine
+    return engine
+
+
+async def close_sandbox_engines() -> None:
+    engines = list(_sandbox_engines.values())
+    _sandbox_engines.clear()
+    for engine in engines:
+        await engine.dispose()
 
 
 def get_session() -> AsyncSession:

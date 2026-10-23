@@ -11,6 +11,7 @@ from starlette.requests import Request
 from starlette.responses import JSONResponse
 
 from ..host import sandbox as sandbox_module
+from ..host.plugins.storage import reset_sandbox_data
 from ..host.sandbox import (
     IDENTITIES,
     SANDBOX_BOT_ID,
@@ -49,6 +50,7 @@ class SandboxPanel:
             ("/api/manage/sandbox", ["GET"], self.state),
             ("/api/manage/sandbox/send", ["POST"], self.send),
             ("/api/manage/sandbox/clear", ["POST"], self.clear),
+            ("/api/manage/sandbox/reset-data", ["POST"], self.reset_data),
         )
 
     async def state(self, request: Request) -> JSONResponse:
@@ -95,6 +97,13 @@ class SandboxPanel:
             request.state.webui_action = "sandbox-clear"
             _adapter().clear()
             return {"cleared": True}
+
+        return await self.service._manage(request, action, lock=False)
+
+    async def reset_data(self, request: Request) -> JSONResponse:
+        async def action():
+            request.state.webui_action = "sandbox-reset-data"
+            return {"reset": await reset_sandbox_data()}
 
         return await self.service._manage(request, action, lock=False)
 

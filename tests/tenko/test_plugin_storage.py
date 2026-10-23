@@ -96,10 +96,10 @@ def test_store_creates_loads_and_saves_atomically(plugin, monkeypatch) -> None:
     def crash(*_args):
         raise OSError("磁盘错误")
 
-    monkeypatch.setattr(os, "replace", crash)
-    with pytest.raises(OSError):
-        store.save({"数": "新"})
-    monkeypatch.undo()
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setattr(os, "replace", crash)
+        with pytest.raises(OSError):
+            store.save({"数": "新"})
     assert store.load() == {"数": [1, 2]}
 
 
@@ -210,3 +210,37 @@ def test_clear_plugin_data_removes_the_whole_directory(plugin) -> None:
     assert clear_plugin_data("store_demo") is False
     with pytest.raises(ValueError):
         clear_plugin_data("../x")
+
+
+# ---------------------------------------------------------------- 沙盒副本
+
+
+@pytest.mark.asyncio
+async def test_sandbox_reads_and_writes_a_copy_until_reset(plugin) -> None:
+    from tenko.host.plugins.storage import reset_sandbox_data
+    from tenko.host.sandbox import sandbox_origin
+
+    store = make_store('store = Store("score", version=1)')["store"]
+    store.save({"甲": 1})
+    database = prepare_plugin_db("store_demo", "1.0.0")
+    with sqlite3.connect(database) as connection:
+        connection.execute("CREATE TABLE t (v)")
+        connection.execute("INSERT INTO t VALUES ('真实')")
+
+    with sandbox_origin("1100"):
+        # 同一个 Store 对象在沙盒里读写副本；副本带着当时的真实数据。
+        assert store.load() == {"甲": 1}
+        store.save({"甲": 99})
+        copy = store.path.parent
+        with sqlite3.connect(copy / "data.db") as connection:
+            assert connection.execute("SELECT v FROM t").fetchall() == [("真实",)]
+            connection.execute("INSERT INTO t VALUES ('沙盒')")
+
+    assert copy == plugin.parent.parent / "sandbox-data" / "store_demo"
+    assert store.load() == {"甲": 1}
+    with sqlite3.connect(database) as connection:
+        assert connection.execute("SELECT v FROM t").fetchall() == [("真实",)]
+
+    assert await reset_sandbox_data() is True
+    with sandbox_origin("1100"):
+        assert store.load() == {"甲": 1}

@@ -167,3 +167,20 @@ def test_global_writes_are_refused_in_sandbox_but_sandbox_group_is_not():
         with pytest.raises(SandboxRefused):
             service.set_enabled("demo", "40001", False)
     service.set_global_enabled("demo", False)  # 沙盒之外照常
+
+
+@pytest.mark.asyncio
+async def test_replay_sends_the_real_message_as_master_to_the_sandbox_bot():
+    sandbox, server = adapter()
+
+    await sandbox.replay(
+        "group", '<quote id="9"/><at id="10001"/> /签到 <at id="20002"/>', "10001"
+    )
+
+    (event,) = server.events
+    context = MessageContext.from_event(event)
+    assert (context.chat_type, context.user_id) == ("group", "1002")
+    # @ 原来的 bot 换成 @ 沙盒 bot，@ 别人保持不变，引用去掉。
+    assert event.message.content == (
+        f'<at id="{SANDBOX_BOT_ID}"/> /签到 <at id="20002"/>'
+    )

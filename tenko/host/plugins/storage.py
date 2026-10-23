@@ -3,6 +3,10 @@
 所有入口按调用方（或模型）所在的模块归属到插件 ID，规则见
 :func:`tenko.host.plugins.runtime.external_plugin_for_module`：模块必须属于某个
 ``tenko.plugins`` 入口声明的包，否则抛出 :class:`PluginStorageError`。
+
+沙盒处理链里（#235）读写的是数据副本 ``.tenko/sandbox-data/<id>/``：插件第一次在
+沙盒里访问存储时复制整个数据目录（SQLite 库用在线备份取一致快照），之后沙盒里的
+读写都落在副本上，真实数据不受影响。沙盒面板的“重置数据”删除副本。
 """
 
 from __future__ import annotations
@@ -21,10 +25,12 @@ from typing import Any
 
 from loguru import logger
 
+from ..sandbox import origin as sandbox_origin
 from .runtime import _PLUGIN_ID, external_plugin_for_module
 
 # 与 .tenko/plugins/state.json 一样相对工作目录；测试可以替换它。
 PLUGIN_DATA_ROOT = Path(".tenko/plugin-data")
+SANDBOX_DATA_ROOT = Path(".tenko/sandbox-data")
 _STORE_NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.-]*")
 # 插件库在版本变化时的备份保留份数。
 DB_BACKUPS_KEEP = 3
@@ -56,10 +62,55 @@ def _caller_module(depth: int) -> str:
     return sys._getframe(depth + 1).f_globals.get("__name__", "")
 
 
-def _data_dir(plugin_id: str) -> Path:
+def _real_dir(plugin_id: str) -> Path:
     path = (PLUGIN_DATA_ROOT / plugin_id).resolve()
     path.mkdir(parents=True, exist_ok=True)
     return path
+
+
+def _backup_sqlite(source: Path, target: Path) -> None:
+    # 在线备份而不是复制文件：库可能正被插件写着，WAL 里的内容也要带上。
+    with closing(sqlite3.connect(source)) as src:
+        with closing(sqlite3.connect(target)) as dst:
+            src.backup(dst)
+
+
+def sandbox_dir(plugin_id: str) -> Path:
+    """插件在沙盒里的数据副本；第一次访问时从真实数据目录复制。"""
+
+    path = (SANDBOX_DATA_ROOT / plugin_id).resolve()
+    if path.is_dir():
+        return path
+    real = PLUGIN_DATA_ROOT / plugin_id
+    staging = path.with_name(f"{path.name}.copying")
+    shutil.rmtree(staging, ignore_errors=True)
+    if real.is_dir():
+        shutil.copytree(
+            real, staging, ignore=shutil.ignore_patterns("data.db*", "backups")
+        )
+        if (real / "data.db").is_file():
+            _backup_sqlite(real / "data.db", staging / "data.db")
+    else:
+        staging.mkdir(parents=True)
+    staging.rename(path)
+    return path
+
+
+def _data_dir(plugin_id: str) -> Path:
+    return sandbox_dir(plugin_id) if sandbox_origin() else _real_dir(plugin_id)
+
+
+async def reset_sandbox_data() -> bool:
+    """删除所有插件的沙盒数据副本，下次在沙盒里访问时重新复制。"""
+
+    # 只有用到插件库时才会导入 database 模块；导入了就先关掉指向副本的连接。
+    database = sys.modules.get("tenko.host.plugins.database")
+    if database is not None:
+        await database.close_sandbox_engines()
+    if not SANDBOX_DATA_ROOT.is_dir():
+        return False
+    shutil.rmtree(SANDBOX_DATA_ROOT)
+    return True
 
 
 def data_dir() -> Path:
@@ -76,7 +127,7 @@ def prepare_plugin_db(plugin_id: str, version: str) -> Path:
     所以备份失败时下次启动会重试。
     """
 
-    folder = _data_dir(plugin_id)
+    folder = _real_dir(plugin_id)
     database, marker = folder / "data.db", folder / "db-version"
     last = marker.read_text(encoding="utf-8").strip() if marker.is_file() else None
     if last == version:
@@ -87,9 +138,7 @@ def prepare_plugin_db(plugin_id: str, version: str) -> Path:
         stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%S%f")
         target = backups / f"{stamp}-v{last or 'unknown'}.db"
         # 用 SQLite 的在线备份而不是复制文件，异常退出遗留的 WAL 也会被一并带上。
-        with closing(sqlite3.connect(database)) as src:
-            with closing(sqlite3.connect(target)) as dst:
-                src.backup(dst)
+        _backup_sqlite(database, target)
         _restore_requested_backup(folder, database, version)
         for stale in sorted(backups.glob("*.db"))[:-DB_BACKUPS_KEEP]:
             stale.unlink()
@@ -175,7 +224,15 @@ class Store:
             raise ValueError("version 必须是正整数")
         self.version = version
         self.migrate = migrate
-        self.path = _data_dir(_plugin_of(_caller_module(1))) / f"{name}.json"
+        self.name = name
+        self.plugin_id = _plugin_of(_caller_module(1))
+        _real_dir(self.plugin_id)
+
+    @property
+    def path(self) -> Path:
+        """每次访问时解析：同一个 Store 在沙盒里读写的是数据副本。"""
+
+        return _data_dir(self.plugin_id) / f"{self.name}.json"
 
     def _read(self) -> tuple[int, Any] | None:
         """读取并校验文件；缺失返回 ``None``，损坏或版本更新时抛错且不改文件。"""

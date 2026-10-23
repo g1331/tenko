@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
-import { Delete, FullScreen, ScaleToOriginal } from '@element-plus/icons-vue'
+import { useRoute } from 'vue-router'
+import { Delete, FullScreen, RefreshLeft, ScaleToOriginal } from '@element-plus/icons-vue'
 import {
   api,
   ApiError,
@@ -11,6 +12,7 @@ import {
   type SandboxIdentity,
 } from '@/api'
 import PageContainer from '@/components/PageContainer.vue'
+import { confirmAction } from '@/composables/confirm'
 import { usePanelData } from '@/composables/usePanelData'
 import ChatComposer, { type Mention, type ReplyTarget } from './chat/ChatComposer.vue'
 import ChatMessages from './chat/ChatMessages.vue'
@@ -29,7 +31,8 @@ const IDENTITY_LABELS: Record<SandboxIdentity, string> = {
 }
 const IDENTITY_KEY = 'tenko.sandbox.identity'
 
-const chat = ref<SandboxChat>('group')
+// 从统计页重放过来时带着会话类型。
+const chat = ref<SandboxChat>(useRoute().query.chat === 'private' ? 'private' : 'group')
 const identity = ref<SandboxIdentity>(
   (localStorage.getItem(IDENTITY_KEY) as SandboxIdentity | null) ?? 'member',
 )
@@ -110,6 +113,21 @@ async function send(content: ChatSendSegment[]) {
   }
 }
 
+async function resetData() {
+  const ok = await confirmAction(
+    '删除插件在沙盒里的数据副本，下次在沙盒里使用时重新从真实数据复制。真实数据不受影响。',
+    '重置沙盒数据',
+    '重置',
+  )
+  if (!ok) return
+  try {
+    await api.manage.sandboxResetData()
+    ElMessage.success('沙盒数据已重置')
+  } catch (value) {
+    ElMessage.error(errorText(value))
+  }
+}
+
 async function clear() {
   try {
     await api.manage.sandboxClear()
@@ -147,6 +165,13 @@ async function clear() {
             />
           </el-select>
         </label>
+        <el-button
+          text
+          :icon="RefreshLeft"
+          title="重置沙盒数据：插件在沙盒里读写的是数据副本"
+          aria-label="重置沙盒数据"
+          @click="resetData"
+        />
         <el-button
           text
           :icon="Delete"

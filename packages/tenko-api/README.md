@@ -94,6 +94,26 @@ async def on_message(event: MessageCreatedEvent): ...
 | `tenko_api.render` | `RenderService`、`try_render`（浏览器不可用时得到 `None`，回退文本；`render_or_none` 是按方法名分发的旧写法） |
 | `tenko_api.messages` | `report_error` |
 | `tenko_api.storage` | 插件独立数据目录 `data_dir()`、带版本号并自动备份迁移的 JSON `Store`、插件自己的 SQLite 库 `Model` 与 `get_session()` |
+| `tenko_api.sandbox` | `in_sandbox()`：当前处理链是否来自面板的命令沙盒（0.4.1 起） |
+
+## 命令沙盒
+
+面板的命令沙盒会真实执行插件逻辑，宿主在出口处隔离副作用：
+
+- 真实账号的发送、撤回、禁言、踢人、审批等写操作不会发出，沙盒聊天里记一条“[沙盒拦截]”说明；
+  发消息得到一个假回执。只读查询照常执行。
+- 宿主的全局设置（权限、黑名单、功能开关、通知设置、插件管理、升级等）不会被改；
+  只作用于沙盒群和沙盒身份的修改照常生效。
+- `tenko_api.storage` 的 `data_dir()`、`Store`、`Model` 读写的是数据副本
+  `.tenko/sandbox-data/<id>/`：第一次在沙盒里访问时从真实数据复制，面板上的“重置数据”删除副本。
+
+宿主管不到的地方需要插件自己处理：
+
+- 调用外部服务（例如大模型 API）、扣费、写 `data_dir()` 以外的文件，用 `tenko_api.sandbox.in_sandbox()` 判断。
+- `data_dir()` 要在处理函数里调用；在模块顶层取一次并保存下来的路径永远指向真实目录。
+- 模块里的内存状态（全局变量、缓存）不会隔离，需要持久的状态放进存储。
+- 沙盒标记只随这条消息派生的任务传递；交给事先已经在运行的后台任务（例如自己的发送队列）的工作不带标记，
+  会被当成真实调用。
 
 ## 插件的 SQLite 库
 
