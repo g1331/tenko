@@ -540,7 +540,7 @@ async def read_group_settings(
     try:
         from tenko.db.repositories import group_setting_repository
 
-        setting_row = await group_setting_repository.get(group_id)
+        setting_row = await group_setting_repository.get((platform, group_id))
     except DatabaseUnavailableError as error:
         if group_id not in _database_warning_groups:
             _database_warning_groups.add(group_id)
@@ -553,11 +553,9 @@ async def read_group_settings(
             "response_type": "random",
         }
 
-    response_type = account_registry.response_type_for_group(group_id)
-    if response_type is None:
-        response_type = (
-            "random" if setting_row is None else str(setting_row.response_type)
-        )
+    response_type = (
+        account_registry.response_type_for_group((platform, group_id)) or "random"
+    )
 
     return {
         "blacklisted": blacklisted,
@@ -669,7 +667,7 @@ async def frequency_limit(
     state: Query[str] = Query("state"),
 ):
     context = context_from_session(session)
-    group_id = context.channel_id
+    group_id = context.group
     if not state.available:
         current = "开启" if rate_limit_service.is_group_limited(group_id) else "关闭"
         return f"当前群频率限制：{current}"

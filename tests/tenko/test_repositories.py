@@ -1,39 +1,24 @@
 from __future__ import annotations
 
 import pytest
-from tenko.db.errors import (
-    DatabaseIdentifierError,
-    DatabaseUnavailableError,
-    InvalidGroupSettingError,
-)
+from tenko.db.errors import DatabaseUnavailableError
 
 
 @pytest.mark.asyncio
-async def test_group_setting_repository_supports_defaults_partial_updates_and_validation(
-    repositories,
-) -> None:
+async def test_group_setting_repository_keys_groups_by_platform(repositories) -> None:
     setting = repositories["setting"]
 
-    assert await setting.get(50001) is None
-    await setting.set(50001, frequency_limitation=False, response_type="deterministic")
-    row = await setting.get("50001")
-    assert row is not None
-    assert (row.frequency_limitation, row.response_type) == (False, "deterministic")
-
-    await setting.set_response_type(50001, "random")
-    assert await setting.frequency_disabled_groups() == (50001,)
-    await setting.set_frequency_limitation(50001, True)
-    assert await setting.frequency_disabled_groups() == ()
-    row = await setting.get(50001)
-    assert row is not None
-    assert (row.frequency_limitation, row.response_type) == (True, "random")
-
-    with pytest.raises(InvalidGroupSettingError):
-        await setting.set_response_type(50001, "fixed")
+    assert await setting.get("50001") is None
+    await setting.set_frequency_limitation("50001", False)
+    await setting.set_frequency_limitation(("discord", "50001"), False)
+    assert await setting.frequency_disabled_groups() == (
+        ("discord", "50001"),
+        ("qq-client", "50001"),
+    )
+    await setting.set_frequency_limitation(("onebot", "50001"), True)
+    assert await setting.frequency_disabled_groups() == (("discord", "50001"),)
     with pytest.raises(TypeError, match="frequency_limitation"):
-        await setting.set_frequency_limitation(50001, 1)
-    with pytest.raises(DatabaseIdentifierError, match="纯数字"):
-        await setting.get("not-a-group")
+        await setting.set_frequency_limitation("50001", 1)
 
 
 @pytest.mark.asyncio
@@ -81,12 +66,14 @@ async def test_account_state_repository_round_trip(repositories) -> None:
         (
             AccountRouteRecord("40001", "10001", 0),
             AccountRouteRecord("40001", "10002", 1),
+            AccountRouteRecord("40001", '["discord", "7"]', 0, platform="discord"),
         ),
         (AccountResponseRecord("40001", "deterministic", "10002"),),
     )
 
     assert await repository.load_state() == AccountStateSnapshot(
         routes=(
+            AccountRouteRecord("40001", '["discord", "7"]', 0, platform="discord"),
             AccountRouteRecord("40001", "10001", 0),
             AccountRouteRecord("40001", "10002", 1),
         ),

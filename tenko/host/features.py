@@ -11,7 +11,7 @@ from arclet.entari import Session
 from arclet.entari.plugin import get_plugin
 from loguru import logger
 
-from ..context import MessageContext
+from ..context import MessageContext, group_key, group_reference
 from .perm import Permission, PermissionChecker
 from .plugins.runtime import external_plugin_for_module
 
@@ -118,7 +118,7 @@ class FeatureService:
                 if row.enabled is not None:
                     state["global_enabled"] = row.enabled
             elif row.enabled is not None:
-                state["groups"][row.group_id] = row.enabled
+                state["groups"][group_key((row.platform, row.group_id))] = row.enabled
         self._plugins = plugins
         self._ready = True
 
@@ -142,8 +142,9 @@ class FeatureService:
                     group_id=group_id,
                     enabled=enabled,
                     maintenance=False,
+                    platform=platform,
                 )
-                for group_id, enabled in state["groups"].items()
+                for (platform, group_id), enabled in state["groups"].items()
             )
         return tuple(records)
 
@@ -171,12 +172,11 @@ class FeatureService:
             {"maintenance": False, "groups": {}},
         )
 
-    @staticmethod
-    def _group_id(group_id: str | int | None) -> str | None:
-        return None if group_id is None else _key(group_id, "群 ID")
+    def is_enabled(self, plugin: str, group: object = None) -> bool:
+        """返回插件在指定群是否可执行；未显式设置时使用默认开启值。
 
-    def is_enabled(self, plugin: str, group_id: str | int | None = None) -> bool:
-        """返回插件在指定群是否可执行；未显式设置时使用默认开启值。"""
+        ``group`` 是 ``(平台, 群 ID)`` 或裸 QQ 群号，见 :func:`tenko.context.group_key`。
+        """
 
         plugin = _key(plugin, "插件名")
         state = self._plugins.get(plugin)
@@ -194,9 +194,8 @@ class FeatureService:
         global_enabled = state.get("global_enabled")
         if global_enabled is not None:
             return global_enabled
-        normalized_group = self._group_id(group_id)
-        if normalized_group is not None:
-            enabled = state["groups"].get(normalized_group)
+        if group is not None:
+            enabled = state["groups"].get(group_key(group))
             if enabled is not None:
                 return enabled
         return default_enabled
@@ -204,20 +203,20 @@ class FeatureService:
     def is_controlled(self, plugin: str) -> bool:
         return _key(plugin, "插件名") in self.controlled
 
-    def set_enabled(self, plugin: str, group_id: str | int, enabled: bool) -> bool:
+    def set_enabled(self, plugin: str, group: object, enabled: bool) -> bool:
         """更新指定群的插件开关；异步调用方随后应刷新 repository。"""
 
         if type(enabled) is not bool:
             raise TypeError("enabled 必须是布尔值")
         state = self._plugin_state(plugin)
-        state["groups"][_key(group_id, "群 ID")] = enabled
+        state["groups"][group_key(group)] = enabled
         return enabled
 
-    def enable(self, plugin: str, group_id: str | int) -> bool:
-        return self.set_enabled(plugin, group_id, True)
+    def enable(self, plugin: str, group: object) -> bool:
+        return self.set_enabled(plugin, group, True)
 
-    def disable(self, plugin: str, group_id: str | int) -> bool:
-        return self.set_enabled(plugin, group_id, False)
+    def disable(self, plugin: str, group: object) -> bool:
+        return self.set_enabled(plugin, group, False)
 
     def set_global_enabled(self, plugin: str, enabled: bool) -> bool:
         """更新宿主级插件开关；异步调用方随后应刷新 repository。"""
@@ -246,22 +245,25 @@ class FeatureService:
         state = self._plugins.get(_key(plugin, "插件名"))
         return bool(state and state["maintenance"])
 
-    def reset_group(self, plugin: str, group_id: str | int) -> None:
+    def reset_group(self, plugin: str, group: object) -> None:
         """删除指定群的显式值，使其恢复默认策略。"""
 
         state = self._plugins.get(_key(plugin, "插件名"))
         if state is None:
             return
-        state["groups"].pop(_key(group_id, "群 ID"), None)
+        state["groups"].pop(group_key(group), None)
 
     @property
     def state(self) -> Mapping[str, Mapping[str, Any]]:
-        """返回用于查询/测试的只读快照。"""
+        """返回用于查询/测试的只读快照；群以 :func:`group_reference` 表示。"""
 
         snapshot = {
             plugin: {
                 "maintenance": value["maintenance"],
-                "groups": dict(value["groups"]),
+                "groups": {
+                    group_reference(group): enabled
+                    for group, enabled in value["groups"].items()
+                },
             }
             for plugin, value in self._plugins.items()
         }
@@ -459,7 +461,7 @@ class CommandPolicy:
             return PolicyVerdict(False, self._maintenance_notice(owner))
         if (
             plugin_name not in _FEATURE_MANAGER_NAMES
-            and not self.feature_service.is_enabled(plugin_name, context.channel_id)
+            and not self.feature_service.is_enabled(plugin_name, context.group)
         ):
             logger.debug(
                 "Ignore disabled plugin command: plugin={} group={} command={}",
@@ -480,7 +482,7 @@ class CommandPolicy:
         weight = getattr(owner, "rate_weight", None)
         extra = {} if weight is None else {"weight": weight}
         decision = await self.rate_limiter.check_and_persist(
-            context.channel_id,
+            context.group,
             context.user_id,
             command=plugin_name,
             override=override,

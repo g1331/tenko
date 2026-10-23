@@ -227,7 +227,7 @@ class _FeatureGate(Propagator):
             notice = "功能状态暂不可用，请稍后再试"
         elif feature_service.is_maintenance(self.plugin_id):
             notice = f"{label}插件正在维护~"
-        elif not feature_service.is_enabled(self.plugin_id, context.channel_id):
+        elif not feature_service.is_enabled(self.plugin_id, context.group):
             notice = f"{label}插件已关闭"
         else:
             return

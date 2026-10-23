@@ -206,11 +206,8 @@ def _current_group_mute(context: Any, registry: AccountRegistry) -> str | None:
     if context.chat_type != "group":
         return None
 
-    accounts = registry.bound_accounts_for_group(context.channel_id)
-    muted = sum(
-        registry.is_muted(getattr(account, "self_id", account), context.channel_id)
-        for account in accounts
-    )
+    accounts = registry.bound_accounts_for_group(context.group)
+    muted = sum(registry.is_muted(account, context.group) for account in accounts)
     return f"当前群禁言：{muted}/{len(accounts)}"
 
 

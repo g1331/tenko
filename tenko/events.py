@@ -200,6 +200,7 @@ class MessageEventHandler:
             or (group_id := _event_group_id(event)) is None
         ):
             return False
+        group = (platform, group_id)
 
         # 与 v3 相同：自家其他 bot 发的群消息不交给插件，免得 bot 之间互相触发命令。
         # 聊天记录在这之前写入，面板里照样能看到。
@@ -212,11 +213,11 @@ class MessageEventHandler:
         # 选路；这样群列表拉取失败时仍保留消息触发绑定的兜底路径。
         if self.account_registry.get(account) is None:
             self.account_registry.register(account, available=True)
-        self.account_registry.bind_group(group_id, account)
+        self.account_registry.bind_group(group, account)
 
-        if not self.account_registry.is_muted(account, group_id):
+        if not self.account_registry.is_muted(account, group):
             selected = self.account_registry.select_for_event(
-                group_id,
+                group,
                 source_id=_event_route_id(event),
             )
             if selected is not None and account_key(selected) == account_key(account):
@@ -237,8 +238,8 @@ class MessageEventHandler:
                     "protocol_type={}",
                     account.self_id,
                     group_id,
-                    self.account_registry.response_type_for_group(group_id),
-                    self.account_registry.deterministic_account_for_group(group_id),
+                    self.account_registry.response_type_for_group(group),
+                    self.account_registry.deterministic_account_for_group(group),
                     getattr(event, "_type", "-"),
                 )
             return True
@@ -333,7 +334,7 @@ class MessageEventHandler:
             and self.account_registry is not None
             and self.account_registry.get(account) is not None
         ):
-            self.account_registry.bind_group(context.channel_id, account)
+            self.account_registry.bind_group(context.group, account)
 
         logger.debug(
             "Message received: account={} chat={} channel={} user={} message={} "
@@ -352,9 +353,9 @@ class MessageEventHandler:
             context.chat_type == "group"
             and self.account_registry is not None
             and self.account_registry.get(account) is not None
-            and self.account_registry.is_muted(account, context.channel_id)
+            and self.account_registry.is_muted(account, context.group)
         ):
-            self.account_registry.set_muted(account, context.channel_id, False)
+            self.account_registry.set_muted(account, context.group, False)
             logger.info(
                 "Cleared stale mute after successful group send: account={} group={}",
                 account.self_id,
@@ -379,13 +380,16 @@ class MessageEventHandler:
             )
             return
 
-        removed_account = self.account_registry.get(member_id)
+        platform = account_key(account)[0]
+        removed_account = self.account_registry.get((platform, member_id))
         if removed_account is None:
             # 普通成员退群不能影响任何账号×群路由。
             return
         # 让 AccountRegistry.unbind_group() 统一处理 deterministic：指定账号
         # 被移除后回退到剩余成员首个账号；群无成员时同时删除群路由状态。
-        if not self.account_registry.unbind_group(group_id, member_id):
+        if not self.account_registry.unbind_group(
+            (platform, group_id), (platform, member_id)
+        ):
             return
 
         protocol_type = str(getattr(event, "_type", "") or "")

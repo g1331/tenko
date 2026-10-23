@@ -2,7 +2,7 @@
 
 from satori.client import Account
 
-from tenko.host.accounts import account_key, account_registry
+from tenko.host.accounts import account_registry
 from tenko.host.perm import permission_store
 
 __all__ = ["Account", "accounts_for_group", "online_accounts"]
@@ -18,13 +18,14 @@ def online_accounts() -> tuple[Account, ...]:
     )
 
 
-def accounts_for_group(group_id: str | int) -> tuple[Account, ...]:
-    """返回在该群可响应的账号：在线、未停用、未被该群禁言，且群不在黑名单。"""
+def accounts_for_group(
+    group_id: str | int, *, platform: str = "qq-client"
+) -> tuple[Account, ...]:
+    """返回在该群可响应的账号：在线、未停用、未被该群禁言，且群不在黑名单。
 
-    return tuple(
-        account
-        for account in account_registry.accounts_for_group(group_id)
-        if not permission_store.blacklisted(
-            "group", account_key(account)[0], str(group_id)
-        )
-    )
+    ``platform`` 是群所在平台，与 ``session.event.login.platform`` 一致。
+    """
+
+    if permission_store.blacklisted("group", platform, str(group_id)):
+        return ()
+    return account_registry.accounts_for_group((platform, str(group_id)))

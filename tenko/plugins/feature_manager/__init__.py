@@ -92,14 +92,14 @@ async def _change(session: Session, operation: str, feature: Match[str]):
     enabled = (
         feature_service.is_enabled(info.name)
         if is_global
-        else feature_service.is_enabled(info.name, context.channel_id)
+        else feature_service.is_enabled(info.name, context.group)
     )
     if enabled == requested_enabled:
         return f"功能{target_name}已处于{operation}状态请不要重复{operation}!"
     if is_global:
         feature_service.set_global_enabled(info.name, requested_enabled)
     else:
-        feature_service.set_enabled(info.name, context.channel_id, requested_enabled)
+        feature_service.set_enabled(info.name, context.group, requested_enabled)
     await feature_service.persist_state()
     return f"功能<{target_name}>{'已开启' if requested_enabled else '已关闭'}~"
 

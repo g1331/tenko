@@ -210,16 +210,14 @@ async def test_group_setting_reads_real_repositories(
     del tenko_database
     from tenko.db.repositories import group_setting_repository
 
-    await group_setting_repository.set(
-        "40001", frequency_limitation=False, response_type="deterministic"
-    )
+    await group_setting_repository.set_frequency_limitation("40001", False)
 
     settings = await loaded_plugin.read_group_settings("40001")
 
     assert settings == {
         "blacklisted": False,
         "frequency_limitation": False,
-        "response_type": "deterministic",
+        "response_type": "random",
     }
 
 
@@ -258,7 +256,9 @@ async def test_frequency_limit_command_queries_and_switches_group(
         result = await call(admin, make_query("state", "关闭"))
         assert str(result) == "已关闭当前群的频率限制"
         # 持久化到 GroupSetting，同时同步限流器缓存。
-        assert await group_setting_repository.frequency_disabled_groups() == (40001,)
+        assert await group_setting_repository.frequency_disabled_groups() == (
+            ("qq-client", "40001"),
+        )
         assert not rate_limit_service.is_group_limited("40001")
         assert str(await call(admin, Query("state", None))) == "当前群频率限制：关闭"
 

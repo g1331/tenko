@@ -7,11 +7,14 @@ from typing import TYPE_CHECKING
 
 from loguru import logger
 
+from ..context import GroupKey, group_key
+
 if TYPE_CHECKING:
     from ..db.repositories import GroupSettingRepository, RateLimitRepository
 
 
 _DATABASE_UNAVAILABLE_MESSAGE = "限流状态暂不可用，请稍后再试"
+_SubjectKey = tuple[GroupKey, str]
 
 
 def _key(value: object, label: str) -> str:
@@ -64,7 +67,7 @@ class RateLimitService:
         self._repository = repository
         self._group_settings: GroupSettingRepository | None = None
         # 在 GroupSetting 里关闭了频率限制的群；启动时读取一次，修改时同步更新。
-        self._unlimited_groups: set[str] = set()
+        self._unlimited_groups: set[GroupKey] = set()
         self.enabled = enabled
         self.window_seconds = float(window_seconds)
         self.max_weight = max_weight
@@ -72,9 +75,10 @@ class RateLimitService:
         self.cooldown_seconds = float(cooldown_seconds)
         self.blacklist_seconds = float(blacklist_seconds)
         self.clock = clock
-        self._events: dict[tuple[str, str], list[tuple[float, int]]] = {}
-        self._cooldowns: dict[tuple[str, str], float] = {}
-        self._blacklist: dict[tuple[str, str], float] = {}
+        # 键是 ((平台, 群 ID), 用户 ID)。
+        self._events: dict[_SubjectKey, list[tuple[float, int]]] = {}
+        self._cooldowns: dict[_SubjectKey, float] = {}
+        self._blacklist: dict[_SubjectKey, float] = {}
         self._ready = repository is None
         # 冷却/黑名单有未写入数据库的变化；事件窗口只有 15 秒，不单独落盘。
         self._dirty = False
@@ -128,49 +132,52 @@ class RateLimitService:
         try:
             snapshot = await self._repository.load_state()
             if self._group_settings is not None:
-                self._unlimited_groups = {
-                    str(group)
-                    for group in await self._group_settings.frequency_disabled_groups()
-                }
+                self._unlimited_groups = set(
+                    await self._group_settings.frequency_disabled_groups()
+                )
         except Exception:
             self.mark_unavailable()
             raise
 
-        events: dict[tuple[str, str], list[tuple[float, int]]] = {}
+        events: dict[_SubjectKey, list[tuple[float, int]]] = {}
         for row in snapshot.events:
-            events.setdefault((row.group_id, row.user_id), []).append(
+            events.setdefault(self._row_key(row), []).append(
                 (row.occurred_at, row.weight)
             )
         self._events = events
         self._cooldowns = {}
         self._blacklist = {}
         for row in snapshot.subjects:
-            key = (row.group_id, row.user_id)
+            key = self._row_key(row)
             if row.cooldown_until is not None:
                 self._cooldowns[key] = row.cooldown_until
             if row.blacklist_until is not None:
                 self._blacklist[key] = row.blacklist_until
         self._ready = True
 
-    def set_group_limited(self, group_id: str | int, enabled: bool) -> None:
+    def set_group_limited(self, group: object, enabled: bool) -> None:
         """同步群级频率限制开关的内存缓存；持久化由调用方写入 GroupSetting。"""
 
         if type(enabled) is not bool:
             raise TypeError("enabled 必须是布尔值")
-        group = _key(group_id, "群 ID")
+        key = group_key(group)
         if enabled:
-            self._unlimited_groups.discard(group)
+            self._unlimited_groups.discard(key)
         else:
-            self._unlimited_groups.add(group)
+            self._unlimited_groups.add(key)
 
-    def is_group_limited(self, group_id: str | int) -> bool:
+    def is_group_limited(self, group: object) -> bool:
         """群未关闭频率限制（默认开启）时返回 ``True``。"""
 
-        return _key(group_id, "群 ID") not in self._unlimited_groups
+        return group_key(group) not in self._unlimited_groups
 
     @staticmethod
-    def _state_key(group_id: str | int, user_id: str | int) -> tuple[str, str]:
-        return _key(group_id, "群 ID"), _key(user_id, "用户 ID")
+    def _state_key(group: object, user_id: str | int) -> _SubjectKey:
+        return group_key(group), _key(user_id, "用户 ID")
+
+    @staticmethod
+    def _row_key(row) -> _SubjectKey:
+        return group_key((row.platform, row.group_id)), row.user_id
 
     def _prune_all(self, now: float) -> None:
         """清理所有已过期的事件、冷却和黑名单，避免空闲用户的状态堆积。"""
@@ -189,18 +196,20 @@ class RateLimitService:
                 user_id=user_id,
                 occurred_at=occurred_at,
                 weight=weight,
+                platform=platform,
             )
-            for (group_id, user_id), values in self._events.items()
+            for ((platform, group_id), user_id), values in self._events.items()
             for occurred_at, weight in values
         )
         subjects = tuple(
             RateLimitSubjectRecord(
-                group_id=group_id,
-                user_id=user_id,
-                cooldown_until=self._cooldowns.get((group_id, user_id)),
-                blacklist_until=self._blacklist.get((group_id, user_id)),
+                group_id=key[0][1],
+                user_id=key[1],
+                cooldown_until=self._cooldowns.get(key),
+                blacklist_until=self._blacklist.get(key),
+                platform=key[0][0],
             )
-            for group_id, user_id in sorted(set(self._cooldowns) | set(self._blacklist))
+            for key in sorted(set(self._cooldowns) | set(self._blacklist))
         )
         return events, subjects
 
@@ -237,7 +246,7 @@ class RateLimitService:
                 logger.warning("限流状态保存失败，将在下次状态变化时重试: {}", error)
         return decision
 
-    def _prune(self, key: tuple[str, str], now: float) -> bool:
+    def _prune(self, key: _SubjectKey, now: float) -> bool:
         changed = False
         events = self._events.get(key, [])
         retained = [
@@ -261,19 +270,19 @@ class RateLimitService:
         return changed
 
     def is_blacklisted(
-        self, group_id: str | int, user_id: str | int, *, now: float | None = None
+        self, group: object, user_id: str | int, *, now: float | None = None
     ) -> bool:
-        key = self._state_key(group_id, user_id)
+        key = self._state_key(group, user_id)
         if not self._ready:
             return True
         current = self.clock() if now is None else float(now)
         self._prune(key, current)
         return key in self._blacklist and self._blacklist[key] > current
 
-    def clear(self, group_id: str | int, user_id: str | int) -> None:
+    def clear(self, group: object, user_id: str | int) -> None:
         """清除用户在群内的窗口、冷却和黑名单状态。"""
 
-        key = self._state_key(group_id, user_id)
+        key = self._state_key(group, user_id)
         self._events.pop(key, None)
         self._cooldowns.pop(key, None)
         self._blacklist.pop(key, None)
@@ -281,7 +290,7 @@ class RateLimitService:
 
     def check(
         self,
-        group_id: str | int,
+        group: object,
         user_id: str | int,
         *,
         command: str | None = None,
@@ -299,10 +308,10 @@ class RateLimitService:
             raise ValueError("weight 必须是正整数")
         if not self._ready:
             return RateLimitDecision(False)
-        if not self.enabled or override or not self.is_group_limited(group_id):
+        if not self.enabled or override or not self.is_group_limited(group):
             return RateLimitDecision(True)
 
-        key = self._state_key(group_id, user_id)
+        key = self._state_key(group, user_id)
         current = self.clock() if now is None else float(now)
         self._prune_all(current)
         blacklist_until = self._blacklist.get(key)

@@ -89,8 +89,8 @@ async def on_message(event: MessageCreatedEvent): ...
 |---|---|
 | `tenko_api.perm` | `Permission`；装饰器 `require`、`group_only`、`private_only`；函数体内的 `require_perm`、`get_user_perm` |
 | `tenko_api.actions` | 发消息、禁言、踢人、撤回、查询群成员等宿主动作，以及 `ActionServiceError` 系列异常 |
-| `tenko_api.accounts` | 只读账号信息：在线账号、某群可响应的账号（群在黑名单时为空） |
-| `tenko_api.features` | `feature_enabled` 只读查询；`declare` 声明范围、默认开关、限流权重和是否受控；`feature_required` 装饰非命令监听器 |
+| `tenko_api.accounts` | 只读账号信息：在线账号、某群可响应的账号（群在黑名单时为空；非 QQ 群传 `platform=`） |
+| `tenko_api.features` | `feature_enabled` 只读查询（非 QQ 群传 `platform=`）；`declare` 声明范围、默认开关、限流权重和是否受控；`feature_required` 装饰非命令监听器 |
 | `tenko_api.render` | `RenderService`、`try_render`（浏览器不可用时得到 `None`，回退文本；`render_or_none` 是按方法名分发的旧写法） |
 | `tenko_api.messages` | `report_error` |
 | `tenko_api.storage` | 插件独立数据目录 `data_dir()`、带版本号并自动备份迁移的 JSON `Store`、插件自己的 SQLite 库 `Model` 与 `get_session()` |
@@ -135,7 +135,8 @@ async def latest() -> str | None:
 版本号独立于 Tenko 本体，遵循语义化版本（1.0 起生效）。1.0 之前删除或改变语义时次版本号 +1，
 例如 0.3.0 移除了 `tenko_api.context` 和 `text_message`，权限函数改为接收 `Session`；
 0.4.0 重做权限（#234）：`Permission` 改为 0–4 的五级、删除群等级（`require_group`、
-`get_group_perm`、`declare(level=...)`），新增 `declare(controlled=...)`。
+`get_group_perm`、`declare(level=...)`），新增 `declare(controlled=...)`；`feature_enabled`、
+`accounts_for_group` 新增仅限关键字的 `platform` 参数（默认 `"qq-client"`），用于区分不同平台的同号群。
 
 | 变更 | 版本号 |
 |---|---|

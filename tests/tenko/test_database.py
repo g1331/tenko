@@ -138,6 +138,12 @@ async def test_official_database_plugin_preserves_legacy_schema_and_rows(
         RateLimitSubjectState,
         StartupTime,
         UserBlacklist,
+        LegacyAccountResponseState,
+        LegacyAccountRoute,
+        LegacyFeatureState,
+        LegacyGroupSetting,
+        LegacyRateLimitEvent,
+        LegacyRateLimitSubjectState,
     )
 
     await service.initialize()
@@ -174,7 +180,7 @@ async def test_official_database_plugin_preserves_legacy_schema_and_rows(
         ).all()
         group = await session.scalar(select(GroupPerm).where(GroupPerm.group_id == 1))
         setting = await session.scalar(
-            select(GroupSetting).where(GroupSetting.group_id == 1)
+            select(LegacyGroupSetting).where(LegacyGroupSetting.group_id == 1)
         )
 
     assert [row.perm for row in permissions] == [-1, 0, 16, 32, 64, 128, 256]
@@ -190,12 +196,18 @@ async def test_official_database_plugin_preserves_legacy_schema_and_rows(
     expected_models = {
         "MemberPerm": MemberPerm,
         "GroupPerm": GroupPerm,
-        "GroupSetting": GroupSetting,
-        "TenkoFeatureState": FeatureState,
-        "TenkoAccountRoute": AccountRoute,
-        "TenkoAccountResponseState": AccountResponseState,
-        "TenkoRateLimitEvent": RateLimitEvent,
-        "TenkoRateLimitSubjectState": RateLimitSubjectState,
+        "GroupSetting": LegacyGroupSetting,
+        "TenkoFeatureState": LegacyFeatureState,
+        "TenkoAccountRoute": LegacyAccountRoute,
+        "TenkoAccountResponseState": LegacyAccountResponseState,
+        "TenkoRateLimitEvent": LegacyRateLimitEvent,
+        "TenkoRateLimitSubjectState": LegacyRateLimitSubjectState,
+        "TenkoGroupSetting": GroupSetting,
+        "TenkoFeatureSwitch": FeatureState,
+        "TenkoGroupRoute": AccountRoute,
+        "TenkoGroupResponse": AccountResponseState,
+        "TenkoRateEvent": RateLimitEvent,
+        "TenkoRateSubject": RateLimitSubjectState,
         "TenkoStartupTime": StartupTime,
         "TenkoAccountPreference": AccountPreference,
         "TenkoSetting": WebUISetting,

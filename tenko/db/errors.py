@@ -27,14 +27,6 @@ class DatabaseUnavailableError(DatabaseError):
     """数据库插件、会话工厂或数据库连接当前不可用。"""
 
 
-class DatabaseIdentifierError(ValueError):
-    """Satori ID 无法转换为旧 schema 使用的整数 ID。"""
-
-
-class InvalidGroupSettingError(ValueError):
-    """群设置值不在旧 schema 的允许值域内。"""
-
-
 def is_database_unavailable(error: BaseException) -> bool:
     """判断异常是否属于数据库依赖/连接不可用，而不是业务逻辑错误。
 

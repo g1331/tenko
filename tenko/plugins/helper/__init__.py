@@ -19,7 +19,7 @@ from tenko.host.plugins.docs import (
     plugin_icon_path,
 )
 from tenko.host.plugins.runtime import PluginInfo, PluginRuntime
-from tenko.context import context_from_session
+from tenko.context import context_from_session, group_reference
 from tenko.plugins._common import render_or_text
 from tenko.host.render import RenderService, data_uri
 
@@ -274,7 +274,7 @@ async def helper(
 ):
     context = context_from_session(session)
     value = index.result if index.available else None
-    group_id = context.channel_id if context.chat_type == "group" else None
+    group_id = group_reference(context.group) if context.chat_type == "group" else None
     if value is not None:
         text = build_help(value)
         detail = None if text_mode.result else build_help_detail_data(value, group_id)

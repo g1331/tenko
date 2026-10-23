@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from collections.abc import Iterable
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Literal
@@ -21,6 +22,33 @@ LEGACY_QQ_PLATFORM = "onebot"
 
 def normalize_platform(platform: str) -> str:
     return QQ_PLATFORM if platform == LEGACY_QQ_PLATFORM else platform
+
+
+GroupKey = tuple[str, str]
+
+
+def group_key(value: object) -> GroupKey:
+    """群的平台限定键，规则同 ``account_key``：裸 ID 是 QQ 群号，其他平台用二元组。"""
+
+    if isinstance(value, tuple) and len(value) == 2:
+        platform, group = (str(part) for part in value)
+    else:
+        group = "" if value is None else str(value)
+        platform = QQ_PLATFORM
+        if group.startswith("["):
+            pair = json.loads(group)
+            if not isinstance(pair, list) or len(pair) != 2:
+                raise ValueError("群键必须包含平台和群 ID")
+            platform, group = (str(part) for part in pair)
+    if not platform or not group:
+        raise ValueError("群 ID 不能为空")
+    return normalize_platform(platform), group
+
+
+def group_reference(key: GroupKey) -> str:
+    """QQ 群保留裸群号；其他平台编码为无歧义的二元 JSON，可被 ``group_key`` 还原。"""
+
+    return key[1] if key[0] == QQ_PLATFORM else json.dumps(key, ensure_ascii=False)
 
 
 def _value(value: object) -> str:
@@ -60,6 +88,12 @@ class MessageContext:
     image_urls: tuple[str, ...]
     member_role: str | None = None
     platform: str = QQ_PLATFORM
+
+    @property
+    def group(self) -> GroupKey:
+        """群聊的平台限定键；只对 ``chat_type == "group"`` 有意义。"""
+
+        return group_key((self.platform, self.channel_id))
 
     @classmethod
     def from_event(cls, event: Event) -> MessageContext:

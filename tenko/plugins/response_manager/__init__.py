@@ -8,7 +8,7 @@ from arclet.entari.plugin import PluginRole
 from tenko.host.accounts import AccountRegistry, account_registry
 from tenko.host.guards import group_only, private_only, require
 from tenko.host.perm import Permission
-from tenko.context import context_from_session
+from tenko.context import context_from_session, group_reference
 from tenko.plugins._common import list_data, render_or_text
 from tenko.host.render import RenderService
 
@@ -241,8 +241,8 @@ bot_list_command = Alconna(
 @require(Permission.BotAdmin)
 async def bot_list(session: Session, *, render_service: RenderService):
     context = context_from_session(session)
-    result = format_group_bots(account_registry, context.channel_id)
-    data = build_group_bots_data(account_registry, context.channel_id)
+    result = format_group_bots(account_registry, group_reference(context.group))
+    data = build_group_bots_data(account_registry, group_reference(context.group))
     if data is None:
         return result
     return await render_or_text(render_service, "list.html", data, result)
@@ -307,7 +307,7 @@ online_bot_command = Alconna(
 @require(Permission.User)
 async def online_bot(session: Session, *, render_service: RenderService):
     context = context_from_session(session)
-    normalized_group = str(context.channel_id)
+    normalized_group = group_reference(context.group)
     bound = account_registry.bound_accounts_for_group(normalized_group)
     available = account_registry.accounts_for_group(normalized_group)
     if not bound:
@@ -341,7 +341,7 @@ async def set_response_strategy(
     response_type: Query[str] = Query("response_type"),
 ):
     context = context_from_session(session)
-    group_id = str(context.channel_id)
+    group_id = group_reference(context.group)
     current = account_registry.response_type_for_group(group_id)
     if current is None:
         return "当前群未绑定可用BOT"
@@ -378,7 +378,7 @@ async def choose_response_bot(
     account_id: Match[str],
 ):
     context = context_from_session(session)
-    group_id = str(context.channel_id)
+    group_id = group_reference(context.group)
     if account_registry.response_type_for_group(group_id) is None:
         return "当前群未绑定可用BOT"
 

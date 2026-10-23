@@ -61,7 +61,104 @@ class GroupPerm(BaseOrm):
 
 
 class GroupSetting(BaseOrm):
-    """群频控、响应账号和成员权限同步策略。"""
+    """群级频率限制开关；没有记录的群按开启处理。"""
+
+    __tablename__ = "TenkoGroupSetting"
+
+    platform: Mapped[str] = mapped_column(String(length=128), primary_key=True)
+    group_id: Mapped[str] = mapped_column(String(length=128), primary_key=True)
+    frequency_limitation: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=True
+    )
+
+
+class FeatureState(BaseOrm):
+    """Tenko 功能开关的全局或群级显式状态；全局行的平台和群 ID 都是空串。"""
+
+    __tablename__ = "TenkoFeatureSwitch"
+
+    plugin_name: Mapped[str] = mapped_column(String(length=128), primary_key=True)
+    platform: Mapped[str] = mapped_column(
+        String(length=128), primary_key=True, default=""
+    )
+    group_id: Mapped[str] = mapped_column(
+        String(length=128), primary_key=True, default=""
+    )
+    enabled: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    maintenance: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+
+
+class AccountRoute(BaseOrm):
+    """账号与群的有序绑定关系。"""
+
+    __tablename__ = "TenkoGroupRoute"
+    __table_args__ = (
+        UniqueConstraint(
+            "platform", "group_id", "position", name="uq_tenko_group_route_position"
+        ),
+    )
+
+    platform: Mapped[str] = mapped_column(String(length=128), primary_key=True)
+    group_id: Mapped[str] = mapped_column(String(length=128), primary_key=True)
+    account_id: Mapped[str] = mapped_column(String(length=128), primary_key=True)
+    position: Mapped[int] = mapped_column(Integer, nullable=False)
+
+
+class AccountResponseState(BaseOrm):
+    """群级 random/deterministic 响应策略和指定账号。"""
+
+    __tablename__ = "TenkoGroupResponse"
+
+    platform: Mapped[str] = mapped_column(String(length=128), primary_key=True)
+    group_id: Mapped[str] = mapped_column(String(length=128), primary_key=True)
+    response_type: Mapped[str] = mapped_column(
+        String(length=32), nullable=False, default="random"
+    )
+    deterministic_account: Mapped[str | None] = mapped_column(
+        String(length=128), nullable=True
+    )
+
+
+class RateLimitEvent(BaseOrm):
+    """限流滚动窗口中的一次加权命令事件。"""
+
+    __tablename__ = "TenkoRateEvent"
+    __table_args__ = (
+        Index(
+            "ix_tenko_rate_event_subject",
+            "platform",
+            "group_id",
+            "user_id",
+            "occurred_at",
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    platform: Mapped[str] = mapped_column(String(length=128), nullable=False)
+    group_id: Mapped[str] = mapped_column(String(length=128), nullable=False)
+    user_id: Mapped[str] = mapped_column(String(length=128), nullable=False)
+    occurred_at: Mapped[float] = mapped_column(Float, nullable=False)
+    weight: Mapped[int] = mapped_column(Integer, nullable=False)
+
+
+class RateLimitSubjectState(BaseOrm):
+    """用户×群的限流冷却和临时黑名单到期时间。"""
+
+    __tablename__ = "TenkoRateSubject"
+
+    platform: Mapped[str] = mapped_column(String(length=128), primary_key=True)
+    group_id: Mapped[str] = mapped_column(String(length=128), primary_key=True)
+    user_id: Mapped[str] = mapped_column(String(length=128), primary_key=True)
+    cooldown_until: Mapped[float | None] = mapped_column(Float, nullable=True)
+    blacklist_until: Mapped[float | None] = mapped_column(Float, nullable=True)
+
+
+# 以下是只按群号存储的旧表，#234 起由上面带平台主键的新表取代、不再读写。
+# 删表会被“只前进”保护拒绝并在每次启动时报错，所以模型原样保留。
+
+
+class LegacyGroupSetting(BaseOrm):
+    """已废弃（#234）。"""
 
     __tablename__ = "GroupSetting"
     __revision__ = LEGACY_SCHEMA_REVISION
@@ -76,7 +173,6 @@ class GroupSetting(BaseOrm):
         info={"check": ["random", "deterministic"]},
         default="random",
     )
-    # 已废弃（#234），不再读写；删列会被“只前进”保护拒绝，所以保留。
     permission_type: Mapped[str] = mapped_column(
         String,
         nullable=True,
@@ -85,8 +181,8 @@ class GroupSetting(BaseOrm):
     )
 
 
-class FeatureState(BaseOrm):
-    """Tenko 功能开关的全局或群级显式状态。"""
+class LegacyFeatureState(BaseOrm):
+    """已废弃（#234）。"""
 
     __tablename__ = "TenkoFeatureState"
 
@@ -98,8 +194,8 @@ class FeatureState(BaseOrm):
     maintenance: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
 
 
-class AccountRoute(BaseOrm):
-    """账号与群的有序绑定关系。"""
+class LegacyAccountRoute(BaseOrm):
+    """已废弃（#234）。"""
 
     __tablename__ = "TenkoAccountRoute"
     __table_args__ = (
@@ -111,8 +207,8 @@ class AccountRoute(BaseOrm):
     position: Mapped[int] = mapped_column(Integer, nullable=False)
 
 
-class AccountResponseState(BaseOrm):
-    """群级 random/deterministic 响应策略和指定账号。"""
+class LegacyAccountResponseState(BaseOrm):
+    """已废弃（#234）。"""
 
     __tablename__ = "TenkoAccountResponseState"
 
@@ -125,8 +221,8 @@ class AccountResponseState(BaseOrm):
     )
 
 
-class RateLimitEvent(BaseOrm):
-    """限流滚动窗口中的一次加权命令事件。"""
+class LegacyRateLimitEvent(BaseOrm):
+    """已废弃（#234）。"""
 
     __tablename__ = "TenkoRateLimitEvent"
     __table_args__ = (
@@ -145,8 +241,8 @@ class RateLimitEvent(BaseOrm):
     weight: Mapped[int] = mapped_column(Integer, nullable=False)
 
 
-class RateLimitSubjectState(BaseOrm):
-    """用户×群的限流冷却和临时黑名单到期时间。"""
+class LegacyRateLimitSubjectState(BaseOrm):
+    """已废弃（#234）。"""
 
     __tablename__ = "TenkoRateLimitSubjectState"
 
@@ -312,6 +408,12 @@ MODEL_CLASSES = (
     UserBlacklist,
     GroupBlacklist,
     PermissionGrant,
+    LegacyGroupSetting,
+    LegacyFeatureState,
+    LegacyAccountRoute,
+    LegacyAccountResponseState,
+    LegacyRateLimitEvent,
+    LegacyRateLimitSubjectState,
 )
 
 __all__ = [
@@ -333,4 +435,10 @@ __all__ = [
     "WebUIAccount",
     "WebUISession",
     "MemberPerm",
+    "LegacyGroupSetting",
+    "LegacyFeatureState",
+    "LegacyAccountRoute",
+    "LegacyAccountResponseState",
+    "LegacyRateLimitEvent",
+    "LegacyRateLimitSubjectState",
 ]

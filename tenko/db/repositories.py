@@ -16,10 +16,9 @@ from sqlalchemy import delete, func, select, update
 
 from .errors import (
     DatabaseUnavailableError,
-    InvalidGroupSettingError,
     is_database_unavailable,
 )
-from .ids import to_database_id
+from ..context import QQ_PLATFORM, GroupKey, group_key
 from .models import (
     AccountResponseState,
     ChatMessage,
@@ -38,7 +37,6 @@ from .models import (
 
 _SessionFactory = Callable[[], Any]
 _session_factory: _SessionFactory | None = None
-_RESPONSE_TYPES = frozenset({"random", "deterministic"})
 
 
 def configure_session_factory(factory: _SessionFactory | None) -> None:
@@ -97,63 +95,36 @@ class _Repository:
 
 
 class GroupSettingRepository(_Repository):
-    """GroupSetting 的频控和响应策略 repository。"""
+    """群级频率限制开关 repository。"""
 
-    async def get(self, group_id: str | int) -> GroupSetting | None:
-        group = to_database_id(group_id, "群 ID")
+    async def get(self, group: object) -> GroupSetting | None:
         async with self._session() as session:
-            return await session.get(GroupSetting, group)
+            return await session.get(GroupSetting, group_key(group))
 
-    async def frequency_disabled_groups(self) -> tuple[int, ...]:
+    async def frequency_disabled_groups(self) -> tuple[GroupKey, ...]:
         """返回显式关闭了频率限制的群；没有记录的群按默认开启处理。"""
 
         async with self._session() as session:
-            result = await session.scalars(
-                select(GroupSetting.group_id)
+            result = await session.execute(
+                select(GroupSetting.platform, GroupSetting.group_id)
                 .where(GroupSetting.frequency_limitation.is_(False))
-                .order_by(GroupSetting.group_id)
+                .order_by(GroupSetting.platform, GroupSetting.group_id)
             )
-            return tuple(result.all())
+            return tuple((platform, group) for platform, group in result.all())
 
-    async def set(
-        self,
-        group_id: str | int,
-        *,
-        frequency_limitation: bool | None = None,
-        response_type: str | None = None,
-    ) -> None:
-        group = to_database_id(group_id, "群 ID")
-        if frequency_limitation is not None and type(frequency_limitation) is not bool:
-            raise TypeError("frequency_limitation 必须是布尔值或 None")
-        if response_type is not None and response_type not in _RESPONSE_TYPES:
-            raise InvalidGroupSettingError(
-                "response_type 必须是 random 或 deterministic"
-            )
+    async def set_frequency_limitation(self, group: object, enabled: bool) -> None:
+        if type(enabled) is not bool:
+            raise TypeError("frequency_limitation 必须是布尔值")
+        platform, group_id = group_key(group)
         async with self._session() as session:
-            row = await session.get(GroupSetting, group)
-            if row is None:
-                row = GroupSetting(
-                    group_id=group,
-                    frequency_limitation=(
-                        True if frequency_limitation is None else frequency_limitation
-                    ),
-                    response_type=response_type or "random",
+            await session.merge(
+                GroupSetting(
+                    platform=platform,
+                    group_id=group_id,
+                    frequency_limitation=enabled,
                 )
-                session.add(row)
-            else:
-                if frequency_limitation is not None:
-                    row.frequency_limitation = frequency_limitation
-                if response_type is not None:
-                    row.response_type = response_type
+            )
             await session.commit()
-
-    async def set_frequency_limitation(
-        self, group_id: str | int, enabled: bool
-    ) -> None:
-        await self.set(group_id, frequency_limitation=enabled)
-
-    async def set_response_type(self, group_id: str | int, response_type: str) -> None:
-        await self.set(group_id, response_type=response_type)
 
 
 @dataclass(frozen=True, slots=True)
@@ -264,6 +235,7 @@ class FeatureStateRecord:
     group_id: str | None
     enabled: bool | None
     maintenance: bool
+    platform: str = QQ_PLATFORM
 
 
 class FeatureStateRepository(_Repository):
@@ -273,7 +245,9 @@ class FeatureStateRepository(_Repository):
         async with self._session() as session:
             result = await session.scalars(
                 select(FeatureState).order_by(
-                    FeatureState.plugin_name, FeatureState.group_id
+                    FeatureState.plugin_name,
+                    FeatureState.platform,
+                    FeatureState.group_id,
                 )
             )
             return tuple(
@@ -282,6 +256,7 @@ class FeatureStateRepository(_Repository):
                     group_id=row.group_id or None,
                     enabled=row.enabled,
                     maintenance=bool(row.maintenance),
+                    platform=row.platform or QQ_PLATFORM,
                 )
                 for row in result.all()
             )
@@ -293,6 +268,7 @@ class FeatureStateRepository(_Repository):
             session.add_all(
                 FeatureState(
                     plugin_name=row.plugin_name,
+                    platform="" if row.group_id is None else row.platform,
                     group_id=row.group_id or "",
                     enabled=row.enabled,
                     maintenance=row.maintenance,
@@ -309,6 +285,7 @@ class AccountRouteRecord:
     group_id: str
     account_id: str
     position: int
+    platform: str = QQ_PLATFORM
 
 
 @dataclass(frozen=True, slots=True)
@@ -318,6 +295,7 @@ class AccountResponseRecord:
     group_id: str
     response_type: str
     deterministic_account: str | None
+    platform: str = QQ_PLATFORM
 
 
 @dataclass(frozen=True, slots=True)
@@ -335,15 +313,18 @@ class AccountStateRepository(_Repository):
         async with self._session() as session:
             route_result = await session.scalars(
                 select(AccountRoute).order_by(
-                    AccountRoute.group_id, AccountRoute.position
+                    AccountRoute.platform, AccountRoute.group_id, AccountRoute.position
                 )
             )
             response_result = await session.scalars(
-                select(AccountResponseState).order_by(AccountResponseState.group_id)
+                select(AccountResponseState).order_by(
+                    AccountResponseState.platform, AccountResponseState.group_id
+                )
             )
             return AccountStateSnapshot(
                 routes=tuple(
                     AccountRouteRecord(
+                        platform=row.platform,
                         group_id=row.group_id,
                         account_id=row.account_id,
                         position=row.position,
@@ -352,6 +333,7 @@ class AccountStateRepository(_Repository):
                 ),
                 responses=tuple(
                     AccountResponseRecord(
+                        platform=row.platform,
                         group_id=row.group_id,
                         response_type=row.response_type,
                         deterministic_account=row.deterministic_account,
@@ -372,6 +354,7 @@ class AccountStateRepository(_Repository):
             await session.execute(delete(AccountResponseState))
             session.add_all(
                 AccountRoute(
+                    platform=row.platform,
                     group_id=row.group_id,
                     account_id=row.account_id,
                     position=row.position,
@@ -380,6 +363,7 @@ class AccountStateRepository(_Repository):
             )
             session.add_all(
                 AccountResponseState(
+                    platform=row.platform,
                     group_id=row.group_id,
                     response_type=row.response_type,
                     deterministic_account=row.deterministic_account,
@@ -397,6 +381,7 @@ class RateLimitEventRecord:
     user_id: str
     occurred_at: float
     weight: int
+    platform: str = QQ_PLATFORM
 
 
 @dataclass(frozen=True, slots=True)
@@ -407,6 +392,7 @@ class RateLimitSubjectRecord:
     user_id: str
     cooldown_until: float | None
     blacklist_until: float | None
+    platform: str = QQ_PLATFORM
 
 
 @dataclass(frozen=True, slots=True)
@@ -427,6 +413,7 @@ class RateLimitRepository(_Repository):
             )
             subject_result = await session.scalars(
                 select(RateLimitSubjectState).order_by(
+                    RateLimitSubjectState.platform,
                     RateLimitSubjectState.group_id,
                     RateLimitSubjectState.user_id,
                 )
@@ -434,6 +421,7 @@ class RateLimitRepository(_Repository):
             return RateLimitStateSnapshot(
                 events=tuple(
                     RateLimitEventRecord(
+                        platform=row.platform,
                         group_id=row.group_id,
                         user_id=row.user_id,
                         occurred_at=float(row.occurred_at),
@@ -443,6 +431,7 @@ class RateLimitRepository(_Repository):
                 ),
                 subjects=tuple(
                     RateLimitSubjectRecord(
+                        platform=row.platform,
                         group_id=row.group_id,
                         user_id=row.user_id,
                         cooldown_until=(
@@ -472,6 +461,7 @@ class RateLimitRepository(_Repository):
             await session.execute(delete(RateLimitSubjectState))
             session.add_all(
                 RateLimitEvent(
+                    platform=row.platform,
                     group_id=row.group_id,
                     user_id=row.user_id,
                     occurred_at=row.occurred_at,
@@ -481,6 +471,7 @@ class RateLimitRepository(_Repository):
             )
             session.add_all(
                 RateLimitSubjectState(
+                    platform=row.platform,
                     group_id=row.group_id,
                     user_id=row.user_id,
                     cooldown_until=row.cooldown_until,

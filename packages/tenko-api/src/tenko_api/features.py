@@ -8,10 +8,16 @@ from tenko.host.guards import feature_required
 __all__ = ["declare", "feature_enabled", "feature_required"]
 
 
-def feature_enabled(plugin_id: str, group_id: str | int | None = None) -> bool:
-    """只读查询插件在某群是否开启（全局开关、维护状态和默认值已合并）。"""
+def feature_enabled(
+    plugin_id: str, group_id: str | int | None = None, *, platform: str = "qq-client"
+) -> bool:
+    """只读查询插件在某群是否开启（全局开关、维护状态和默认值已合并）。
 
-    return _features.feature_service.is_enabled(plugin_id, group_id)
+    ``platform`` 是群所在平台，与 ``session.event.login.platform`` 一致。
+    """
+
+    group = None if group_id is None else (platform, str(group_id))
+    return _features.feature_service.is_enabled(plugin_id, group)
 
 
 def declare(
