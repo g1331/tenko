@@ -424,6 +424,11 @@ class GuardedProtocol(EntariProtocol):
         name = action.value if isinstance(action, Api) else action
         channel = _origin.get()
         if channel is None or is_sandbox(self.account) or _read_only(name, method):
+            if channel is None and not _read_only(name, method):
+                # 延迟导入：stats 经插件运行时间接导入本模块。
+                from .stats import record_api
+
+                record_api(name)
             return await super().call_api(action, params, multipart, method)
         if sandbox is not None:
             sandbox.note(

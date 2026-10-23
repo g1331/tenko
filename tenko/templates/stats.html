@@ -1,0 +1,74 @@
+{% extends "_base.html" %}
+
+{% block style %}
+  .trend { display: flex; align-items: flex-end; gap: 3px; height: 90px; padding: 6px 0 0; }
+  .trend i { flex: 1; min-height: 2px; border-radius: 3px 3px 0 0; background: linear-gradient(180deg, rgba(255,255,255,.75), rgba(255,255,255,.3)); }
+  .trend-axis { display: flex; justify-content: space-between; font-size: 11.5px; opacity: .5; letter-spacing: .06em; margin-top: 6px; }
+  .rows { border-top: 1px solid rgba(255,255,255,.08); }
+  .row { display: grid; grid-template-columns: 1fr 74px 64px 78px; gap: 6px 14px; align-items: center; padding: 12px 0; border-bottom: 1px solid rgba(255,255,255,.08); }
+  .head { padding: 0 0 8px; font-size: 11.5px; opacity: .5; letter-spacing: .12em; border-bottom: 0; }
+  .head span:not(:first-child), .row .num { text-align: right; }
+  .nm { font-size: 16px; font-weight: 700; letter-spacing: .03em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .bar { grid-column: 1 / -1; height: 4px; border-radius: 2px; background: rgba(255,255,255,.08); margin-top: -2px; }
+  .bar i { display: block; height: 100%; border-radius: 2px; background: rgba(255,255,255,.55); }
+  .num { font-family: "Cat", "SC"; font-size: 17px; font-weight: 600; }
+  .num.bad { color: #ffb4a8; }
+  .note { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 6px 14px; font-size: 12.5px; opacity: .7; letter-spacing: .02em; }
+  .note .warn { color: #ffb4a8; opacity: 1; }
+{% endblock %}
+
+{% block hero_copy %}
+  <div class="eyebrow">TENKO · STATS</div>
+  <div class="h1">{{ title }}</div>
+  <div class="sub">{{ subtitle }}</div>
+  <div class="stats">
+    <div><b>{{ total }}</b>调用</div>
+    <div><b>{{ rate }}</b>成功率</div>
+    <div{% if not denied %} class="dim"{% endif %}><b>{{ denied }}</b>被拒</div>
+    <div{% if not errors %} class="dim"{% endif %}><b>{{ errors }}</b>报错</div>
+  </div>
+{% endblock %}
+
+{%- macro table(rows, label) %}
+  <div class="rows">
+    <div class="row head"><span>{{ label }}</span><span>调用</span><span>成功率</span><span>平均耗时</span></div>
+  {%- for item in rows %}
+    <div class="row">
+      <span class="nm">{{ item["name"] }}</span>
+      <span class="num">{{ item["calls"] }}</span>
+      <span class="num{% if item['bad'] %} bad{% endif %}">{{ item["rate"] }}</span>
+      <span class="num">{{ item["avg"] }}</span>
+      <div class="bar"><i style="width: {{ (item['share'] * 100) | round(1) }}%"></i></div>
+      {%- if item["render"] != "—" or item["denied"] or item["errors"] or item["actions"] %}
+      <div class="note">
+        {%- if item["render"] != "—" %}<span>渲染 {{ item["render"] }}</span>{% endif %}
+        {%- if item["errors"] %}<span class="warn">报错 {{ item["errors"] }}</span>{% endif %}
+        {%- if item["denied"] %}<span>被拒 {{ item["denied"] }} · {{ item["reason"] }}</span>{% endif %}
+        {%- if item["actions"] %}<span>动作 {{ item["actions"] }}</span>{% endif %}
+      </div>
+      {%- endif %}
+    </div>
+  {%- endfor %}
+  </div>
+{%- endmacro %}
+
+{% block content %}
+  {%- set peak = trend | max if trend else 0 %}
+  <div class="sec"><div class="sh"><span class="t">调用趋势</span><span class="who">每{{ trend_unit }}</span></div>
+    <div class="trend">
+    {%- for value in trend %}<i style="height: {{ (value / peak * 100) | round(1) if peak else 0 }}%"></i>{% endfor %}
+    </div>
+    <div class="trend-axis"><span>{{ trend | length }} {{ trend_unit }}前</span><span>峰值 {{ peak }}</span><span>现在</span></div>
+  </div>
+  <div class="sec"><div class="sh"><span class="t">{{ "命令" if by_command else "插件" }}</span></div>
+  {%- if items %}{{ table(items, "命令" if by_command else "插件") }}
+  {%- else %}<div class="empty">还没有调用记录</div>{% endif %}
+  </div>
+  {%- if groups %}
+  <div class="sec"><div class="sh"><span class="t">按群</span><span class="who">前 {{ groups | length }} 个</span></div>
+    {{ table(groups, "群") }}
+  </div>
+  {%- endif %}
+{% endblock %}
+
+{% block foot_note %}只统计命中的命令，以及有回复、动作或报错的被动监听{% endblock %}

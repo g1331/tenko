@@ -123,6 +123,7 @@ async def test_official_database_plugin_preserves_legacy_schema_and_rows(
         MODEL_CLASSES,
         AccountPreference,
         ChatMessage,
+        CommandStat,
         WebUIAccount,
         WebUISession,
         WebUISetting,
@@ -217,6 +218,7 @@ async def test_official_database_plugin_preserves_legacy_schema_and_rows(
         "TenkoUserBlacklist": UserBlacklist,
         "TenkoGroupBlacklist": GroupBlacklist,
         "TenkoPermissionGrant": PermissionGrant,
+        "TenkoCommandStat": CommandStat,
     }
     assert {model.__tablename__ for model in MODEL_CLASSES} == set(expected_models)
     assert set(expected_models) <= set(state)

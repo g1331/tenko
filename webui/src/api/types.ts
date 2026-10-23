@@ -702,3 +702,54 @@ export interface ChatSendBody {
   channel: string
   content: ChatSendSegment[]
 }
+
+// ---------------------------------------------------------------- 调用统计 /manage/stats
+
+export type StatsDays = 1 | 7 | 30
+export interface StatsReason {
+  reason: string
+  label: string
+  count: number
+}
+export interface StatsSummary {
+  key: string
+  calls: number
+  ok: number
+  errors: number
+  denied: number
+  success_rate: number | null
+  avg_ms: number | null
+  max_ms: number
+  avg_render_ms: number | null
+  replies: number
+  reasons: StatsReason[]
+  actions: Record<string, number>
+}
+export interface StatsGroup extends StatsSummary {
+  name: string
+}
+export interface StatsPlugin extends StatsSummary {
+  label: string
+  commands: StatsSummary[]
+  groups: StatsGroup[]
+}
+export interface StatsError {
+  fingerprint: string
+  kind: string
+  location: string
+  message: string
+  traceback: string
+  first_seen: string
+  last_seen: string
+  total: number
+}
+export interface StatsData {
+  days: StatsDays
+  since: string
+  total: StatsSummary | null
+  trend: number[]
+  trend_unit: 'hour' | 'day'
+  plugins: StatsPlugin[]
+  idle: string[]
+  errors: StatsError[]
+}

@@ -11,6 +11,8 @@ from typing import Any, ParamSpec
 from launart import Launart, Service
 from loguru import logger
 
+from .stats import render_timer
+
 try:
     from jinja2 import Environment, FileSystemLoader, StrictUndefined, select_autoescape
 except ImportError:  # pragma: no cover - 依赖项单独声明
@@ -299,10 +301,11 @@ class RenderService(Service):
         """将指定的 HTML 模板渲染为整页 JPEG 缓冲区。"""
 
         try:
-            image = await asyncio.wait_for(
-                self._render_html_to_image(template_name, context),
-                timeout=self.timeout,
-            )
+            with render_timer():
+                image = await asyncio.wait_for(
+                    self._render_html_to_image(template_name, context),
+                    timeout=self.timeout,
+                )
         except asyncio.CancelledError:
             raise
         except TimeoutError as error:
@@ -325,9 +328,11 @@ class RenderService(Service):
         if not isinstance(md_text, str):
             raise RenderError("Markdown 内容必须是字符串")
         try:
-            image = await asyncio.wait_for(
-                self._render_markdown(md_text, template_name), timeout=self.timeout
-            )
+            with render_timer():
+                image = await asyncio.wait_for(
+                    self._render_markdown(md_text, template_name),
+                    timeout=self.timeout,
+                )
         except asyncio.CancelledError:
             raise
         except TimeoutError as error:

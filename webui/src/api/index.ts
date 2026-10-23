@@ -8,6 +8,8 @@ import type {
   AccountUpdateResult,
   BlacklistBody,
   BlacklistData,
+  StatsData,
+  StatsDays,
   GroupResponseBody,
   GroupResponseResult,
   InboxAction,
@@ -134,5 +136,6 @@ export const api = {
     sandboxClear: () => request<{ cleared: boolean }>('/manage/sandbox/clear', { body: {} }),
     blacklist: () => request<BlacklistData>('/manage/blacklist'),
     setBlacklist: (body: BlacklistBody) => request<BlacklistData>('/manage/blacklist', { body }),
+    stats: (days: StatsDays) => request<StatsData>('/manage/stats', { query: { days } }),
   },
 }

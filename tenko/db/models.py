@@ -390,6 +390,31 @@ class ChatMessage(BaseOrm):
     created_at: Mapped[float] = mapped_column(Float, nullable=False)
 
 
+class CommandStat(BaseOrm):
+    """插件调用统计：按整点、插件、处理函数、群和结果汇总，不记参数和用户。"""
+
+    __tablename__ = "TenkoCommandStat"
+
+    hour: Mapped[datetime] = mapped_column(DateTime(timezone=True), primary_key=True)
+    plugin: Mapped[str] = mapped_column(String(128), primary_key=True)
+    # 命令名，或被动监听函数名。
+    handler: Mapped[str] = mapped_column(String(128), primary_key=True)
+    # 用到的子命令和选项名，空格分隔。
+    subcommand: Mapped[str] = mapped_column(String(128), primary_key=True)
+    platform: Mapped[str] = mapped_column(String(128), primary_key=True)
+    # 私聊为空串。
+    group_id: Mapped[str] = mapped_column(String(128), primary_key=True)
+    # ok / error / denied:<原因>
+    outcome: Mapped[str] = mapped_column(String(64), primary_key=True)
+    count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    total_ms: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    max_ms: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    render_ms: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    replies: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    # JSON：动作名 -> 次数。
+    actions: Mapped[str] = mapped_column(Text, nullable=False, default="{}")
+
+
 MODEL_CLASSES = (
     MemberPerm,
     GroupPerm,
@@ -408,6 +433,7 @@ MODEL_CLASSES = (
     UserBlacklist,
     GroupBlacklist,
     PermissionGrant,
+    CommandStat,
     LegacyGroupSetting,
     LegacyFeatureState,
     LegacyAccountRoute,
@@ -418,6 +444,7 @@ MODEL_CLASSES = (
 
 __all__ = [
     "ChatMessage",
+    "CommandStat",
     "GroupBlacklist",
     "GroupPerm",
     "GroupSetting",

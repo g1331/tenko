@@ -39,6 +39,7 @@ from .host.plugins.runtime import PluginRuntime
 from .host.quote import quote_group_reply
 from .host.ratelimit import configure_rate_limiter
 from .host.startup import startup_history
+from .host.stats import install as install_call_stats
 from .host.updater import UpgradeManager, configure_updater
 from .host.render import RenderService
 from .host.sandbox import (
@@ -270,6 +271,8 @@ class TenkoRuntime:
         )
         # 账号在登录时按它创建协议对象，所以要在任何账号接入之前替换。
         app.default_api_cls = GuardedProtocol
+        # 调用统计的计时器只挂到之后注册的处理函数上，必须在加载插件前安装。
+        install_call_stats()
         native_handler = app.handle_event
         for index, callback in enumerate(app.event_callbacks):
             if callback == native_handler:

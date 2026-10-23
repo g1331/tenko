@@ -125,6 +125,16 @@ export const router = createRouter({
           },
         },
         {
+          path: 'stats',
+          name: 'stats',
+          component: () => import('@/views/StatsView.vue'),
+          meta: {
+            title: '调用统计',
+            subtitle: '各插件的调用量、耗时、被拒原因和最近的错误，与 /统计 是同一份数据',
+            nav: { label: '调用统计', short: '统计', group: '运维' },
+          },
+        },
+        {
           path: 'sandbox',
           name: 'sandbox',
           component: () => import('@/views/SandboxView.vue'),

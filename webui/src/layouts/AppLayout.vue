@@ -6,6 +6,7 @@ import {
   ChatDotRound,
   CircleClose,
   Connection,
+  DataAnalysis,
   Message,
   Odometer,
   Setting,
@@ -39,6 +40,7 @@ const icons: Record<string, Component> = {
   blacklist: CircleClose,
   upgrade: Upload,
   logs: Tickets,
+  stats: DataAnalysis,
   sandbox: Box,
   settings: Setting,
 }

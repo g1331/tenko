@@ -355,6 +355,8 @@ class PolicyVerdict:
 
     allowed: bool = True
     notice: str | None = None
+    # 调用统计里的拒绝原因。
+    reason: str = ""
 
 
 _ALLOW = PolicyVerdict()
@@ -412,12 +414,27 @@ class CommandPolicy:
         # 解析缓存 future，同一条消息若还有第二个处理同一命令的订阅者会一直等待；
         # 内置插件没有这种重复注册，上游修复后可删除本说明。
         verdict = await self.check(session, command)
+        if not verdict.allowed:
+            self._count_denial(session, command, verdict.reason)
         if verdict.notice:
             try:
                 await session.send(verdict.notice)
             except Exception:
                 logger.exception("Failed to send command policy notice")
         return None if verdict.allowed else False
+
+    def _count_denial(self, session: Session, command: Alconna, reason: str) -> None:
+        from .stats import call_stats
+
+        try:
+            context = MessageContext.from_event(session.event._origin)
+        except (AttributeError, ValueError):
+            return
+        owner = self._owner(command)
+        if owner is not None:
+            call_stats.denied(
+                _plugin_name(owner), str(command.command), context, reason or "other"
+            )
 
     async def check(self, session: Session, command: Alconna) -> PolicyVerdict:
         origin = getattr(session.event, "_origin", None)
@@ -440,7 +457,9 @@ class CommandPolicy:
                 context, Permission.BotAdmin
             ):
                 return PolicyVerdict(
-                    False, f"{_plugin_label(owner)}插件在私聊中仅 BOT 管理员可用"
+                    False,
+                    f"{_plugin_label(owner)}插件在私聊中仅 BOT 管理员可用",
+                    "controlled",
                 )
             return _ALLOW
         if getattr(owner, "source", None) == "unmanaged":
@@ -450,12 +469,14 @@ class CommandPolicy:
                 context.channel_id,
                 command.command,
             )
-            return PolicyVerdict(False, "该命令所属插件未在 Tenko 登记，已拒绝执行")
+            return PolicyVerdict(
+                False, "该命令所属插件未在 Tenko 登记，已拒绝执行", "unmanaged"
+            )
         if not self.feature_service.ready:
-            return PolicyVerdict(False, "功能状态暂不可用，请稍后再试")
+            return PolicyVerdict(False, "功能状态暂不可用，请稍后再试", "unavailable")
         if not self.permission_checker.store.ready:
             # 读不到黑名单时不能放行群命令；与功能状态一样整体拒绝。
-            return PolicyVerdict(False, "权限状态暂不可用，请稍后再试")
+            return PolicyVerdict(False, "权限状态暂不可用，请稍后再试", "unavailable")
         if (
             plugin_name not in _FEATURE_MANAGER_NAMES
             and self.feature_service.is_maintenance(plugin_name)
@@ -467,7 +488,7 @@ class CommandPolicy:
                 context.channel_id,
                 command.command,
             )
-            return PolicyVerdict(False, self._maintenance_notice(owner))
+            return PolicyVerdict(False, self._maintenance_notice(owner), "maintenance")
         if (
             plugin_name not in _FEATURE_MANAGER_NAMES
             and not self.feature_service.is_enabled(plugin_name, context.group)
@@ -478,12 +499,12 @@ class CommandPolicy:
                 context.channel_id,
                 command.command,
             )
-            return PolicyVerdict(False, self._disabled_notice(owner))
+            return PolicyVerdict(False, self._disabled_notice(owner), "feature_off")
 
         if self.rate_limiter is None:
             return _ALLOW
         if not getattr(self.rate_limiter, "ready", True):
-            return PolicyVerdict(False, _RATE_LIMIT_UNAVAILABLE_NOTICE)
+            return PolicyVerdict(False, _RATE_LIMIT_UNAVAILABLE_NOTICE, "unavailable")
         override = await self.permission_checker.require_perm(
             context, self.rate_limit_override_permission
         )
@@ -505,7 +526,7 @@ class CommandPolicy:
                 context.channel_id,
                 context.user_id,
             )
-            return PolicyVerdict(False)
+            return PolicyVerdict(False, reason="rate_limited")
         return _ALLOW
 
 

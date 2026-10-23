@@ -25,6 +25,7 @@ from ..context import MessageContext
 from .features import feature_service
 from .perm import Permission, PermissionChecker
 from .plugins.runtime import external_plugin_for_module
+from .stats import mark_denied
 
 REQUIRES_ATTR = "__tenko_requires__"
 # 测试可以替换它；内置和扩展插件共用同一个检查器（数据库 + Entari superusers）。
@@ -76,6 +77,8 @@ class _Guard(Propagator):
     kind: ClassVar[str]
     # Alconna 匹配是 70；先查聊天类型，再查用户权限。
     priority: ClassVar[int]
+    # 调用统计里的拒绝原因。
+    reason: ClassVar[str]
 
     def __init__(self, value: Any) -> None:
         self.value = value
@@ -92,6 +95,7 @@ class _Guard(Propagator):
         if context is None or session is None:
             return STOP
         if not await self.allowed(session, context):
+            mark_denied(self.reason)
             return STOP
 
     async def allowed(self, session: Session, context: MessageContext) -> bool:
@@ -99,7 +103,7 @@ class _Guard(Propagator):
 
 
 class _ChatGate(_Guard):
-    kind, priority = "chat", 80
+    kind, priority, reason = "chat", 80, "chat"
 
     async def allowed(self, session, context):
         if context.chat_type == self.value:
@@ -109,7 +113,7 @@ class _ChatGate(_Guard):
 
 
 class _UserGate(_Guard):
-    kind, priority = "user", 82
+    kind, priority, reason = "user", 82, "permission"
 
     def __init__(self, value: Permission, checker: PermissionChecker | None) -> None:
         super().__init__(value)
@@ -221,16 +225,18 @@ class _FeatureGate(Propagator):
                 if not await permission_checker.require_perm(
                     context, Permission.BotAdmin
                 ):
+                    mark_denied("controlled")
                     return STOP
             return
         if not feature_service.ready:
-            notice = "功能状态暂不可用，请稍后再试"
+            notice, reason = "功能状态暂不可用，请稍后再试", "unavailable"
         elif feature_service.is_maintenance(self.plugin_id):
-            notice = f"{label}插件正在维护~"
+            notice, reason = f"{label}插件正在维护~", "maintenance"
         elif not feature_service.is_enabled(self.plugin_id, context.group):
-            notice = f"{label}插件已关闭"
+            notice, reason = f"{label}插件已关闭", "feature_off"
         else:
             return
+        mark_denied(reason)
         if self.notify:
             await _reply(session, notice)
         return STOP

@@ -44,6 +44,7 @@ from .auth import (
 from .chat import ChatPanel
 from .sandbox import SandboxPanel
 from .blacklist import BlacklistPanel
+from .stats import StatsPanel
 from .logs import LogReader
 from .plugins import PluginMarket
 from ..host.chat_log import chat_log
@@ -291,12 +292,14 @@ class WebUIService(Service):
         self.chat = ChatPanel(self)
         self.sandbox = SandboxPanel(self)
         self.blacklist = BlacklistPanel(self)
+        self.stats = StatsPanel(self)
         for path, methods, handler in (
             *routes,
             *self.market.routes(),
             *self.chat.routes(),
             *self.sandbox.routes(),
             *self.blacklist.routes(),
+            *self.stats.routes(),
         ):
             self.server.asgi_route(f"{WEBUI_PATH}{path}", methods=methods)(handler)
 
