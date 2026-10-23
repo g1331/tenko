@@ -72,6 +72,7 @@ const sourceText = computed(() => {
   if (!data) return ''
   if (data.source === 'builtin') return '内置'
   if (data.source === 'unmanaged') return '未登记的原生插件'
+  if (data.local) return '本地'
   const trust = data.installed?.trust ?? data.tier
   return trust ? `扩展 · ${TRUST[trust] ?? trust}` : '扩展'
 })
