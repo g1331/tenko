@@ -128,6 +128,8 @@ config/tenko.toml.example    # 配置模板
 ## 扩展插件（外部包）
 
 完整方案见 issue #200；示例与模板见 `examples/tenko-plugin-example/`。
+示例改动推到 main 后运行 `scripts/sync_plugin_template.sh`，同步到 GitHub 模板仓库
+`g1331/tenko-plugin-template`。
 
 - 扩展插件是标准 Python 包，在 `pyproject.toml` 声明 `tenko.plugins` 入口：
   `[project.entry-points."tenko.plugins"]` 下写 `<id> = "<module>"`。`<id>` 匹配
