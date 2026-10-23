@@ -296,6 +296,10 @@ const shortLocation = (location: string) => {
             首次
             <span :title="timeText(error.first_seen)">{{ relativeText(error.first_seen) }}</span> ·
             最近 <span :title="timeText(error.last_seen)">{{ relativeText(error.last_seen) }}</span>
+            <template v-if="error.groups.length">
+              · 涉及
+              <span :title="error.groups.join('、')">{{ error.groups.length }} 个群</span>
+            </template>
           </p>
           <ul v-if="error.failures.length" class="inputs">
             <li v-for="failure in error.failures" :key="failure.id">

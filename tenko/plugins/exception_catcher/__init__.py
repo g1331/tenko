@@ -286,7 +286,10 @@ def _failure(event: Any, context: MessageContext | None) -> dict[str, str] | Non
 def _is_new_error(exception: BaseException, origin: Any) -> bool:
     """登记到异常聚合；只有首次出现的错误立即报告，重复的留给每小时汇总。"""
 
-    modules = tuple(p.module.__name__ for p in get_plugins(True))
+    modules = {
+        p.module.__name__: (p.metadata.version or "") if p.metadata else ""
+        for p in get_plugins(True)
+    }
     event, context = _origin_event(origin)
     group = (
         context.channel_id
@@ -319,6 +322,8 @@ async def send_error_report(
     if not _is_new_error(exception, origin):
         return
     report = generate_error_report(exception, origin)
+    if _origin_event(origin)[1] is not None:
+        report += "\n修复后可在面板“调用统计”页的错误列表里把这次输入放到沙盒重放。"
     image = (
         None
         if render_service is None

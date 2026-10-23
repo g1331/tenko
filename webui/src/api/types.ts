@@ -751,6 +751,7 @@ export interface StatsError {
   first_seen: string
   last_seen: string
   total: number
+  groups: string[]
   failures: StatsFailure[]
 }
 export interface StatsData {

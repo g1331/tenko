@@ -1,8 +1,8 @@
 """异常聚合：同一错误只立即报告一次，之后按小时汇总。
 
-指纹是“异常类型 + 插件代码里最深一帧的 文件:行号”，不含异常消息：消息里常带群号、
-用户名等变化内容，按消息去重会失效。只存在进程内存，重启（包括升级、更新插件）后
-同一错误会重新报告一次。
+指纹是“异常类型 + 插件代码里最深一帧的 文件:行号 + 该插件版本”，不含异常消息：消息里
+常带群号、用户名等变化内容，按消息去重会失效。插件更新后版本变了，同一处错误会重新
+报告一次。只存在进程内存，重启后也会重新报告。
 """
 
 from __future__ import annotations
@@ -11,6 +11,7 @@ import itertools
 import time
 import traceback
 from collections import deque
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from datetime import datetime
 from types import TracebackType
@@ -51,27 +52,35 @@ class ErrorRecord:
     # 上次报告或汇总之后又发生的次数、涉及的群。
     pending: int = 0
     groups: set[str] = field(default_factory=set)
+    # 出现过的所有群，供面板显示。
+    seen_groups: set[str] = field(default_factory=set)
     reported_at: float = field(default_factory=time.monotonic)
 
 
-def _in_modules(name: str, modules: tuple[str, ...]) -> bool:
-    return any(name == m or name.startswith(m + ".") for m in modules)
+def _owner(name: str, modules: Mapping[str, str]) -> str | None:
+    return next((m for m in modules if name == m or name.startswith(m + ".")), None)
 
 
-def error_location(exception: BaseException, modules: tuple[str, ...]) -> str:
-    """``modules`` 是插件模块名；没有插件帧时退回最深一帧。"""
-
+def _locate(exception: BaseException, modules: Mapping[str, str]) -> tuple[str, str]:
     found = last = None
+    owner = ""
     tb: TracebackType | None = exception.__traceback__
     while tb is not None:
         last = tb
-        if _in_modules(str(tb.tb_frame.f_globals.get("__name__", "")), modules):
-            found = tb
+        module = _owner(str(tb.tb_frame.f_globals.get("__name__", "")), modules)
+        if module is not None:
+            found, owner = tb, modules[module]
         tb = tb.tb_next
     tb = found or last
     if tb is None:
-        return "?"
-    return f"{tb.tb_frame.f_code.co_filename}:{tb.tb_lineno}"
+        return "?", owner
+    return f"{tb.tb_frame.f_code.co_filename}:{tb.tb_lineno}", owner
+
+
+def error_location(exception: BaseException, modules: Mapping[str, str]) -> str:
+    """``modules`` 是插件模块名到版本；没有插件帧时退回最深一帧。"""
+
+    return _locate(exception, modules)[0]
 
 
 class ErrorBook:
@@ -92,18 +101,20 @@ class ErrorBook:
     def record(
         self,
         exception: BaseException,
-        modules: tuple[str, ...] = (),
+        modules: Mapping[str, str] | None = None,
         group: str | None = None,
         failure: dict[str, str] | None = None,
     ) -> bool:
         """登记一次异常，返回是否该立即报告（指纹首次出现）。
 
+        ``modules`` 是已加载插件的模块名到版本。
+
         ``failure`` 是触发它的消息（:class:`Failure` 除指纹、时间外的字段），留作重放。
         """
 
         kind = f"{type(exception).__module__}.{type(exception).__qualname__}"
-        location = error_location(exception, modules)
-        fingerprint = f"{kind}@{location}"
+        location, version = _locate(exception, modules or {})
+        fingerprint = f"{kind}@{location}" + (f"#{version}" if version else "")
         if failure is not None:
             at = datetime.now().astimezone()
             self.failures.append(Failure(fingerprint, at, **failure))
@@ -122,6 +133,8 @@ class ErrorBook:
             self._records[fingerprint] = ErrorRecord(
                 fingerprint, kind, location, message, stack, now, now
             )
+            if group:
+                self._records[fingerprint].seen_groups.add(group)
             return True
         record.total += 1
         record.pending += 1
@@ -129,6 +142,7 @@ class ErrorBook:
         record.message, record.traceback = message, stack
         if group:
             record.groups.add(group)
+            record.seen_groups.add(group)
         return False
 
     def due(self, now: float | None = None) -> list[ErrorRecord]:

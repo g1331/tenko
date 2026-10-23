@@ -119,6 +119,7 @@ class StatsPanel:
                         "first_seen": r.first_seen.isoformat(),
                         "last_seen": r.last_seen.isoformat(),
                         "total": r.total,
+                        "groups": sorted(names.get(g) or g for g in r.seen_groups),
                         "failures": [
                             {
                                 "id": f.id,

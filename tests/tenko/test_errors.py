@@ -10,9 +10,9 @@ def _raise(message: str) -> BaseException:
 
 def test_same_error_with_changing_message_reports_once_then_summarises() -> None:
     book = ErrorBook()
-    assert book.record(_raise("群 40001 失败"), (__name__,), "40001")
-    assert not book.record(_raise("群 40002 失败"), (__name__,), "40002")
-    assert not book.record(_raise("群 40003 失败"), (__name__,), "40003")
+    assert book.record(_raise("群 40001 失败"), {__name__: ""}, "40001")
+    assert not book.record(_raise("群 40002 失败"), {__name__: ""}, "40002")
+    assert not book.record(_raise("群 40003 失败"), {__name__: ""}, "40003")
 
     (record,) = book.records()
     assert record.location == f"{__file__}:6"
@@ -27,11 +27,11 @@ def test_same_error_with_changing_message_reports_once_then_summarises() -> None
 
 def test_errors_from_different_lines_are_reported_separately() -> None:
     book = ErrorBook()
-    assert book.record(_raise("a"), (__name__,))
+    assert book.record(_raise("a"), {__name__: ""})
     try:
         raise RuntimeError("a")
     except RuntimeError as error:
-        assert book.record(error, (__name__,))
+        assert book.record(error, {__name__: ""})
 
 
 def test_failures_keep_the_input_for_replay_up_to_the_limit() -> None:
@@ -46,10 +46,18 @@ def test_failures_keep_the_input_for_replay_up_to_the_limit() -> None:
         "preview": "/签到",
     }
     for _ in range(MAX_FAILURES + 5):
-        book.record(_raise("x"), (__name__,), "40001", failure)
+        book.record(_raise("x"), {__name__: ""}, "40001", failure)
 
     assert len(book.failures) == MAX_FAILURES
     latest = book.failures[-1]
     assert book.failure(latest.id) == latest
     assert latest.fingerprint == book.records()[0].fingerprint
     assert book.failure(-1) is None
+
+
+def test_a_new_plugin_version_reports_the_same_error_again() -> None:
+    book = ErrorBook()
+    assert book.record(_raise("x"), {__name__: "1.0"}, "40001")
+    assert not book.record(_raise("x"), {__name__: "1.0"}, "40002")
+    assert book.record(_raise("x"), {__name__: "1.1"})
+    assert book.records()[-1].seen_groups == {"40001", "40002"}
