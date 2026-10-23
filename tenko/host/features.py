@@ -388,7 +388,7 @@ class CommandPolicy:
     async def enforce(self, session: Session, command: Alconna) -> bool | None:
         """``CommandParse`` 处理函数：拒绝时返回 ``False`` 阻断命令并按需回复。"""
 
-        # shortcut: Entari 0.19.1 在 CommandParse 返回 False 时不会完成该消息的
+        # shortcut: Entari 0.19.3 在 CommandParse 返回 False 时不会完成该消息的
         # 解析缓存 future，同一条消息若还有第二个处理同一命令的订阅者会一直等待；
         # 内置插件没有这种重复注册，上游修复后可删除本说明。
         verdict = await self.check(session, command)
