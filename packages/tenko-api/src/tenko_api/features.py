@@ -3,9 +3,9 @@
 from typing import Literal
 
 from tenko.host import features as _features
-from tenko.host.guards import feature_required
+from tenko.host.guards import feature_required, rate_limit
 
-__all__ = ["declare", "feature_enabled", "feature_required"]
+__all__ = ["declare", "feature_enabled", "feature_required", "rate_limit"]
 
 
 def feature_enabled(
@@ -31,7 +31,8 @@ def declare(
 
     - ``scope``：``"group"`` 按群开关；``"global"`` 只有一个全局开关。
     - ``default_enabled``：为 ``False`` 时，没有显式设置的群默认关闭该插件。
-    - ``rate_weight``：每次调用该插件命令计入限流窗口的权重（正整数）。
+    - ``rate_weight``：每次调用该插件命令计入限流窗口的权重（非负整数，``0``
+      表示整个插件不受限流）。单条命令用 ``@rate_limit(weight)`` 覆盖。
     - ``controlled``：受控插件（例如消耗 token 的 AI 插件）。所有群默认关闭，只有
       BOT 管理员及以上能在群里打开；私聊里只有 BOT 管理员及以上能用。
 

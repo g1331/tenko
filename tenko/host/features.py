@@ -324,8 +324,8 @@ def declare_feature(
         raise ValueError(f"scope 必须是 'group' 或 'global': {scope!r}")
     if type(default_enabled) is not bool:
         raise TypeError("default_enabled 必须是布尔值")
-    if type(rate_weight) is not int or rate_weight <= 0:
-        raise ValueError("rate_weight 必须是正整数")
+    if type(rate_weight) is not int or rate_weight < 0:
+        raise ValueError("rate_weight 必须是非负整数")
     if type(controlled) is not bool:
         raise TypeError("controlled 必须是布尔值")
     native = get_plugin(optional=True)
@@ -444,6 +444,20 @@ class CommandPolicy:
                 _plugin_name(owner), str(command.command), context, reason or "other"
             )
 
+    @staticmethod
+    def _rate_weight(owner: object, command: Alconna) -> int | None:
+        """命令上的 ``@rate_limit`` 优先，其次插件 ``declare`` 的权重；都没有时为
+        ``None``，沿用限流器的默认权重。"""
+
+        from .guards import command_requirements
+
+        native = getattr(owner, "native_plugin", None)
+        if native is not None:
+            requires = command_requirements(native).get(command.command, {})
+            if "rate" in requires:
+                return requires["rate"]  # type: ignore[return-value]
+        return getattr(owner, "rate_weight", None)
+
     async def check(self, session: Session, command: Alconna) -> PolicyVerdict:
         origin = getattr(session.event, "_origin", None)
         if origin is None:
@@ -511,13 +525,14 @@ class CommandPolicy:
 
         if self.rate_limiter is None:
             return _ALLOW
+        weight = self._rate_weight(owner, command)
+        if weight == 0:
+            return _ALLOW
         if not getattr(self.rate_limiter, "ready", True):
             return PolicyVerdict(False, _RATE_LIMIT_UNAVAILABLE_NOTICE, "unavailable")
         override = await self.permission_checker.require_perm(
             context, self.rate_limit_override_permission
         )
-        # 插件声明过 rate_weight 才传权重，未声明沿用限流器的默认权重。
-        weight = getattr(owner, "rate_weight", None)
         extra = {} if weight is None else {"weight": weight}
         decision = await self.rate_limiter.check_and_persist(
             context.group,

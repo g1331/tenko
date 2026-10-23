@@ -152,7 +152,7 @@ def test_in_tree_facade_precedes_installed_copy(tmp_path) -> None:
 DECLARE_PLUGIN = """
 from arclet.alconna import Alconna
 from arclet.entari import command, plugin
-from tenko_api.features import declare
+from tenko_api.features import declare, rate_limit
 
 plugin.metadata("声明演示", author=["t"], version="0.0.1", classifier=["host"])
 declare(scope="{scope}", default_enabled={default}, rate_weight={weight})
@@ -160,6 +160,11 @@ declare(scope="{scope}", default_enabled={default}, rate_weight={weight})
 @command.on(Alconna("声明演示"))
 async def handler():
     return "ok"
+
+@rate_limit(0)
+@command.on(Alconna("不限流演示"))
+async def free():
+    return "free"
 """
 
 
@@ -222,10 +227,8 @@ async def test_declare_default_disabled_and_rate_weight_reach_command_policy(
     )
     account = FakeAccount()
 
-    async def send(group: str) -> None:
-        await dispatch(
-            entari_plugin_host, account, message_event("/声明演示", group=group)
-        )
+    async def send(group: str, text: str = "/声明演示") -> None:
+        await dispatch(entari_plugin_host, account, message_event(text, group=group))
 
     try:
         with entari_command_dispatch(policy):
@@ -242,6 +245,9 @@ async def test_declare_default_disabled_and_rate_weight_reach_command_policy(
             sent = len(account.sent)
             await send("40002")
             assert len(account.sent) == sent
+            # @rate_limit(0) 的命令限流期间照常响应。
+            await send("40002", "/不限流演示")
+            assert account.sent[-1] == "free"
     finally:
         features.plugin_defaults.clear()
         features.configure(None, default_enabled=True)
@@ -257,7 +263,7 @@ async def test_declare_rejects_bad_values_and_foreign_callers(
     with pytest.raises(ValueError, match="scope"):
         declare(scope="guild")  # type: ignore[arg-type]
     with pytest.raises(ValueError, match="rate_weight"):
-        declare(rate_weight=0)
+        declare(rate_weight=-1)
     with pytest.raises(TypeError, match="default_enabled"):
         declare(default_enabled="no")  # type: ignore[arg-type]
     with pytest.raises(TypeError, match="controlled"):

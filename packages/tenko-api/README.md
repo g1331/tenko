@@ -43,6 +43,26 @@ async def hello(session: Session):
     return "你好！"
 ```
 
+宿主按“用户 × 群”限流：默认 15 秒内命令权重累计到 10 就进入限流 5 分钟。开销大的命令可以
+调高权重，查询帮助这类很轻的命令可以不限流：
+
+```python
+from tenko_api.features import rate_limit
+
+
+@command.on(Alconna("画图"))
+@rate_limit(5)
+async def draw(): ...
+
+
+@command.on(Alconna("进度"))
+@rate_limit(0)  # 不计数，限流期间也照常响应
+async def progress(): ...
+```
+
+`@rate_limit` 只对命令生效，优先于 `declare(rate_weight=...)`。不限流的命令谁都能连续触发，
+只用在回复很轻的命令上。
+
 ## 返回消息
 
 命令处理函数直接返回 `str`，Entari 原样发送；图片等混合内容返回 `MessageChain`。
@@ -90,7 +110,7 @@ async def on_message(event: MessageCreatedEvent): ...
 | `tenko_api.perm` | `Permission`；装饰器 `require`、`group_only`、`private_only`；函数体内的 `require_perm`、`get_user_perm` |
 | `tenko_api.actions` | 发消息、禁言、踢人、撤回、查询群成员等宿主动作，以及 `ActionServiceError` 系列异常 |
 | `tenko_api.accounts` | 只读账号信息：在线账号、某群可响应的账号（群在黑名单时为空；非 QQ 群传 `platform=`） |
-| `tenko_api.features` | `feature_enabled` 只读查询（非 QQ 群传 `platform=`）；`declare` 声明范围、默认开关、限流权重和是否受控；`feature_required` 装饰非命令监听器 |
+| `tenko_api.features` | `feature_enabled` 只读查询（非 QQ 群传 `platform=`）；`declare` 声明范围、默认开关、限流权重和是否受控；`@rate_limit(weight)` 单独设置某条命令的限流权重，`0` 为不限流（0.4.2 起）；`feature_required` 装饰非命令监听器 |
 | `tenko_api.render` | `RenderService`、`try_render`（浏览器不可用时得到 `None`，回退文本；`render_or_none` 是按方法名分发的旧写法） |
 | `tenko_api.messages` | `report_error` |
 | `tenko_api.storage` | 插件独立数据目录 `data_dir()`、带版本号并自动备份迁移的 JSON `Store`、插件自己的 SQLite 库 `Model` 与 `get_session()` |

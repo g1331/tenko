@@ -155,6 +155,23 @@ def group_only() -> Callable[[Any], Any]:
     return _ChatGate("group")
 
 
+def rate_limit(weight: int) -> Callable[[Any], Any]:
+    """单独设置这条命令计入限流窗口的权重；``0`` 表示这条命令不受限流。
+
+    只登记在处理函数上，由 ``CommandPolicy`` 在命令解析后按命令名读取，所以
+    只对命令处理函数生效，放在 ``@command.on(...)`` 之上或之下都可以。
+    """
+
+    if type(weight) is not int or weight < 0:
+        raise ValueError("rate_limit 的 weight 必须是非负整数")
+
+    def decorate(func):
+        _record(func, "rate", weight)
+        return func
+
+    return decorate
+
+
 def requirement_text(requires: Mapping[str, object]) -> str | None:
     """把处理函数登记的要求格式化为一行帮助文本；没有要求时返回 ``None``。"""
 
