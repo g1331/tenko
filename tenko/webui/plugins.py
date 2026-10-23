@@ -125,6 +125,8 @@ def _versions(entry: RegistryPlugin) -> list[dict[str, Any]]:
             "version": item.version,
             "requires_api": item.requires_api,
             "problem": why_incompatible(item),
+            "tested_on": item.tested_on,
+            "tested_at": item.tested_at,
         }
         for item in entry.versions[:10]
     ]

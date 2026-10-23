@@ -49,6 +49,7 @@ from tenko.host.plugins.registry import (
     registry_updates,
     resume_source,
     source_for,
+    tested_text,
     why_incompatible,
 )
 from tenko.context import context_from_session
@@ -730,7 +731,9 @@ def format_detail(entry: RegistryPlugin, installed: str | None) -> str:
     if entry.versions:
         lines.append("最近版本：")
         for item in entry.versions[:5]:
-            lines.append(f"- {item.version} {why_incompatible(item) or '可安装'}")
+            lines.append(
+                f"- {item.version} {why_incompatible(item) or tested_text(item)}"
+            )
     return "\n".join(lines)
 
 
@@ -754,7 +757,7 @@ def detail_data(entry: RegistryPlugin, installed: str | None) -> dict[str, objec
         versions.append(
             {
                 "version": item.version,
-                "state": reason or "可安装",
+                "state": reason or tested_text(item),
                 "tone": "warn" if reason else "ok",
                 "installed": item.version == installed,
             }

@@ -67,6 +67,9 @@ class RegistryVersion:
     requires_python: str | None
     valid: bool
     yanked: str | None
+    # 目录最近一次实测所用的 Tenko 版本和时间（每天在最新的 Tenko 上重测）。
+    tested_on: str | None = None
+    tested_at: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -153,12 +156,24 @@ def why_incompatible(
     if version.yanked is not None:
         return f"已撤回：{version.yanked}"
     if not version.valid:
-        return "未通过目录的安装检查"
+        if version.tested_on:
+            return f"在 Tenko {version.tested_on} 上实测未通过"
+        return "还没通过目录的实测"
     if not _fits(version.requires_api, api):
         return f"要求 tenko-api {version.requires_api}，宿主是 {api}"
     if not _fits(version.requires_python or ">=0", Version(platform.python_version())):
         return f"要求 Python {version.requires_python}"
     return None
+
+
+def tested_text(version: RegistryVersion) -> str:
+    """可安装版本的说明：带上目录实测所用的 Tenko 版本。"""
+
+    return (
+        f"可安装（Tenko {version.tested_on} 实测通过）"
+        if version.tested_on
+        else "可安装"
+    )
 
 
 def compatible(
@@ -291,6 +306,7 @@ def _version(raw: Mapping[str, Any], source_type: str) -> RegistryVersion:
         if not _COMMIT.match(commit):
             raise ValueError("pin.commit 应为 40 位提交号")
     yanked = raw.get("yanked")
+    tested = raw.get("tested") if isinstance(raw.get("tested"), Mapping) else {}
     return RegistryVersion(
         version,
         hashes,
@@ -299,6 +315,11 @@ def _version(raw: Mapping[str, Any], source_type: str) -> RegistryVersion:
         _text(raw.get("requires_python"), optional=True),
         raw.get("valid") is True,
         None if yanked is None else str(yanked.get("reason") or "未说明原因"),
+        # 只用于展示：格式不对就当没测过，不连累整个条目。
+        *(
+            v if isinstance(v, str) else None
+            for v in (tested.get("tenko"), tested.get("at"))
+        ),
     )
 
 

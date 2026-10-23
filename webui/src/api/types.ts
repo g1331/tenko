@@ -400,6 +400,9 @@ export interface MarketVersion {
   requires_api: string
   /** 不能安装的原因；null 表示可安装。 */
   problem: string | null
+  /** 目录最近一次实测所用的 Tenko 版本和时间；从未测过为 null。 */
+  tested_on?: string | null
+  tested_at?: string | null
 }
 export interface MarketPlugin {
   id: string

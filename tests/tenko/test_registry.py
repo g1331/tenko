@@ -138,3 +138,28 @@ async def test_resolve_refuses_blocked_and_uninstallable(tmp_path) -> None:
         await registry.resolve("evil")
     with pytest.raises(PluginManagerError, match="数据损坏"):
         await registry.resolve("example@0.2.0")
+
+
+def test_tested_host_is_shown_for_passed_and_failed_versions() -> None:
+    from tenko.host.plugins.registry import tested_text, why_incompatible
+
+    tested = {"tenko": "4.0.0-rc36", "at": "2026-10-23T03:17:00Z"}
+    entry = parse_index(
+        index_data(
+            example={
+                "name": "示例",
+                "tier": "listed",
+                "source": {"type": "pypi", "package": "tenko-plugin-example"},
+                "versions": [
+                    version("0.2.0", valid=False, tested=tested),
+                    version("0.1.0", tested=tested),
+                    version("0.0.1", tested="坏数据"),  # 只影响展示，不连累条目
+                ],
+            }
+        )
+    ).plugins["example"]
+    failed, passed, odd = entry.versions
+
+    assert why_incompatible(failed) == "在 Tenko 4.0.0-rc36 上实测未通过"
+    assert tested_text(passed) == "可安装（Tenko 4.0.0-rc36 实测通过）"
+    assert (odd.tested_on, tested_text(odd)) == (None, "可安装")

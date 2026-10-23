@@ -2,6 +2,7 @@
 import { computed, ref, watch } from 'vue'
 import type { MarketPlugin } from '@/api'
 import { confirmAction } from '@/composables/confirm'
+import { relativeText, timeText } from '@/composables/format'
 import { usePluginOps } from '@/composables/usePluginOps'
 import PluginIcon from './PluginIcon.vue'
 import TierTag from './TierTag.vue'
@@ -123,6 +124,15 @@ async function install() {
         >
           <span class="v">{{ item.version }}</span>
           <span :class="item.problem ? 'problem' : 'ok'">{{ item.problem ?? '可安装' }}</span>
+          <span
+            v-if="!item.problem && item.tested_on"
+            class="tested"
+            :title="item.tested_at ? timeText(item.tested_at) : undefined"
+          >
+            Tenko {{ item.tested_on }} 实测通过{{
+              item.tested_at ? ` · ${relativeText(item.tested_at)}` : ''
+            }}
+          </span>
         </el-radio>
       </el-radio-group>
       <p v-else class="note">目录里还没有版本。</p>
@@ -212,6 +222,11 @@ h4 {
 }
 .ok {
   color: var(--tk-ok);
+  font-size: 12px;
+}
+.tested {
+  margin-left: 8px;
+  color: var(--tk-muted);
   font-size: 12px;
 }
 .problem {
