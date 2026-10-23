@@ -134,11 +134,33 @@ class DependencySyncError(UpdaterError):
     """按版本锁文件同步依赖失败。"""
 
 
-class PluginCompatibilityError(UpdaterError):
-    """已安装的扩展插件与新版本的宿主依赖不兼容；``reasons`` 是插件 ID 到原因。"""
+def tenko_api_version(host_root: Path) -> str | None:
+    """读取某个宿主版本目录里 tenko-api 的版本（用于升级前预检）。"""
 
-    def __init__(self, version: Version, reasons: Mapping[str, str]):
+    path = host_root / "packages/tenko-api/src/tenko_api/__init__.py"
+    try:
+        matched = re.search(
+            r'^__version__\s*=\s*"([^"]+)"', path.read_text(encoding="utf-8"), re.M
+        )
+    except OSError:
+        return None
+    return matched.group(1) if matched else None
+
+
+class PluginCompatibilityError(UpdaterError):
+    """已安装的扩展插件与新版本的宿主依赖不兼容；``reasons`` 是插件 ID 到原因。
+
+    ``api_version`` 是新版本宿主的 tenko-api 版本，用来挑选能装在新版本上的插件版本。
+    """
+
+    def __init__(
+        self,
+        version: Version,
+        reasons: Mapping[str, str],
+        api_version: str | None = None,
+    ):
         self.reasons = dict(reasons)
+        self.api_version = api_version
         lines = [
             f"- {'插件组合冲突' if pid == '*' else pid}：{_redact_text(why)[-300:]}"
             for pid, why in self.reasons.items()
@@ -2480,7 +2502,9 @@ class UpgradeManager:
                 if self.plugin_check is not None and (
                     reasons := await self.plugin_check(acquired)
                 ):
-                    raise PluginCompatibilityError(release.version, reasons)
+                    raise PluginCompatibilityError(
+                        release.version, reasons, tenko_api_version(acquired)
+                    )
                 final_path = self.layout.promote(acquired, release.version)
                 pending = {
                     # 指针字段保存可稳定解析的规范版本；原始 tag 保存在

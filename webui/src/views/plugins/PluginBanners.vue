@@ -12,6 +12,7 @@ const canRestart = computed(() => !!ops.installed.data.value?.can_restart)
 const ACTIONS: Record<PluginTask['action'], string> = {
   install: '安装',
   update: '更新',
+  resume: '恢复',
   uninstall: '卸载',
   rollback: '回滚',
   sync: '同步插件环境',

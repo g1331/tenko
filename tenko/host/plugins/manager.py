@@ -15,6 +15,10 @@
 提交。应用或校验失败时按备份把环境恢复到原状。操作在重启后才生效，不做热加载；卸载连包也
 留到重启时（加载插件之前）再删，运行中的插件不会丢文件。
 
+不兼容新宿主的插件可以“停用并保留记录”（``state.json`` 的 ``suspended`` 节）：包和锁条目
+移出环境，安装记录、启用意愿、数据和配置都留下；之后装上兼容版本即恢复原样，也可以指定
+一个版本，在进入新宿主的下次启动时自动装回。
+
 ``state.json`` 是提交点：它记录插件锁的哈希，锁先写到临时文件，``state.json`` 写完后再
 替换。两步之间中断时，启动检查会用临时文件补完提交。
 """
@@ -33,7 +37,7 @@ import tempfile
 import threading
 from collections.abc import Callable, Mapping, Sequence
 from contextlib import contextmanager
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass, replace
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Literal
@@ -54,6 +58,7 @@ from ..updater import (
     _redact_text,
     find_uv,
     get_upgrade_manager,
+    tenko_api_version,
 )
 
 LOCK_NAME = "plugins.lock"
@@ -244,6 +249,21 @@ def _records(state: Mapping[str, Any]) -> dict[str, dict[str, Any]]:
     return {k: dict(v) for k, v in plugins.items()} if isinstance(plugins, dict) else {}
 
 
+def _suspended(state: Mapping[str, Any]) -> dict[str, dict[str, Any]]:
+    found = state.get("suspended")
+    return {k: dict(v) for k, v in found.items()} if isinstance(found, dict) else {}
+
+
+def _source_of(data: Mapping[str, Any]) -> PluginSource:
+    return PluginSource(
+        data["requirement"],
+        data["kind"],
+        data.get("trust", "unlisted"),
+        data.get("expected_id"),
+        tuple(data.get("pins") or ()),
+    )
+
+
 def _now() -> str:
     return datetime.now(UTC).isoformat()
 
@@ -256,19 +276,6 @@ def _commit_of(pin: str) -> str:
     """Git 来源比较提交号；``uv pip freeze`` 和插件锁里 URL 的写法可能不同。"""
 
     return m.group(1) if (m := _COMMIT.search(pin)) else pin
-
-
-def _api_version(host_root: Path) -> str | None:
-    """读取某个宿主版本目录里 tenko-api 的版本（用于升级前预检）。"""
-
-    path = host_root / "packages/tenko-api/src/tenko_api/__init__.py"
-    try:
-        matched = re.search(
-            r'^__version__\s*=\s*"([^"]+)"', path.read_text(encoding="utf-8"), re.M
-        )
-    except OSError:
-        return None
-    return matched.group(1) if matched else None
 
 
 class PluginManager:
@@ -397,7 +404,7 @@ class PluginManager:
         if host_root is None:
             host_root = self.host_root
         else:  # 预检新版本：用新版本自带的 tenko-api 版本
-            api_version = _api_version(host_root) or api_version
+            api_version = tenko_api_version(host_root) or api_version
         lines: list[str] = []
         if (host_root / "uv.lock").is_file():
             exported = self._uv(
@@ -542,8 +549,15 @@ class PluginManager:
         finally:
             self._busy.release()
 
-    def _snapshot(self, action: str, label: str, lock: str, records: Mapping) -> Path:
-        """备份：当前插件锁、插件记录和 ``uv pip freeze``，回滚命令靠它恢复。"""
+    def _snapshot(
+        self,
+        action: str,
+        label: str,
+        lock: str,
+        records: Mapping,
+        suspended: Mapping | None = None,
+    ) -> Path:
+        """备份：当前插件锁、插件记录、停用记录和 ``uv pip freeze``，回滚命令靠它恢复。"""
 
         stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%S%f")
         folder = self.history_dir / f"{stamp}-{action}-{label}"
@@ -551,6 +565,10 @@ class PluginManager:
         (folder / LOCK_NAME).write_text(lock, encoding="utf-8")
         (folder / "records.json").write_text(
             json.dumps(records, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
+        )
+        (folder / "suspended.json").write_text(
+            json.dumps(suspended or {}, ensure_ascii=False, indent=2) + "\n",
+            encoding="utf-8",
         )
         freeze = self._uv("备份", "pip", "freeze", "--python", self.python).stdout
         (folder / "freeze.txt").write_text(freeze, encoding="utf-8")
@@ -615,11 +633,13 @@ class PluginManager:
         *,
         consume: Path | None = None,
         defer: bool = False,
+        state_hook: Callable[[dict[str, Any]], None] | None = None,
     ) -> dict[str, dict[str, Any]]:
         """备份 → 应用 → 校验 → 提交；应用或校验失败时恢复环境并抛出异常。
 
-        ``defer`` 只用于卸载：不动环境，把要删的包记进 ``pending_removal``，
-        下次启动加载插件之前再删。
+        ``defer`` 只用于卸载和停用：不动环境，把要删的包记进 ``pending_removal``，
+        下次启动加载插件之前再删。``state_hook`` 在提交前修改 ``state.json`` 的其他节，
+        与锁一起提交。
         """
 
         state = self.runtime.read_state()
@@ -632,7 +652,7 @@ class PluginManager:
         snapshot = (
             consume
             if consume is not None
-            else self._snapshot(action, label, old_lock, old_records)
+            else self._snapshot(action, label, old_lock, old_records, _suspended(state))
         )
         step, new_records = "应用", None
         try:
@@ -677,6 +697,8 @@ class PluginManager:
         state["enabled"] = sorted(
             i for i in state["enabled"] if i in new_records or i not in old_records
         )
+        if state_hook is not None:
+            state_hook(state)
         self._commit(new_lock, state)
         if consume is not None:
             shutil.rmtree(consume, ignore_errors=True)
@@ -816,9 +838,19 @@ class PluginManager:
 
     # ------------------------------------------------------------ 操作
 
-    def _install(self, source: PluginSource, actor: str | None) -> PluginChange:
+    def _install(
+        self, source: PluginSource, actor: str | None, *, resuming: str | None = None
+    ) -> PluginChange:
+        """安装；``resuming`` 是要恢复的已停用插件，装好后沿用它的记录和启用意愿。"""
+
         with self._exclusive():
-            records = _records(self.runtime.read_state())
+            state = self.runtime.read_state()
+            records, suspended = _records(state), _suspended(state)
+            held = suspended.get(resuming) if resuming else None
+            if resuming and held is None:
+                raise PluginManagerError("解析来源", f"{resuming} 没有被停用")
+            if held is not None:
+                source = replace(source, expected_id=resuming)
             old_lock = self._read_lock()
             new_lock = self._compile(
                 [*(r["requirement"] for r in records.values()), source.requirement],
@@ -843,14 +875,33 @@ class PluginManager:
                         dist, source.kind, source.trust, source.requirement,
                         new_lock, entries, expected_id=source.expected_id,
                         actor=actor, known_ids=records,
+                        previous=held and held["record"],
                     )
                 )  # fmt: skip
+                if held is None and created[0][0] in suspended:
+                    raise PluginManagerError(
+                        "校验", f"插件 {created[0][0]} 已停用，请恢复或卸载它"
+                    )
                 return {**records, created[0][0]: created[0][1]}
 
-            self._transaction("install", actor, dist, new_lock, make)
+            def restore(new_state: dict[str, Any]) -> None:
+                if held is None:
+                    return
+                rest = _suspended(new_state)
+                rest.pop(resuming, None)
+                new_state["suspended"] = rest
+                if held.get("enabled"):
+                    new_state["enabled"] = sorted({*new_state["enabled"], resuming})
+
+            action = "install" if held is None else "resume"
+            self._transaction(action, actor, dist, new_lock, make, state_hook=restore)
             plugin_id, record = created[0]
             return PluginChange(
-                "install", plugin_id, record["dist"], None, record["version"]
+                action,
+                plugin_id,
+                record["dist"],
+                held and held["record"]["version"],
+                record["version"],
             )
 
     def _update(
@@ -928,8 +979,9 @@ class PluginManager:
         self, plugin_id: str, clear_data: bool, actor: str | None
     ) -> PluginChange:
         with self._exclusive():
-            records = _records(self.runtime.read_state())
-            if plugin_id not in records:
+            state = self.runtime.read_state()
+            records, suspended = _records(state), _suspended(state)
+            if plugin_id not in records and plugin_id not in suspended:
                 raise PluginManagerError(
                     "解析来源", f"{plugin_id} 不是由插件管理器安装的"
                 )
@@ -938,6 +990,16 @@ class PluginManager:
                     "预检",
                     f"插件 {plugin_id} 正在运行，仍持有数据库连接。请先 /停用插件 并 /重启，"
                     "再带「清除数据」卸载；或先不带它卸载，重启后用 /清除插件数据",
+                )
+            if plugin_id in suspended:  # 包已移出环境，只需删掉保留的记录
+                old = suspended.pop(plugin_id)["record"]
+                state["suspended"] = suspended
+                self.runtime.write_state(state)
+                cleared = (
+                    plugin_storage.clear_plugin_data(plugin_id) if clear_data else None
+                )
+                return PluginChange(
+                    "uninstall", plugin_id, old["dist"], old["version"], None, cleared
                 )
             old = records.pop(plugin_id)
             new_lock = self._compile(
@@ -968,7 +1030,27 @@ class PluginManager:
             folder = folders[-1]
             target_lock = (folder / LOCK_NAME).read_text(encoding="utf-8")
             target = json.loads((folder / "records.json").read_text(encoding="utf-8"))
-            current = _records(self.runtime.read_state())
+            saved = folder / "suspended.json"
+            held = (
+                json.loads(saved.read_text(encoding="utf-8"))
+                if saved.is_file()
+                else None
+            )
+            state = self.runtime.read_state()
+            current, now_held = _records(state), _suspended(state)
+
+            def restore(new_state: dict[str, Any]) -> None:
+                if held is None:  # 旧版本的备份没有停用记录
+                    return
+                new_state["suspended"] = held
+                # 撤销停用：插件回到记录里，按停用前的意愿恢复启用。
+                back = {
+                    pid
+                    for pid, item in now_held.items()
+                    if pid in target and pid not in held and item.get("enabled")
+                }
+                new_state["enabled"] = sorted({*new_state["enabled"], *back})
+
             self._transaction(
                 "rollback",
                 actor,
@@ -976,6 +1058,7 @@ class PluginManager:
                 target_lock,
                 lambda _e: target,
                 consume=folder,
+                state_hook=restore,
             )
             changes = []
             for pid in sorted(set(current) | set(target)):
@@ -994,6 +1077,86 @@ class PluginManager:
                 if after:  # 回到旧版本时，插件库也还原成旧版本时的备份。
                     plugin_storage.request_db_restore(pid, after["version"])
             return changes
+
+    def _suspend(
+        self,
+        choices: Mapping[str, PluginSource | None],
+        reasons: Mapping[str, str],
+        actor: str | None,
+    ) -> list[PluginChange]:
+        """停用并保留记录：包移出环境（重启前删除），记录、启用意愿、数据和配置保留。
+
+        ``choices`` 的值是下次启动时要自动装回的来源，``None`` 表示等待手动处理。
+        """
+
+        with self._exclusive():
+            state = self.runtime.read_state()
+            records = _records(state)
+            if unknown := sorted(set(choices) - set(records)):
+                raise PluginManagerError(
+                    "解析来源", f"{'、'.join(unknown)} 不是由插件管理器安装的"
+                )
+            enabled = set(state["enabled"])
+            kept = {pid: r for pid, r in records.items() if pid not in choices}
+            new_lock = self._compile(
+                [r["requirement"] for r in kept.values()], self._read_lock()
+            )
+            now = _now()
+
+            def hold(new_state: dict[str, Any]) -> None:
+                held = _suspended(new_state)
+                for pid, source in choices.items():
+                    held[pid] = {
+                        "record": records[pid],
+                        "enabled": pid in enabled,
+                        "reason": _redact_text(reasons.get(pid, ""))[-300:],
+                        "suspended_at": now,
+                        "resume": source and asdict(source),
+                        "error": None,
+                    }
+                new_state["suspended"] = held
+
+            self._transaction(
+                "suspend", actor, "+".join(sorted(choices)), new_lock,
+                lambda _e: dict(kept), defer=True, state_hook=hold,
+            )  # fmt: skip
+            return [
+                PluginChange(
+                    "suspend", pid, records[pid]["dist"], records[pid]["version"], None
+                )
+                for pid in sorted(choices)
+            ]
+
+    def resume_pending(self) -> list[str]:
+        """启动加载插件之前：按停用时选定的来源装回插件，返回已恢复的插件。
+
+        装不上的保持停用，记下原因并清掉自动恢复，不在每次启动时反复重试。
+        """
+
+        resumed = []
+        for pid, held in _suspended(self.runtime.read_state()).items():
+            if not held.get("resume"):
+                continue
+            source = _source_of(held["resume"])
+            try:
+                self._audited(
+                    "resume", "startup",
+                    lambda pid=pid, source=source: self._install(
+                        source, "startup", resuming=pid
+                    ),
+                    plugin=pid,
+                )  # fmt: skip
+            except PluginManagerError as error:
+                logger.warning("停用的插件 {} 未能自动恢复: {}", pid, error)
+                state = self.runtime.read_state()
+                rest = _suspended(state)
+                if pid in rest:
+                    rest[pid].update(resume=None, error=_redact_text(str(error))[-300:])
+                    state["suspended"] = rest
+                    self.runtime.write_state(state)
+            else:
+                resumed.append(pid)
+        return resumed
 
     def _sync_env(self) -> list[str]:
         """按插件锁重装缺失或版本不符的包（例如 ``uv sync`` 清掉插件之后）。"""
@@ -1143,6 +1306,32 @@ class PluginManager:
             plugin=plugin_id, clear_data=clear_data,
         )  # fmt: skip
 
+    async def suspend(
+        self,
+        choices: Mapping[str, PluginSource | None],
+        *,
+        reasons: Mapping[str, str] | None = None,
+        actor: str | None = None,
+    ) -> list[PluginChange]:
+        """停用并保留记录（见 :meth:`_suspend`），重启后生效。"""
+
+        return await asyncio.to_thread(
+            self._audited, "suspend", actor,
+            lambda: self._suspend(choices, reasons or {}, actor),
+            plugins=sorted(choices),
+        )  # fmt: skip
+
+    async def resume(
+        self, plugin_id: str, source: PluginSource, *, actor: str | None = None
+    ) -> PluginChange:
+        """把已停用的插件装成 ``source``，恢复它的记录和启用意愿。"""
+
+        return await asyncio.to_thread(
+            self._audited, "resume", actor,
+            lambda: self._install(source, actor, resuming=plugin_id),
+            plugin=plugin_id, source=source.requirement,
+        )  # fmt: skip
+
     async def rollback(self, *, actor: str | None = None) -> list[PluginChange]:
         """撤销最近一次插件变更（版本、依赖和插件库一起恢复）。"""
 
@@ -1259,6 +1448,11 @@ class PluginManager:
             return self.runtime.is_loaded(plugin_id)
         except KeyError:
             return False
+
+    def suspended(self) -> dict[str, dict[str, Any]]:
+        """已停用并保留记录的插件：``record`` 是停用前的安装记录。"""
+
+        return _suspended(self.runtime.read_state())
 
     def status(self) -> list[PluginStatus]:
         state = self.runtime.read_state()

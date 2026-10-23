@@ -357,6 +357,7 @@ class WebUIService(Service):
             "online_accounts": online_accounts,
             "active_groups": status_data["active_groups"],
             "inbox": len(self.inbox),
+            "plugin_attention": self.market.attention(),
             "messages": {
                 "received_count": metrics["received_count"],
                 "sent_count": metrics["sent_count"],

@@ -32,8 +32,10 @@ from ..host.plugins.registry import (
     RegistryPlugin,
     compatible,
     get_registry,
+    installable,
     installed_notes,
     registry_updates,
+    resume_source,
     source_for,
     why_incompatible,
 )
@@ -46,7 +48,7 @@ if TYPE_CHECKING:
 
 _ICON_NAME = re.compile(r"^[a-z][a-z0-9_]*-[0-9a-f]{8}\.png$")
 _TASK_KEEP = 20
-_ACTIONS = {"install", "update", "uninstall", "rollback", "sync"}
+_ACTIONS = {"install", "update", "resume", "uninstall", "rollback", "sync"}
 # 表单能编辑的 JSON Schema 类型；其余字段只读，请在配置文件里修改。
 _EDITABLE = {"string", "integer", "number", "boolean"}
 _REPO = "https://github.com/g1331/tenko"
@@ -362,10 +364,33 @@ class PluginMarket:
                         **notes,
                     }
                 )
+            suspended = []
+            for plugin_id, held in sorted(self.manager.suspended().items()):
+                entry = index.plugins.get(plugin_id) if index else None
+                record, resume = held["record"], held.get("resume")
+                suspended.append(
+                    {
+                        "plugin_id": plugin_id,
+                        "name": entry.name if entry else None,
+                        "icon_url": self._icon_url(entry),
+                        "dist": record["dist"],
+                        "version": record["version"],
+                        "trust": record["trust"],
+                        "enabled": bool(held.get("enabled")),
+                        "reason": held.get("reason") or "",
+                        "suspended_at": held.get("suspended_at"),
+                        # 已选定、下次启动自动装回的来源；装回失败时清空并记下原因。
+                        "resume": resume["requirement"] if resume else None,
+                        "error": held.get("error"),
+                        "options": installable(entry) if entry else [],
+                    }
+                )
             drift = await asyncio.to_thread(self.manager.drift)
             history = self.manager.history_dir
             return {
                 "plugins": rows,
+                "suspended": suspended,
+                "failures": self.load_failures(names),
                 "drift": drift,
                 "rollback_available": history.is_dir()
                 and any(p.is_dir() for p in history.iterdir()),
@@ -377,6 +402,33 @@ class PluginMarket:
             }
 
         return await self.service._read("installed_plugins", read)
+
+    def load_failures(
+        self, names: dict[str, str] | None = None
+    ) -> list[dict[str, Any]]:
+        """本次启动加载失败、且仍然安装着的插件（内置插件总是安装着）。"""
+
+        runtime = self.service.plugin_runtime
+        failures = getattr(runtime, "load_failures", None)
+        if not failures:
+            return []
+        installed = {r.plugin_id for r in self.manager.status()}
+        builtin = runtime.builtin_names()
+        return [
+            {
+                "plugin_id": plugin_id,
+                "name": (names or {}).get(plugin_id),
+                "builtin": plugin_id in builtin,
+                "reason": reason,
+            }
+            for plugin_id, reason in sorted(failures.items())
+            if plugin_id in installed or plugin_id in builtin
+        ]
+
+    def attention(self) -> int:
+        """需要 Master 处理的插件数：停用待恢复的和加载失败的。"""
+
+        return len(self.manager.suspended()) + len(self.load_failures())
 
     def _pending_removal(self) -> list[str]:
         runtime = getattr(self.manager, "runtime", None)
@@ -433,6 +485,18 @@ class PluginMarket:
                 )
             source = source_for(*found)
             return lambda: manager.install(source, actor=actor)
+        if action == "resume":
+            version = body.get("version")
+            if version is not None and not isinstance(version, str):
+                raise ValueError("version 必须是字符串")
+            held = manager.suspended().get(plugin_id or "")
+            if held is None:
+                raise KeyError(plugin_id)
+            try:
+                source = await resume_source(plugin_id, held, version)
+            except PluginManagerError as error:
+                raise ValueError(error.detail) from error
+            return lambda: manager.resume(plugin_id, source, actor=actor)
         if action == "update":
             sources = await registry_updates(manager, plugin_id)
             return lambda: manager.update(plugin_id, sources=sources, actor=actor)
@@ -441,9 +505,9 @@ class PluginMarket:
             if not plugin_id or type(clear) is not bool:
                 raise ValueError("请指定插件 ID，clear_data 必须是布尔值")
             row = next((r for r in manager.status() if r.plugin_id == plugin_id), None)
-            if row is None:
+            if row is None and plugin_id not in manager.suspended():
                 raise KeyError(plugin_id)
-            if clear and row.loaded:
+            if clear and row is not None and row.loaded:
                 raise RuntimeError("插件正在运行，请先停用并重启，再清除数据卸载")
             return lambda: manager.uninstall(plugin_id, clear_data=clear, actor=actor)
         if action == "rollback":
@@ -499,6 +563,8 @@ class PluginMarket:
                 task.message = "已是最新版本"
             elif task.action == "install":
                 task.message = "已安装，启用后生效"
+            elif task.action == "resume":
+                task.message = "已恢复，重启后生效"
             else:
                 task.message = "完成，重启后生效"
             task.state = "succeeded"

@@ -432,3 +432,70 @@ def test_plugin_detail_data_renders_with_template(loaded_plugin) -> None:
     )
 
     assert "可安装 0.1.0" in html and "已是可安装的最新版本" in html
+
+
+@pytest.mark.asyncio
+async def test_suspend_keeps_record_and_resume_restores_it(env, tmp_path) -> None:
+    env.plugin("foo")
+    manager = env.manager()
+    await manager.install(parse_source("tenko-plugin-foo"), actor="1")
+    state = manager.runtime.read_state()
+    manager.runtime.write_state({**state, "enabled": ["foo"]})
+    installed_at = manager.status()[0].installed_at
+
+    await manager.suspend({"foo": None}, reasons={"foo": "需要 tenko-api<0.4"})
+    # 包和锁条目移出环境（包留到重启删除），记录和启用意愿留在 suspended 里。
+    held = manager.suspended()["foo"]
+    assert manager.status() == [] and "tenko-plugin-foo" not in lock_text(tmp_path)
+    assert (held["enabled"], held["reason"]) == (True, "需要 tenko-api<0.4")
+    assert manager.runtime.read_state()["enabled"] == []
+    with pytest.raises(PluginManagerError, match="已停用"):
+        await manager.install(parse_source("tenko-plugin-foo"))
+    manager.startup_check()
+
+    env.plugin("foo", "1.1.0")
+    change = await manager.resume("foo", parse_source("tenko-plugin-foo==1.1.0"))
+    assert (change.old_version, change.new_version) == ("1.0.0", "1.1.0")
+    row = manager.status()[0]
+    assert (row.version, row.enabled, row.installed_at) == ("1.1.0", True, installed_at)
+    assert manager.suspended() == {}
+
+
+@pytest.mark.asyncio
+async def test_startup_resumes_chosen_version_or_keeps_plugin_suspended(env) -> None:
+    for name in ("good", "gone"):
+        env.plugin(name)
+    manager = env.manager()
+    for name in ("good", "gone"):
+        await manager.install(parse_source(f"tenko-plugin-{name}"))
+    env.plugin("good", "2.0.0")
+    await manager.suspend(
+        {
+            "good": parse_source("tenko-plugin-good==2.0.0"),
+            "gone": parse_source("tenko-plugin-gone==9.9.9"),  # 索引里没有
+        }
+    )
+    manager.startup_check()
+
+    assert manager.resume_pending() == ["good"]
+    assert [(r.plugin_id, r.version) for r in manager.status()] == [("good", "2.0.0")]
+    # 装不回的保持停用，记下原因，不再每次启动重试。
+    held = manager.suspended()["gone"]
+    assert held["resume"] is None and "9.9.9" in held["error"]
+    assert manager.resume_pending() == []
+
+
+@pytest.mark.asyncio
+async def test_rollback_undoes_suspend(env) -> None:
+    # 停用后宿主没升级成，撤销停用要恢复记录和启用状态。
+    env.plugin("foo")
+    manager = env.manager()
+    await manager.install(parse_source("tenko-plugin-foo"))
+    manager.runtime.write_state({**manager.runtime.read_state(), "enabled": ["foo"]})
+
+    await manager.suspend({"foo": None})
+    await manager.rollback()
+
+    assert manager.suspended() == {}
+    assert [(r.plugin_id, r.enabled) for r in manager.status()] == [("foo", True)]
+    assert manager.startup_check() == [] and "tenko-plugin-foo" in env.freeze()

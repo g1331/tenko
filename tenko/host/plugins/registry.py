@@ -144,15 +144,18 @@ def _fits(spec: str | None, version: Version) -> bool:
         return False
 
 
-def why_incompatible(version: RegistryVersion) -> str | None:
-    """这个版本不能装在当前宿主上的原因；可以装时返回 ``None``。"""
+def why_incompatible(
+    version: RegistryVersion, api: Version | None = None
+) -> str | None:
+    """这个版本不能装在当前宿主（或 tenko-api 为 ``api`` 的宿主）上的原因；可以装时返回 ``None``。"""
 
+    api = api or _host_api()
     if version.yanked is not None:
         return f"已撤回：{version.yanked}"
     if not version.valid:
         return "未通过目录的安装检查"
-    if not _fits(version.requires_api, _host_api()):
-        return f"要求 tenko-api {version.requires_api}，宿主是 {_host_api()}"
+    if not _fits(version.requires_api, api):
+        return f"要求 tenko-api {version.requires_api}，宿主是 {api}"
     if not _fits(version.requires_python or ">=0", Version(platform.python_version())):
         return f"要求 Python {version.requires_python}"
     return None
@@ -169,6 +172,12 @@ def compatible(
         ) is None:
             return item
     return None
+
+
+def installable(plugin: RegistryPlugin, api: Version | None = None) -> list[str]:
+    """能装在当前宿主（或 tenko-api 为 ``api`` 的宿主）上的全部版本，按目录顺序。"""
+
+    return [v.version for v in plugin.versions if why_incompatible(v, api) is None]
 
 
 def source_for(plugin: RegistryPlugin, version: RegistryVersion) -> PluginSource:
@@ -227,6 +236,25 @@ async def registry_updates(
         if latest and Version(latest.version) > Version(row.version):
             sources[row.plugin_id] = source_for(entry, latest)
     return sources
+
+
+async def resume_source(
+    plugin_id: str, held: Mapping[str, Any], version: str | None = None
+) -> PluginSource:
+    """恢复停用插件时装的来源：目录里能装在当前宿主上的指定或最新版本；未收录的沿用原来源。"""
+
+    record = held["record"]
+    if record["trust"] != "unlisted" and (
+        found := await get_registry().resolve(
+            f"{plugin_id}@{version}" if version else plugin_id
+        )
+    ):
+        return source_for(*found)
+    if version:
+        raise PluginManagerError(
+            "预检", f"{plugin_id} 不在插件目录里，只能按原来的来源恢复"
+        )
+    return PluginSource(record["requirement"], record["source"], record["trust"])
 
 
 # ------------------------------------------------------------------ 解析

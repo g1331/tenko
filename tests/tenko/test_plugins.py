@@ -338,6 +338,10 @@ async def test_failing_external_load_does_not_abort_startup(
         "ext_ok",
     ]
     assert "扩展插件加载失败: bad" in "".join(log_lines)
+    # 失败原因留给面板的待处理；停用即视为处理完。
+    assert runtime.load_failures["bad"] == "ImportError: broken"
+    await runtime.set_enabled("bad", False)
+    assert "bad" not in runtime.load_failures
 
 
 @pytest.mark.asyncio

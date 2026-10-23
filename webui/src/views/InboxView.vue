@@ -7,9 +7,14 @@ import QqAvatar from '@/components/QqAvatar.vue'
 import { confirmAction } from '@/composables/confirm'
 import { numberText, parseTime, relativeText } from '@/composables/format'
 import { usePanelData } from '@/composables/usePanelData'
+import { providePluginOps } from '@/composables/usePluginOps'
+import PluginAttention from './plugins/PluginAttention.vue'
+import PluginBanners from './plugins/PluginBanners.vue'
 
-// 好友申请和群邀请：插件留给 Master 决定的请求，在这里同意、拒绝或忽略。
+// 好友申请和群邀请：插件留给 Master 决定的请求，在这里同意、拒绝或忽略；
+// 需要处理的插件（停用的、加载失败的）也列在这里。
 const { overview, accounts, refresh } = usePanelData()
+providePluginOps()
 
 const items = shallowRef<InboxItem[] | null>(null)
 const loadError = ref<string | null>(null)
@@ -103,6 +108,8 @@ async function act(item: InboxItem, action: InboxAction) {
 
 <template>
   <PageContainer>
+    <PluginBanners />
+    <PluginAttention />
     <PagePanel title="好友申请与群邀请">
       <template v-if="items?.length" #extra>共 {{ numberText(items.length) }} 项</template>
       <el-alert v-if="loadError && !items" type="error" :closable="false" show-icon>

@@ -67,6 +67,8 @@ export interface OverviewData {
   active_groups: number
   /** 待处理的好友申请和群邀请数。 */
   inbox: number
+  /** 需要处理的插件：停用待恢复的和本次启动加载失败的。 */
+  plugin_attention?: number
   messages: {
     received_count: number
     sent_count: number
@@ -445,7 +447,7 @@ export interface InstalledPlugin {
   blocked: string | null
 }
 
-export type PluginTaskAction = 'install' | 'update' | 'uninstall' | 'rollback' | 'sync'
+export type PluginTaskAction = 'install' | 'update' | 'resume' | 'uninstall' | 'rollback' | 'sync'
 export interface PluginTaskBody {
   action: PluginTaskAction
   plugin_id?: string
@@ -471,8 +473,37 @@ export interface PluginTask {
   started_at: number
   finished_at: number | null
 }
+/** 因与宿主不兼容而停用的插件：包已移出环境，记录、数据和配置保留。 */
+export interface SuspendedPlugin {
+  plugin_id: string
+  name: string | null
+  icon_url: string | null
+  dist: string
+  /** 停用前的版本。 */
+  version: string
+  trust: PluginTrust
+  /** 停用前是否启用；恢复后沿用。 */
+  enabled: boolean
+  reason: string
+  suspended_at: string | null
+  /** 已选定、下次启动自动装回的来源。 */
+  resume: string | null
+  /** 上次自动恢复失败的原因。 */
+  error: string | null
+  /** 目录里能装在当前宿主上的版本（新到旧）；未收录的插件为空，按原来源恢复。 */
+  options: string[]
+}
+/** 本次启动加载失败的插件；失败只跳过该插件。 */
+export interface PluginFailure {
+  plugin_id: string
+  name: string | null
+  builtin: boolean
+  reason: string
+}
 export interface InstalledData {
   plugins: InstalledPlugin[]
+  suspended?: SuspendedPlugin[]
+  failures?: PluginFailure[]
   /** 环境与插件锁不一致的包。 */
   drift: string[]
   rollback_available: boolean
@@ -521,6 +552,8 @@ export interface UpgradeJob {
   target: string | null
   /** 与目标版本不兼容的插件及原因；"*" 表示插件组合冲突。 */
   incompatible: Record<string, string>
+  /** 不兼容插件在目标版本上可装的目录版本（新到旧）；空数组表示只能停用。 */
+  options?: Record<string, string[]>
 }
 export interface UpgradeHistoryEntry {
   timestamp: string | null
@@ -545,7 +578,8 @@ export interface UpgradeStatus {
 export interface UpgradeStartBody {
   action: UpgradeAction
   confirm: true
-  drop_incompatible: boolean
+  /** 每个不兼容插件的处理："suspend" 或目标版本上要装的版本号。 */
+  plugins?: Record<string, string>
 }
 
 /** 待处理的好友申请和群邀请；时间为 ISO 8601 UTC。 */

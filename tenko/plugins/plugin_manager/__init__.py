@@ -46,6 +46,7 @@ from tenko.host.plugins.registry import (
     get_registry,
     installed_notes,
     registry_updates,
+    resume_source,
     source_for,
     why_incompatible,
 )
@@ -197,9 +198,22 @@ async def update(
         parsed = parse_source(source.result) if source.available else None
     except PluginManagerError as error:
         return str(error)
+    manager = get_plugin_manager()
+    if target and (held := manager.suspended().get(target)):
+        # 停用的插件：装上能用的版本即恢复，启用状态沿用停用前。
+        await session.send(f"插件<{target}>已停用，正在装上兼容版本以恢复，请稍候…")
+        try:
+            change = await manager.resume(
+                target,
+                parsed or await resume_source(target, held),
+                actor=_actor(session),
+            )
+        except PluginManagerError as error:
+            return str(error)
+        return f"已恢复插件<{target}> {_version_change(change)}，执行 /重启 后生效。"
     await session.send("正在检查并更新，请稍候…")
     try:
-        changes = await get_plugin_manager().update(
+        changes = await manager.update(
             target,
             parsed,
             sources={}
@@ -330,8 +344,8 @@ list_command = Alconna(
 @require(Permission.Master)
 async def list_plugins(session: Session, *, render_service: RenderService):
     manager = get_plugin_manager()
-    rows = manager.status()
-    if not rows:
+    rows, suspended = manager.status(), manager.suspended()
+    if not rows and not suspended:
         return "没有已安装的扩展插件"
     index = get_registry().cached()  # 不联网；目录每小时刷新
     lines, items, updates = [], [], 0
@@ -372,6 +386,28 @@ async def list_plugins(session: Session, *, render_service: RenderService):
                 "note_tone": "warn",
                 "version": row.version,
                 "version_label": "当前版本",
+            }
+        )
+    for plugin_id, held in sorted(suspended.items()):
+        record = held["record"]
+        why = held.get("error") or held.get("reason") or "与当前版本不兼容"
+        lines.append(f"{plugin_id} {record['version']}（已停用：{why}）")
+        entry = index.find(plugin_id) if index else None
+        items.append(
+            {
+                "icon": _icon(plugin_id),
+                "name": entry.name if entry else plugin_id,
+                "id": plugin_id,
+                "chips": [
+                    _tier_chip(record["trust"]),
+                    {"text": "已停用 · 不兼容", "tone": "warn"},
+                ],
+                "description": entry.description if entry else "",
+                "meta": record["dist"],
+                "note": f"{why}。/更新插件 {plugin_id} 装上兼容版本即可恢复",
+                "note_tone": "warn",
+                "version": record["version"],
+                "version_label": "停用前版本",
             }
         )
     try:

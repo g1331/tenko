@@ -37,6 +37,9 @@ class FakeManager:
     def status(self):
         return []
 
+    def suspended(self):
+        return {}
+
     def drift(self):
         return []
 
@@ -264,7 +267,8 @@ class FakeUpdater:
     policy = UpdatePolicy.CHECK_ONLY
     check_interval_hours = 6
 
-    def __init__(self, tmp_path, reasons) -> None:
+    def __init__(self, tmp_path, reasons, api_version=None) -> None:
+        self.api_version = api_version
         self.layout = SimpleNamespace(
             audit_file=tmp_path / "audit.jsonl", read_previous=lambda: None
         )
@@ -278,7 +282,9 @@ class FakeUpdater:
     async def prepare(self, release):
         self.calls.append("prepare")
         if self.reasons:
-            raise PluginCompatibilityError(release.version, self.reasons)
+            raise PluginCompatibilityError(
+                release.version, self.reasons, self.api_version
+            )
 
     async def request_install(self):
         self.calls.append("install")
@@ -302,31 +308,42 @@ async def wait_upgrade(client, *states) -> dict:
 
 
 @pytest.mark.asyncio
-async def test_upgrade_stops_on_incompatible_plugins_until_told_to_drop_them(
+async def test_upgrade_waits_for_a_choice_per_incompatible_plugin(
     market, tmp_path
 ) -> None:
     client, plugins = market.client, market.service.market
-    updater = FakeUpdater(tmp_path, {"old": "需要 tenko<1.1"})
+    reasons = {"example": "需要 tenko-api<1", "old": "需要 tenko<1.1"}
+    updater = FakeUpdater(tmp_path, reasons, api_version="99.0.0")
     plugins._updater = updater
-    removed = []
+    suspended = []
 
-    async def uninstall(plugin_id, *, actor):
-        removed.append(plugin_id)
-        updater.reasons.pop(plugin_id)
+    async def suspend(choices, *, reasons, actor):
+        suspended.append(choices)
+        updater.reasons.clear()
 
-    plugins._manager.uninstall = uninstall
+    plugins._manager.suspend = suspend
     url = "/webui/api/manage/upgrade"
     body = {"action": "upgrade", "confirm": True}
 
     assert (await client.post(url, json=body)).status_code == 200
     job = await wait_upgrade(client, "failed")
-    assert job["incompatible"] == {"old": "需要 tenko<1.1"}
-    assert removed == [] and updater.calls == ["prepare"]
+    # 目录里能装在新版本（tenko-api 99）上的只有 0.3.0；未收录的插件只能停用。
+    assert job["incompatible"] == reasons
+    assert job["options"] == {"example": ["0.3.0"], "old": []}
+    assert suspended == [] and updater.calls == ["prepare"]
 
-    await client.post(url, json={**body, "drop_incompatible": True})
+    # 还有插件没有选择时不继续。
+    await client.post(url, json={**body, "plugins": {"old": "suspend"}})
+    await wait_upgrade(client, "failed")
+    assert suspended == []
+
+    choice = {"example": "0.3.0", "old": "suspend"}
+    await client.post(url, json={**body, "plugins": choice})
     job = await wait_upgrade(client, "restarting")
-    assert removed == ["old"] and job["target"] == "v1.1.0"
-    assert updater.calls == ["prepare", "prepare", "prepare", "install", "arm"]
+    (chosen,) = suspended
+    assert chosen["old"] is None
+    assert chosen["example"].requirement == "tenko-plugin-example==0.3.0"
+    assert job["target"] == "v1.1.0"
     # 重启前不能再开插件任务或第二次升级。
     assert (await client.post(url, json=body)).status_code == 409
     task = await client.post(

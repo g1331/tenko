@@ -61,20 +61,27 @@ class UpgradePanel(Panel):
             route.fulfill(json={"ok": True, "data": reply})
 
 
-def test_upgrade_drops_incompatible_plugins_and_follows_restart(open_panel):
-    failed = job("failed", incompatible={"old": "需要 tenko<1.1"})
+def test_upgrade_suspends_incompatible_plugins_and_follows_restart(open_panel):
+    failed = job(
+        "failed",
+        incompatible={"old": "需要 tenko<1.1", "rep": "需要 tenko-api<0.4"},
+        options={"old": [], "rep": ["0.4.0", "0.3.0"]},
+    )
     panel = UpgradePanel(status(job=failed))
     panel.write_results[URL] = job("running", stage="下载并校验 v1.1.0")
     page = open_panel(panel, "upgrade", clock=True)
 
     page.get_by_text("需要 tenko<1.1").wait_for()
-    page.get_by_role("button", name="卸载这些插件后升级").click()
+    # 默认停用；rep 改成目录里能用的最旧版本（改动最小）。
+    page.locator(".incompatible li", has_text="rep").locator(".el-select").click()
+    page.get_by_role("option", name="升级到 0.3.0（改动最小）").click()
+    page.get_by_role("button", name="按所选方式处理后升级").click()
     confirm_box(page, "升级宿主", "升级")
     page.locator(".job-title", has_text="下载并校验 v1.1.0").wait_for()
     assert panel.calls("POST", URL)[0][3] == {
         "action": "upgrade",
         "confirm": True,
-        "drop_incompatible": True,
+        "plugins": {"old": "suspend", "rep": "0.3.0"},
     }
 
     panel.replies = [status(job=job("restarting")), None, status("1.1.0")]

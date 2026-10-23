@@ -113,13 +113,15 @@ class TenkoRuntime:
     async def _check_plugin_environment(self) -> None:
         """加载插件前核对插件环境：删除已卸载插件的包；不一致时只告警，不自动联网安装。"""
 
+        manager = get_plugin_manager()
         try:
-            problems = await asyncio.to_thread(get_plugin_manager().startup_check)
+            for problem in await asyncio.to_thread(manager.startup_check):
+                logger.warning(problem)
+            # 升级前选了兼容版本的停用插件，进入新宿主后在加载前装回。
+            if resumed := await asyncio.to_thread(manager.resume_pending):
+                logger.info("已恢复停用的插件: {}", "、".join(resumed))
         except Exception as error:  # noqa: BLE001 - uv 缺失等不应阻止启动
             logger.warning("无法核对插件环境: {}", error)
-            return
-        for problem in problems:
-            logger.warning(problem)
 
     def _configure_database_repositories(self) -> None:
         """将官方 database service 接入六类运行期状态。"""

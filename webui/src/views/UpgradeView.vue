@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, onScopeDispose, ref, shallowRef } from 'vue'
+import { computed, onMounted, onScopeDispose, ref, shallowRef, watch } from 'vue'
 import {
   api,
   ApiError,
@@ -53,6 +53,21 @@ const busy = computed(() => starting.value || isActive(job.value) || offlineSinc
 const candidate = computed(() => status.value?.last_check?.candidate ?? null)
 const incompatible = computed(() => Object.entries(job.value?.incompatible ?? {}))
 const comboConflict = computed(() => !!job.value?.incompatible['*'])
+/** 每个不兼容插件的处理：suspend（停用并保留记录）或新版本上要装的版本；默认停用。 */
+const choices = ref<Record<string, string>>({})
+watch(
+  () => incompatible.value.map(([plugin]) => plugin).join(),
+  () => {
+    choices.value = Object.fromEntries(
+      incompatible.value
+        .filter(([plugin]) => plugin !== '*')
+        .map(([plugin]) => [plugin, 'suspend']),
+    )
+  },
+  { immediate: true },
+)
+/** 可选版本从旧到新：最旧的能用版本功能变化最小，排在最前。 */
+const versionsOf = (plugin: string) => [...(job.value?.options?.[plugin] ?? [])].reverse()
 const slow = computed(
   () => offlineSince.value !== null && now.value - offlineSince.value > SLOW_RESTART_MS,
 )
@@ -123,8 +138,11 @@ async function check() {
   }
 }
 
-async function start(action: UpgradeAction, dropIncompatible = false) {
+async function start(action: UpgradeAction, withChoices = false) {
   if (!status.value || busy.value) return
+  const picked = Object.values(choices.value)
+  const suspended = picked.filter((choice) => choice === 'suspend').length
+  const upgraded = picked.length - suspended
   const text =
     action === 'rollback'
       ? [
@@ -133,7 +151,12 @@ async function start(action: UpgradeAction, dropIncompatible = false) {
         ]
       : [
           `将下载并校验 ${candidate.value?.tag ?? '新版本'}，通过后自动重启进入新版本；新版本启动失败会自动回滚。`,
-          dropIncompatible ? '会先卸载上面列出的不兼容插件，插件数据保留。' : '',
+          withChoices && suspended
+            ? `${suspended} 个插件会先停用，记录、数据和配置都保留，之后可在待处理里恢复。`
+            : '',
+          withChoices && upgraded
+            ? `${upgraded} 个插件会在进入新版本后装上所选版本，装不上的保持停用。`
+            : '',
         ]
   const ok = await confirmAction(
     text.filter(Boolean).join(''),
@@ -147,7 +170,7 @@ async function start(action: UpgradeAction, dropIncompatible = false) {
     const started = await api.manage.startUpgrade({
       action,
       confirm: true,
-      drop_incompatible: dropIncompatible,
+      ...(withChoices ? { plugins: { ...choices.value } } : {}),
     })
     status.value = { ...status.value, job: started }
     void follow()
@@ -234,20 +257,37 @@ const versions = (entry: UpgradeHistoryEntry) =>
         <template v-if="incompatible.length">
           <ul class="incompatible">
             <li v-for="[plugin, reason] in incompatible" :key="plugin">
-              <strong class="tk-mono">{{ plugin === '*' ? '插件组合' : plugin }}</strong>
-              <span>{{ reason }}</span>
+              <div class="incompatible-head">
+                <strong class="tk-mono">{{ plugin === '*' ? '插件组合' : plugin }}</strong>
+                <el-select
+                  v-if="plugin !== '*'"
+                  v-model="choices[plugin]"
+                  size="small"
+                  class="choice"
+                  :aria-label="`${plugin} 的处理方式`"
+                  :disabled="busy"
+                >
+                  <el-option value="suspend" label="停用，之后再处理" />
+                  <el-option
+                    v-for="(version, index) in versionsOf(plugin)"
+                    :key="version"
+                    :value="version"
+                    :label="`升级到 ${version}${index === 0 ? '（改动最小）' : ''}`"
+                  />
+                </el-select>
+              </div>
+              <span class="reason">{{ reason }}</span>
             </li>
           </ul>
           <p v-if="comboConflict">插件之间的依赖冲突需要手动处理：先卸载其中一部分插件再升级。</p>
-          <el-button
-            v-else
-            size="small"
-            type="warning"
-            :disabled="busy"
-            @click="start('upgrade', true)"
-          >
-            卸载这些插件后升级
-          </el-button>
+          <template v-else>
+            <p class="choice-note">
+              停用的插件保留记录、数据和配置，宿主照常升级；之后可在待处理里装上兼容版本恢复。
+            </p>
+            <el-button size="small" type="warning" :disabled="busy" @click="start('upgrade', true)">
+              按所选方式处理后升级
+            </el-button>
+          </template>
         </template>
       </el-alert>
 
@@ -361,12 +401,29 @@ const versions = (entry: UpgradeHistoryEntry) =>
 }
 .incompatible {
   display: grid;
-  gap: 2px;
-  margin: 6px 0 8px;
-  padding-left: 18px;
+  gap: 10px;
+  margin: 8px 0;
+  padding: 0;
+  list-style: none;
 }
-.incompatible li span {
-  margin-left: 8px;
+.incompatible-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 10px;
+}
+.incompatible .choice {
+  width: 220px;
+}
+.incompatible .reason {
+  display: block;
+  margin-top: 2px;
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+.choice-note {
+  margin: 0 0 8px;
+  font-size: 12px;
 }
 .current {
   display: flex;

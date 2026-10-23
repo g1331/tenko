@@ -458,6 +458,7 @@ async def test_webui_overview_uses_status_data_metrics_and_counts(
             "online_accounts": 1,
             "active_groups": expected_status["active_groups"],
             "inbox": 0,
+            "plugin_attention": 0,
             "messages": {
                 "received_count": expected_status["metrics"]["received_count"],
                 "sent_count": expected_status["metrics"]["sent_count"],

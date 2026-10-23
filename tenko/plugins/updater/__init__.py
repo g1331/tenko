@@ -59,12 +59,12 @@ check_command = Alconna(
 )
 upgrade_command = Alconna(
     "升级",
-    Args["drop?", "卸载不兼容插件"],
+    Args["drop?", "停用不兼容插件"],
     meta=CommandMeta(
-        "下载并准备经过校验的 Tenko 宿主版本；带“卸载不兼容插件”时先卸载"
-        "与新版本不兼容的扩展插件（数据保留）",
-        usage="升级 [卸载不兼容插件]",
-        example="/升级\n/升级 卸载不兼容插件",
+        "下载并准备经过校验的 Tenko 宿主版本；带“停用不兼容插件”时先停用"
+        "与新版本不兼容的扩展插件（保留记录、数据和配置，之后可恢复）",
+        usage="升级 [停用不兼容插件]",
+        example="/升级\n/升级 停用不兼容插件",
         compact=True,
     ),
 )
@@ -130,15 +130,23 @@ async def upgrade(session: Session, drop: Match[str]):
         try:
             prepared = await updater.prepare(checked.candidate)
         except PluginCompatibilityError as exc:
-            if "*" in exc.reasons:  # 组合冲突：卸哪个由 Master 决定
+            if "*" in exc.reasons:  # 组合冲突：停哪个由 Master 决定
                 return str(exc)
             if not drop.available:
-                return f"{exc}\n可发送 /升级 卸载不兼容插件，先卸载它们（数据保留）再升级。"
-            for plugin_id in exc.reasons:
-                await get_plugin_manager().uninstall(
-                    plugin_id, actor=context_from_session(session).user_id
+                return (
+                    f"{exc}\n可发送 /升级 停用不兼容插件：先停用它们（保留记录、数据和"
+                    "配置）再升级，之后在面板或用 /更新插件 装上兼容版本即可恢复。"
                 )
-            prepared = await updater.prepare(checked.candidate)
+            manager, actor = get_plugin_manager(), context_from_session(session).user_id
+            await manager.suspend(
+                dict.fromkeys(exc.reasons), reasons=exc.reasons, actor=actor
+            )
+            try:
+                prepared = await updater.prepare(checked.candidate)
+            except Exception:
+                # 宿主没升级成，插件也不该停着：撤销刚才的停用。
+                await manager.rollback(actor=actor)
+                raise
         handoff = await updater.request_install()
         watcher_armed = _arm_restart_watcher()
         response = _format_upgrade(prepared, handoff, watcher_armed)

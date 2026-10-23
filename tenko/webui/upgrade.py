@@ -16,10 +16,17 @@ from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
 from loguru import logger
+from packaging.version import InvalidVersion, Version
 from starlette.requests import Request
 from starlette.responses import JSONResponse
 
-from ..host.plugins.manager import PluginManagerError
+from ..host.plugins.manager import PluginManagerError, PluginSource
+from ..host.plugins.registry import (
+    RegistryError,
+    installable,
+    source_for,
+    why_incompatible,
+)
 from ..host.updater import (
     CheckResult,
     NoRollbackAvailable,
@@ -52,6 +59,8 @@ class UpgradeJob:
     message: str = ""
     target: str | None = None
     incompatible: dict[str, str] = field(default_factory=dict)
+    # 不兼容插件在新版本上可装的版本（新到旧），供 Master 选择；空表示只能停用。
+    options: dict[str, list[str]] = field(default_factory=dict)
 
 
 def _clean(text: object, limit: int = 300) -> str:
@@ -174,13 +183,16 @@ class HostUpgrade:
         async def start():
             body = await read_json(request)
             action = body.get("action")
-            drop = body.get("drop_incompatible", False)
+            choices = body.get("plugins", {})
             if action not in {"upgrade", "rollback"} or body.get("confirm") is not True:
                 raise ValueError("请确认要执行的升级操作")
-            if set(body) - {"action", "confirm", "drop_incompatible"} or (
-                type(drop) is not bool
-            ):
+            if set(body) - {"action", "confirm", "plugins"}:
                 raise ValueError("包含未知字段")
+            if not isinstance(choices, dict) or not all(
+                isinstance(k, str) and isinstance(v, str) and v
+                for k, v in choices.items()
+            ):
+                raise ValueError("plugins 必须是插件 ID 到 suspend 或版本号的映射")
             if not self.market.updater.enabled:
                 raise RuntimeError("升级系统未启用")
             if self.busy:
@@ -192,7 +204,9 @@ class HostUpgrade:
             request.state.webui_action = action
             self.job = UpgradeJob(action)
             run = self._upgrade if action == "upgrade" else self._rollback
-            self._task = asyncio.create_task(self._run(self.job, run(self.job, drop)))
+            self._task = asyncio.create_task(
+                self._run(self.job, run(self.job, choices))
+            )
             return asdict(self.job)
 
         return await self.market.service._manage(request, start)
@@ -202,7 +216,7 @@ class HostUpgrade:
     async def _run(self, job: UpgradeJob, work) -> None:
         try:
             await work
-        except (UpdaterError, PluginManagerError) as error:
+        except (UpdaterError, PluginManagerError, RegistryError, ValueError) as error:
             job.state, job.message = "failed", _clean(error, 600)
         except Exception as error:  # noqa: BLE001 - 结果写进任务，由前端展示
             logger.exception("WebUI 宿主{}失败", job.action)
@@ -216,7 +230,35 @@ class HostUpgrade:
             return
         job.state, job.message = "restarting", message
 
-    async def _upgrade(self, job: UpgradeJob, drop: bool) -> None:
+    async def _options(self, error: PluginCompatibilityError) -> dict[str, list[str]]:
+        """不兼容插件在新版本宿主上可装的目录版本；目录不可用或未收录时为空。"""
+
+        try:
+            api = Version(error.api_version or "")
+            index = await self.market.registry.load()
+        except (InvalidVersion, RegistryError):
+            return {pid: [] for pid in error.reasons if pid != "*"}
+        return {
+            pid: installable(entry, api) if (entry := index.plugins.get(pid)) else []
+            for pid in error.reasons
+            if pid != "*"
+        }
+
+    async def _target_source(
+        self, plugin_id: str, version: str, api_version: str | None
+    ) -> PluginSource:
+        """新版本宿主上要装回的来源；版本必须在目录里、且能装在新版本上。"""
+
+        index = await self.market.registry.load()
+        entry = index.plugins.get(plugin_id)
+        item = entry and next((v for v in entry.versions if v.version == version), None)
+        if item is None:
+            raise ValueError(f"插件目录里没有 {plugin_id} {version}")
+        if reason := why_incompatible(item, Version(api_version or "0")):
+            raise ValueError(f"{plugin_id} {version} 不能装在新版本上：{reason}")
+        return source_for(entry, item)
+
+    async def _upgrade(self, job: UpgradeJob, choices: dict[str, str]) -> None:
         updater = self.market.updater
         job.stage = "检查新版本"
         checked = await updater.check()
@@ -229,21 +271,34 @@ class HostUpgrade:
         try:
             await updater.prepare(checked.candidate)
         except PluginCompatibilityError as error:
-            # 组合冲突（"*"）说不清该卸哪个，交给 Master 决定。
-            if not drop or "*" in error.reasons:
+            # 每个不兼容的插件都要有选择（停用，或新版本上要装回的版本）才继续；
+            # 组合冲突（"*"）说不清该停哪个，交给 Master 处理。
+            if "*" in error.reasons or not set(error.reasons) <= set(choices):
                 job.incompatible = {k: _clean(v) for k, v in error.reasons.items()}
+                job.options = await self._options(error)
                 raise
-            for plugin_id in error.reasons:
-                job.stage = f"卸载不兼容插件 {plugin_id}"
-                await self.market.manager.uninstall(plugin_id, actor="webui")
+            job.stage = "停用不兼容插件"
+            sources = {
+                pid: None
+                if choices[pid] == "suspend"
+                else await self._target_source(pid, choices[pid], error.api_version)
+                for pid in error.reasons
+            }
+            manager = self.market.manager
+            await manager.suspend(sources, reasons=error.reasons, actor="webui")
             job.stage = f"下载并校验 {job.target}"
-            await updater.prepare(checked.candidate)
+            try:
+                await updater.prepare(checked.candidate)
+            except Exception:
+                # 宿主没升级成，插件也不该停着：撤销刚才的停用。
+                await manager.rollback(actor="webui")
+                raise
         job.stage = "切换版本"
         await updater.request_install()
         self._restart(job, f"{job.target} 已下载并校验通过，正在重启进入新版本")
 
-    async def _rollback(self, job: UpgradeJob, drop: bool) -> None:
-        del drop
+    async def _rollback(self, job: UpgradeJob, choices: dict[str, str]) -> None:
+        del choices
         job.stage = "准备回滚"
         try:
             result = await self.market.updater.rollback()

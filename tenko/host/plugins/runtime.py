@@ -164,6 +164,12 @@ class PluginInfo:
         return tuple(dict.fromkeys(names))
 
 
+def _failure_text(error: BaseException) -> str:
+    # Entari 把插件抛出的异常包成 ImportError，原异常在 __cause__/__context__ 上。
+    cause = error.__cause__ or error.__context__ or error
+    return f"{type(cause).__name__}: {cause}"[-300:]
+
+
 class PluginRuntime:
     """把 Tenko 插件目录和扩展插件入口适配到 Entari 原生插件机制。"""
 
@@ -180,6 +186,8 @@ class PluginRuntime:
         # 数据库可用之前，所以不能放进数据库设置。
         self.state_file = Path(state_file or _DEFAULT_STATE_FILE)
         self._discovered: dict[str, PluginInfo] = {}
+        # 本进程里加载失败的插件及原因；失败只跳过该插件，由面板的待处理列出。
+        self.load_failures: dict[str, str] = {}
 
     def discover(self) -> tuple[PluginInfo, ...]:
         """发现内置插件和扩展插件入口，不导入任何插件模块。"""
@@ -444,7 +452,9 @@ class PluginRuntime:
                 type(result.error).__name__,
                 result.error,
             )
+            self.load_failures[info.name] = _failure_text(result.error)
             return None
+        self.load_failures.pop(info.name, None)
         return result.plugin
 
     async def load_all(
@@ -482,14 +492,16 @@ class PluginRuntime:
                 continue
             if reason := api_incompatibility(info.name):
                 logger.error("扩展插件 {} 未加载：{}", info.name, reason)
+                self.load_failures[info.name] = reason
                 continue
             config = external_configs.get(info.name)
             try:
                 loaded = await self.load(
                     info, config=None if config is None else dict(config)
                 )
-            except Exception:
+            except Exception as error:
                 logger.exception("扩展插件加载失败: {}", info.name)
+                self.load_failures[info.name] = _failure_text(error)
             else:
                 # Entari 导入失败（含配置校验失败）时 ``load`` 记录原因并返回 None。
                 if loaded is None:
@@ -512,6 +524,7 @@ class PluginRuntime:
         )
         if not result:
             raise result.error
+        self.load_failures.pop(info.name, None)
         return result.plugin
 
     async def apply_config(
@@ -571,6 +584,8 @@ class PluginRuntime:
         if type(enabled) is not bool:
             raise TypeError("enabled 必须是布尔值")
         info = self._info(plugin)
+        if not enabled:  # 停用即处理完了这次加载失败
+            self.load_failures.pop(info.name, None)
         if info.source == "external":
             if info.native_plugin is not None:
                 result = await (self.enable(info) if enabled else self.disable(info))

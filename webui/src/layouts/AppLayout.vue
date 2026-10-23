@@ -62,7 +62,10 @@ const navItems = computed<NavItem[]>(() =>
       short: item.meta.nav!.short,
       icon: icons[item.name as string] ?? Odometer,
       group: item.meta.nav!.group,
-      badge: item.name === 'inbox' ? (overview.data.value?.inbox ?? 0) : 0,
+      badge:
+        item.name === 'inbox'
+          ? (overview.data.value?.inbox ?? 0) + (overview.data.value?.plugin_attention ?? 0)
+          : 0,
     })),
 )
 const groups = computed(() =>
