@@ -396,3 +396,40 @@ async def test_upgrade_history_lists_final_results_newest_first(
     ]
     assert data["history"][0]["automatic"] is True
     assert data["history"][1]["error"] == "ImportError"
+
+
+@pytest.mark.asyncio
+async def test_upgrade_changelog_lists_skipped_releases_newest_first() -> None:
+    from types import SimpleNamespace
+
+    from tenko.host.updater import CheckResult, Release, UpdateChannel, parse_version
+    from tenko.webui.upgrade import HostUpgrade
+
+    source = SimpleNamespace(
+        name="git_tag", repository="https://github.com/o/r.git", tag_prefix="v"
+    )
+    upgrade = HostUpgrade(SimpleNamespace(updater=SimpleNamespace(sources=[source])))
+    seen = []
+
+    async def get_json(url, *, headers=None):
+        seen.append(url)
+        return [
+            {"tag_name": tag, "body": f"## {tag}", "prerelease": "rc" in tag}
+            for tag in ("v1.0.0", "v1.1.0-rc1", "v1.1.0", "v1.2.0", "v1.3.0", "x")
+        ]
+
+    upgrade.http = SimpleNamespace(get_json=get_json)
+    result = CheckResult(
+        parse_version("1.0.0"),
+        UpdateChannel.STABLE,
+        "git_tag",
+        "available",
+        Release(version="1.2.0", tag="v1.2.0"),
+    )
+    notes, error = await upgrade._changelog(result)
+
+    assert seen == ["https://api.github.com/repos/o/r/releases?per_page=100"]
+    assert error is None
+    # 正式版通道跳过预发布；不含当前版本和候选之后的版本。
+    assert [n["tag"] for n in notes] == ["v1.2.0", "v1.1.0"]
+    assert notes[0]["url"] == "https://github.com/o/r/releases/tag/v1.2.0"

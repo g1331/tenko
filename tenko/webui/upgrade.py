@@ -32,6 +32,8 @@ from ..host.updater import (
     NoRollbackAvailable,
     PluginCompatibilityError,
     UpdaterError,
+    UrllibHttpClient,
+    parse_version,
 )
 from .auth import error_response, read_json, success_response
 
@@ -92,6 +94,35 @@ def _check_data(result: CheckResult) -> dict[str, Any]:
     }
 
 
+_GITHUB_URL = re.compile(r"github\.com[/:]([\w.-]+)/([\w.-]+?)(?:\.git)?/?$")
+# 一次跨很多版本时只列最近的这些，每份说明也截断，避免把面板撑得过长。
+_CHANGELOG_LIMIT = 20
+_NOTES_LIMIT = 20_000
+
+
+def _github(updater) -> tuple[str, str, str | None, str] | None:
+    """升级源对应的 GitHub 仓库：``(owner/repo, API 地址, token, tag 前缀)``。"""
+
+    for source in getattr(updater, "sources", ()):
+        repository = str(getattr(source, "repository", ""))
+        prefix = getattr(source, "tag_prefix", "v")
+        if getattr(source, "name", None) == "github_release":
+            return repository, source.api_base_url, source.token, prefix
+        if match := _GITHUB_URL.search(repository):
+            return f"{match[1]}/{match[2]}", "https://api.github.com", None, prefix
+    return None
+
+
+def _in_range(tag: str, prefix: str, low, high, prerelease: bool) -> Any:
+    try:
+        version = parse_version(tag.removeprefix(prefix))
+    except ValueError:
+        return None
+    if not low < version <= high or (version.is_prerelease and not prerelease):
+        return None
+    return version
+
+
 class HostUpgrade:
     """挂在 :class:`PluginMarket` 旁边：共用它的升级管理器、插件任务和重启状态。"""
 
@@ -100,6 +131,7 @@ class HostUpgrade:
         self.job: UpgradeJob | None = None
         self.last_check: dict[str, Any] | None = None
         self._task: asyncio.Task | None = None
+        self.http = UrllibHttpClient(timeout=10)
 
     @property
     def busy(self) -> bool:
@@ -157,6 +189,7 @@ class HostUpgrade:
             "policy": updater.policy.value,
             "check_interval_hours": updater.check_interval_hours,
             "previous_version": _display(previous.version) if previous else None,
+            "release_url": self._release_url(updater),
             "last_check": self.last_check,
             "job": asdict(self.job) if self.job else None,
             "history": self._history(),
@@ -173,8 +206,71 @@ class HostUpgrade:
             result = await self.market.updater.check()
         except UpdaterError as error:
             return error_response("upgrade_check_failed", _clean(error), 502)
-        self.last_check = _check_data(result)
+        data = _check_data(result)
+        if result.candidate is not None:
+            data["changelog"], data["changelog_error"] = await self._changelog(result)
+        self.last_check = data
         return success_response(self.last_check)
+
+    @staticmethod
+    def _release_url(updater) -> str | None:
+        found = _github(updater)
+        if found is None or found[1] != "https://api.github.com":
+            return None
+        repository, _, _, prefix = found
+        tag = prefix + _display(updater.current_version)
+        return f"https://github.com/{repository}/releases/tag/{tag}"
+
+    async def _changelog(
+        self, result: CheckResult
+    ) -> tuple[list[dict[str, Any]], str | None]:
+        """当前版本之后、直到候选版本的各版发布说明（新到旧），取自 GitHub Releases。
+
+        读取失败不影响检查结果，只返回原因；升级源不在 GitHub 上时返回空列表。
+        """
+
+        found = _github(self.market.updater)
+        if found is None:
+            return [], None
+        repository, api, token, prefix = found
+        headers = {"Accept": "application/vnd.github+json"}
+        if token:
+            headers["Authorization"] = f"Bearer {token}"
+        try:
+            payload = await self.http.get_json(
+                f"{api}/repos/{repository}/releases?per_page=100", headers=headers
+            )
+        except UpdaterError as error:
+            return [], _clean(error)
+        if not isinstance(payload, list):
+            return [], "GitHub Releases 返回格式不对"
+        high = result.candidate.version
+        prerelease = result.channel.value == "prerelease" or result.candidate.prerelease
+        entries = []
+        for item in payload:
+            if not isinstance(item, dict) or item.get("draft"):
+                continue
+            tag = str(item.get("tag_name") or "")
+            version = _in_range(tag, prefix, result.current_version, high, prerelease)
+            if version is None:
+                continue
+            entries.append(
+                (
+                    version,
+                    {
+                        "tag": tag,
+                        "name": str(item.get("name") or tag),
+                        "published_at": item.get("published_at"),
+                        "prerelease": bool(item.get("prerelease")),
+                        "url": f"https://github.com/{repository}/releases/tag/{tag}"
+                        if api == "https://api.github.com"
+                        else None,
+                        "body": str(item.get("body") or "")[:_NOTES_LIMIT],
+                    },
+                )
+            )
+        entries.sort(key=lambda pair: pair[0], reverse=True)
+        return [entry for _, entry in entries[:_CHANGELOG_LIMIT]], None
 
     async def upgrade(self, request: Request) -> JSONResponse:
         if request.method == "GET":

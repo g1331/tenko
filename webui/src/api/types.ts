@@ -549,6 +549,20 @@ export interface UpgradeCheck {
     source: string
     notes: string | null
   } | null
+  /** 当前版本之后到候选版本的各版发布说明（新到旧），取自 GitHub Releases。 */
+  changelog?: ReleaseNote[]
+  /** 读取发布说明失败的原因；不影响检查结果。 */
+  changelog_error?: string | null
+}
+export interface ReleaseNote {
+  tag: string
+  name: string
+  published_at: string | null
+  prerelease: boolean
+  /** GitHub 上的发布页。 */
+  url: string | null
+  /** Markdown 原文。 */
+  body: string
 }
 export type UpgradeAction = 'upgrade' | 'rollback'
 export interface UpgradeJob {
@@ -578,6 +592,8 @@ export interface UpgradeStatus {
   policy: 'check' | 'download' | 'install'
   check_interval_hours: number
   previous_version: string | null
+  /** 当前版本在 GitHub 上的发布页；升级源不在 GitHub 上时为 null。 */
+  release_url?: string | null
   last_check: UpgradeCheck | null
   job: UpgradeJob | null
   history: UpgradeHistoryEntry[]

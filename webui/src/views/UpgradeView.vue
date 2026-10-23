@@ -13,6 +13,7 @@ import PagePanel from '@/components/PagePanel.vue'
 import StatusTag from '@/components/StatusTag.vue'
 import { confirmAction } from '@/composables/confirm'
 import { relativeText, timeText } from '@/composables/format'
+import { renderMarkdown } from '@/composables/markdown'
 import { usePanelData } from '@/composables/usePanelData'
 import type { StatusKind } from '@/composables/status'
 
@@ -51,6 +52,7 @@ const isActive = (job: UpgradeJob | null | undefined) =>
 const job = computed(() => status.value?.job ?? null)
 const busy = computed(() => starting.value || isActive(job.value) || offlineSince.value !== null)
 const candidate = computed(() => status.value?.last_check?.candidate ?? null)
+const changelog = computed(() => status.value?.last_check?.changelog ?? [])
 const incompatible = computed(() => Object.entries(job.value?.incompatible ?? {}))
 const comboConflict = computed(() => !!job.value?.incompatible['*'])
 /** 每个不兼容插件的处理：suspend（停用并保留记录）或新版本上要装的版本；默认停用。 */
@@ -311,6 +313,14 @@ const versions = (entry: UpgradeHistoryEntry) =>
                 <dt>上一个版本</dt>
                 <dd class="tk-mono">{{ status.previous_version }}</dd>
               </div>
+              <div v-if="status.release_url">
+                <dt>发布说明</dt>
+                <dd>
+                  <a :href="status.release_url" target="_blank" rel="noopener noreferrer"
+                    >在 GitHub 查看</a
+                  >
+                </dd>
+              </div>
             </dl>
           </div>
           <div class="actions">
@@ -349,7 +359,42 @@ const versions = (entry: UpgradeHistoryEntry) =>
               升级到 {{ candidate.tag }}
             </el-button>
           </div>
-          <pre v-if="candidate.notes" class="notes">{{ candidate.notes }}</pre>
+          <div v-if="changelog.length" class="changelog">
+            <p class="muted">
+              {{
+                changelog.length > 1
+                  ? `从 ${status.current_version} 升级会带来以下 ${changelog.length} 个版本的变化：`
+                  : '更新内容：'
+              }}
+            </p>
+            <details v-for="(note, index) in changelog" :key="note.tag" :open="index === 0">
+              <summary>
+                <strong class="tk-mono">{{ note.tag }}</strong>
+                <StatusTag v-if="note.prerelease" kind="pending">预发布</StatusTag>
+                <time v-if="note.published_at" class="muted" :title="timeText(note.published_at)">
+                  {{ relativeText(note.published_at) }}
+                </time>
+                <a
+                  v-if="note.url"
+                  class="release-link"
+                  :href="note.url"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  @click.stop
+                  >发布页</a
+                >
+              </summary>
+              <!-- renderMarkdown 先转义全部原文，只输出自己生成的标签 -->
+              <!-- eslint-disable-next-line vue/no-v-html -->
+              <div v-if="note.body.trim()" class="notes" v-html="renderMarkdown(note.body)" />
+              <p v-else class="muted">这个版本没有写发布说明。</p>
+            </details>
+          </div>
+          <!-- eslint-disable-next-line vue/no-v-html -->
+          <div v-else-if="candidate.notes" class="notes" v-html="renderMarkdown(candidate.notes)" />
+          <p v-if="status.last_check.changelog_error" class="muted">
+            无法读取发布说明：{{ status.last_check.changelog_error }}
+          </p>
         </div>
         <p v-else class="muted">当前已是最新版本</p>
       </PagePanel>
@@ -476,19 +521,79 @@ const versions = (entry: UpgradeHistoryEntry) =>
 .upgrade-button {
   margin-left: auto;
 }
+.changelog {
+  display: grid;
+  gap: 8px;
+  margin-top: 12px;
+}
+.changelog > p {
+  margin: 0;
+}
+.changelog details {
+  border: 1px solid var(--tk-line);
+  border-radius: 8px;
+}
+.changelog summary {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 10px;
+  padding: 10px 14px;
+  cursor: pointer;
+}
+.changelog summary strong {
+  color: var(--tk-heading);
+}
+.release-link {
+  margin-left: auto;
+  font-size: 12px;
+}
+.changelog .notes {
+  margin: 0;
+  border-top: 1px solid var(--tk-line);
+  border-radius: 0 0 8px 8px;
+}
+.changelog details > .muted {
+  margin: 0;
+  padding: 0 14px 12px;
+}
 .notes {
-  max-height: 320px;
+  max-height: 420px;
   margin: 12px 0 0;
-  padding: 12px 14px;
+  padding: 4px 14px 12px;
   overflow: auto;
   border-radius: 8px;
   background: var(--tk-surface-2);
   color: var(--tk-text);
-  font-family: var(--tk-font);
   font-size: 13px;
-  line-height: 1.6;
-  white-space: pre-wrap;
+  line-height: 1.7;
   overflow-wrap: anywhere;
+}
+.notes :deep(h3),
+.notes :deep(h4),
+.notes :deep(h5),
+.notes :deep(h6) {
+  margin: 14px 0 6px;
+  color: var(--tk-heading);
+  font-size: 14px;
+}
+.notes :deep(p) {
+  margin: 8px 0;
+}
+.notes :deep(ul),
+.notes :deep(ol) {
+  margin: 4px 0;
+  padding-left: 20px;
+}
+.notes :deep(code) {
+  padding: 0 4px;
+  border-radius: 4px;
+  background: rgba(127, 127, 127, 0.15);
+  font-family: var(--tk-font-mono);
+  font-size: 12px;
+}
+.notes :deep(pre) {
+  overflow: auto;
 }
 .history {
   display: grid;
