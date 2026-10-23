@@ -13,6 +13,8 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Any, Literal
 
+from .sandbox import refuse_in_sandbox
+
 Decide = Callable[[bool, str], Awaitable[None]]
 
 
@@ -63,6 +65,7 @@ class Inbox:
                 del self._items[key]
 
     def remove(self, item_id: str) -> InboxItem:
+        refuse_in_sandbox("处理待办申请")
         return self._items.pop(item_id)
 
     def get(self, item_id: str) -> InboxItem:

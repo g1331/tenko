@@ -41,7 +41,12 @@ from .host.ratelimit import configure_rate_limiter
 from .host.startup import startup_history
 from .host.updater import UpgradeManager, configure_updater
 from .host.render import RenderService
-from .host.sandbox import SandboxAdapter, install as install_sandbox, is_sandbox
+from .host.sandbox import (
+    GuardedProtocol,
+    SandboxAdapter,
+    install as install_sandbox,
+    is_sandbox,
+)
 from .webui import WebUIService
 
 
@@ -263,6 +268,8 @@ class TenkoRuntime:
             rich_error=basic.log.rich_error,
             gen_schema=basic.schema,
         )
+        # 账号在登录时按它创建协议对象，所以要在任何账号接入之前替换。
+        app.default_api_cls = GuardedProtocol
         native_handler = app.handle_event
         for index, callback in enumerate(app.event_callbacks):
             if callback == native_handler:

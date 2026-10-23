@@ -8,20 +8,30 @@ Entari，所以 Tenko 的事件过滤链、功能开关、限流和插件生命�
 沙盒账号不登记进 ``AccountRegistry``：不参与群路由、不计入账户和消息统计，也
 不会成为公告、升级通知的目标。它使用固定的虚拟 ID，Master 身份通过
 ``superuser_ids("sandbox")`` 生效，群管理员和群主通过事件里的成员角色生效。
+
+插件逻辑在沙盒里真实执行，所以副作用在出口统一拦截：沙盒事件的处理链带一个
+contextvar 标记（:func:`origin`），真实账号的平台写操作在 :class:`GuardedProtocol`
+里不发出、改记一条说明；宿主全局状态的写入口调用 :func:`refuse_in_sandbox`。
 """
 
 from __future__ import annotations
 
+import html
 import itertools
+import re
 import time
 from collections import deque
+from collections.abc import Iterator
+from contextlib import contextmanager
+from contextvars import ContextVar
 from datetime import datetime
 from typing import Any
 
+from arclet.entari.session import EntariProtocol
 from launart import Launart
 from launart.status import Phase
 from satori import Api, ChannelType, EventType, LoginStatus
-from satori.element import Author, Element, Quote
+from satori.element import Author, Element, Quote, Text
 from satori.model import (
     Channel,
     Event,
@@ -294,6 +304,13 @@ class SandboxAdapter(Adapter):
         del request
         return self.login
 
+    def note(self, channel_id: str, text: str) -> None:
+        """在沙盒会话里记一条 bot 发出的说明，比如被拦截的真实动作。"""
+
+        self._record(
+            channel_id, True, SANDBOX_BOT_ID, self.login.user.name or "", [Text(text)]
+        )
+
     def _user_name(self, user_id: str) -> str:
         if user_id == SANDBOX_BOT_ID:
             return self.login.user.name or ""
@@ -310,6 +327,117 @@ def install(adapter: SandboxAdapter | None) -> None:
     sandbox = adapter
 
 
+# ---------------------------------------------------------------- 隔离
+
+# 沙盒事件的处理链里是发起它的沙盒会话 ID；create_task 派生的任务会复制上下文。
+_origin: ContextVar[str | None] = ContextVar("tenko_sandbox_origin", default=None)
+
+
+def origin() -> str | None:
+    """当前处理链来自沙盒时，返回发起它的沙盒会话 ID。"""
+
+    return _origin.get()
+
+
+@contextmanager
+def sandbox_origin(channel_id: str) -> Iterator[None]:
+    token = _origin.set(channel_id)
+    try:
+        yield
+    finally:
+        _origin.reset(token)
+
+
+class SandboxRefused(Exception):
+    """沙盒里发起的调用要改动真实状态；异常捕获只在沙盒里回一句说明。"""
+
+    def __init__(self, what: str) -> None:
+        super().__init__(f"[沙盒] 这里不会{what}，真实状态没有改动")
+        self.channel = _origin.get()
+
+
+def refuse_in_sandbox(what: str, target: object = None) -> None:
+    """宿主全局状态的写入口调用；``target`` 是沙盒平台的群或用户时放行。"""
+
+    if _origin.get() is None or _is_sandbox_target(target):
+        return
+    raise SandboxRefused(what)
+
+
+def _is_sandbox_target(target: object) -> bool:
+    if target is None:
+        return False
+    if isinstance(target, tuple):
+        return str(target[0]) == SANDBOX_PLATFORM
+    from tenko.context import group_key
+
+    try:
+        return group_key(target)[0] == SANDBOX_PLATFORM
+    except ValueError:
+        return False
+
+
+# 不改变平台状态、发送私聊前又必须调用的动作。
+_HARMLESS = {"user.channel.create", "upload.create"}
+_TAG = re.compile(r"<[^>]+>")
+
+
+def _read_only(action: str, method: str) -> bool:
+    if action.startswith("internal/"):
+        return action.removeprefix("internal/").startswith("get_")  # OneBot 查询动作
+    return method == "GET" or action.endswith((".get", ".list")) or action in _HARMLESS
+
+
+def _describe(action: str, params: dict | None) -> str:
+    params = params or {}
+    target = params.get("channel_id") or params.get("guild_id") or ""
+    if action == "message.create":
+        text = html.unescape(_TAG.sub("", str(params.get("content", "")))).strip()
+        text = text[:60] + ("…" if len(text) > 60 else "") if text else "[非文本消息]"
+        return f"向 {target} 发送：{text}"
+    names = {
+        "message.delete": "撤回消息",
+        "message.update": "编辑消息",
+        "guild.member.kick": "踢出成员",
+        "guild.member.mute": "禁言成员",
+        "guild.member.approve": "处理入群申请",
+        "guild.approve": "处理群邀请",
+        "friend.approve": "处理好友申请",
+    }
+    return f"{names.get(action, f'调用 {action}')}{f'（{target}）' if target else ''}"
+
+
+class GuardedProtocol(EntariProtocol):
+    """Entari 默认协议加一道沙盒检查：沙盒处理链里真实账号的写操作不发出。
+
+    所有 API（包括 ``internal`` 扩展动作）都经过 ``call_api``，它和插件在同一个
+    任务里执行，所以能读到沙盒标记；服务端的 OneBot 连接隔着本机 HTTP，读不到。
+    """
+
+    async def call_api(
+        self,
+        action: str | Api,
+        params: dict | None = None,
+        multipart: bool = False,
+        method: str = "POST",
+    ) -> Any:
+        name = action.value if isinstance(action, Api) else action
+        channel = _origin.get()
+        if channel is None or is_sandbox(self.account) or _read_only(name, method):
+            return await super().call_api(action, params, multipart, method)
+        if sandbox is not None:
+            sandbox.note(
+                channel,
+                f"[沙盒拦截] 本应由 {self.account.self_id} {_describe(name, params)}",
+            )
+        if name == "message.create":
+            return [{"id": f"sandbox-blocked-{next(_blocked)}", "content": ""}]
+        return {}
+
+
+_blocked = itertools.count(1)
+
+
 __all__ = [
     "HISTORY_LIMIT",
     "IDENTITIES",
@@ -320,8 +448,13 @@ __all__ = [
     "SANDBOX_PLATFORM",
     "SANDBOX_PRIVATE_CHANNEL",
     "SANDBOX_USER_ID",
+    "GuardedProtocol",
     "SandboxAdapter",
+    "SandboxRefused",
     "install",
     "is_sandbox",
+    "origin",
+    "refuse_in_sandbox",
     "sandbox",
+    "sandbox_origin",
 ]

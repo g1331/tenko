@@ -24,6 +24,7 @@ from starlette.websockets import WebSocket, WebSocketState
 
 from .config import OneBotConfig
 from .context import QQ_PLATFORM
+from .host.sandbox import is_sandbox, sandbox_origin
 
 
 # Server 仍对外提供 Satori HTTP API（账号调用平台接口走这里），路径固定即可。
@@ -87,7 +88,12 @@ class InProcessServer(Server):
         # 原 WebSocket 客户端在 blocking 阶段才连上：所有组件准备完毕后再处理事件。
         while manager.status.stage in (None, "preparing"):
             await manager.status.wait_for_update()
-        await client.post(event, self.network)  # type: ignore[arg-type]
+        if is_sandbox(event) and event.channel is not None:
+            # 处理链里的真实副作用由 GuardedProtocol 和 refuse_in_sandbox 拦下。
+            with sandbox_origin(event.channel.id):
+                await client.post(event, self.network)  # type: ignore[arg-type]
+        else:
+            await client.post(event, self.network)  # type: ignore[arg-type]
 
 
 class _ManagedConnection(_Connection):

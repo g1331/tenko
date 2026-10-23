@@ -12,6 +12,7 @@ from loguru import logger
 from satori.client import Account
 
 from .perm import Permission
+from .sandbox import refuse_in_sandbox
 from satori.exception import ActionFailed
 
 from ..context import (
@@ -371,6 +372,7 @@ class AccountRegistry:
         return self._availability.get(account_key(account_or_id), False)
 
     def set_enabled(self, account_or_id: object, enabled: bool) -> None:
+        refuse_in_sandbox("停用或启用账号")
         if type(enabled) is not bool:
             raise TypeError("enabled 必须是布尔值")
         key = account_key(account_or_id)
@@ -652,6 +654,7 @@ class AccountRegistry:
     ) -> None:
         """设置群的随机或 deterministic 响应策略。"""
 
+        refuse_in_sandbox("修改群响应策略", group_id)
         if response_type not in {"random", "deterministic"}:
             raise ValueError("response_type 必须是 'random' 或 'deterministic'")
         normalized_group = group_key(group_id)
@@ -665,6 +668,7 @@ class AccountRegistry:
     ) -> None:
         """设置 deterministic 策略指定的账号。"""
 
+        refuse_in_sandbox("修改群响应策略", group_id)
         normalized_group = group_key(group_id)
         account_id = account_key(account_or_id)
         if account_id not in self._groups.get(normalized_group, ()):

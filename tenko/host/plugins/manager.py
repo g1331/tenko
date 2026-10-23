@@ -52,6 +52,7 @@ from packaging.version import InvalidVersion, Version
 
 from . import storage as plugin_storage
 from .runtime import _MODULE_PATH, _PLUGIN_ID, PluginInfo, PluginRuntime
+from ..sandbox import refuse_in_sandbox
 from ..updater import (
     AuditLogger,
     DefaultHealthChecker,
@@ -1268,6 +1269,7 @@ class PluginManager:
     ) -> PluginChange:
         """安装插件；新装的插件默认未启用，重启后才生效。"""
 
+        refuse_in_sandbox("安装插件")
         return await asyncio.to_thread(
             self._audited, "install", actor, lambda: self._install(source, actor),
             source=source.requirement, trust=source.trust,
@@ -1288,6 +1290,7 @@ class PluginManager:
         时的简写。
         """
 
+        refuse_in_sandbox("更新插件")
         targets = dict(sources or {})
         if source is not None:
             if plugin_id is None:
@@ -1303,6 +1306,7 @@ class PluginManager:
     ) -> PluginChange:
         """卸载插件；数据目录默认保留，``clear_data`` 时在卸载成功后删除。"""
 
+        refuse_in_sandbox("卸载插件")
         return await asyncio.to_thread(
             self._audited, "uninstall", actor,
             lambda: self._uninstall(plugin_id, clear_data, actor),
@@ -1318,6 +1322,7 @@ class PluginManager:
     ) -> list[PluginChange]:
         """停用并保留记录（见 :meth:`_suspend`），重启后生效。"""
 
+        refuse_in_sandbox("停用插件")
         return await asyncio.to_thread(
             self._audited, "suspend", actor,
             lambda: self._suspend(choices, reasons or {}, actor),
@@ -1329,6 +1334,7 @@ class PluginManager:
     ) -> PluginChange:
         """把已停用的插件装成 ``source``，恢复它的记录和启用意愿。"""
 
+        refuse_in_sandbox("恢复插件")
         return await asyncio.to_thread(
             self._audited, "resume", actor,
             lambda: self._install(source, actor, resuming=plugin_id),
@@ -1338,6 +1344,7 @@ class PluginManager:
     async def rollback(self, *, actor: str | None = None) -> list[PluginChange]:
         """撤销最近一次插件变更（版本、依赖和插件库一起恢复）。"""
 
+        refuse_in_sandbox("回滚插件")
         return await asyncio.to_thread(
             self._audited, "rollback", actor, lambda: self._rollback(actor)
         )

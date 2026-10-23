@@ -17,6 +17,7 @@ from loguru import logger
 from ..context import QQ_PLATFORM
 from .accounts import AccountRegistry, account_key, account_reference, account_registry
 from .actions import action_service
+from .sandbox import refuse_in_sandbox
 from .perm import superuser_ids
 
 SETTING_NAME = "notify"
@@ -91,6 +92,7 @@ async def save_settings(
 ) -> NotifySettings:
     """在当前设置上应用修改并保存，返回新设置。"""
 
+    refuse_in_sandbox("修改通知设置")
     repository = repository or _repository()
     current = await load_settings(repository)
     settings = parse_settings({**current.to_dict(), **changes})

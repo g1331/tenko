@@ -41,6 +41,7 @@ from packaging.version import InvalidVersion as PackagingInvalidVersion
 from packaging.version import Version
 
 from .perm import PermissionChecker
+from .sandbox import refuse_in_sandbox
 
 try:
     import tomllib
@@ -2438,6 +2439,7 @@ class UpgradeManager:
             return await self._check_unlocked()
 
     async def prepare(self, release: Release | None = None) -> PrepareResult:
+        refuse_in_sandbox("下载新版本")
         async with self._operation_lock:
             if release is None:
                 checked = await self._check_unlocked()
@@ -2665,6 +2667,7 @@ class UpgradeManager:
         return destination
 
     async def request_install(self) -> HandoffResult:
+        refuse_in_sandbox("升级 Tenko")
         async with self._operation_lock:
             pending = self.layout.read_pending()
             if pending is None:
@@ -2698,6 +2701,7 @@ class UpgradeManager:
             return HandoffResult("activate", version, target)
 
     async def rollback(self) -> RollbackResult:
+        refuse_in_sandbox("回滚 Tenko")
         async with self._operation_lock:
             previous = self.layout.read_previous()
             if previous is None:

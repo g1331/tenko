@@ -18,6 +18,7 @@ from loguru import logger
 
 from tenko.host.guards import require
 from tenko.host.perm import Permission
+from tenko.host.sandbox import refuse_in_sandbox
 from tenko.host.plugins.manager import PluginManagerError, get_plugin_manager
 from tenko.host.updater import (
     CheckResult,
@@ -176,6 +177,7 @@ async def rollback(session: Session):
 @command.on(restart_command)
 @require(Permission.Master, checker=permission_checker)
 async def restart(session: Session):
+    refuse_in_sandbox("重启 Tenko")
     context = context_from_session(session)
     if not getattr(updater, "enabled", False):
         _record_restart_audit(context, "disabled")

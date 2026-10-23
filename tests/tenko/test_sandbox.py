@@ -104,3 +104,66 @@ async def test_sandbox_account_skips_routing_and_metrics():
     await handler.handle(account, server.events[0])
     assert registry.get(account) is None
     assert metrics.received_count == 0
+
+
+@pytest.mark.asyncio
+async def test_real_account_writes_from_sandbox_are_intercepted(monkeypatch):
+    from satori.client.protocol import ApiProtocol
+
+    from tenko.host import sandbox as sandbox_module
+    from tenko.host.sandbox import GuardedProtocol, sandbox_origin
+
+    sent, notes = [], []
+    monkeypatch.setattr(
+        ApiProtocol, "call_api", lambda self, action, *a, **k: _done(sent, action)
+    )
+    monkeypatch.setattr(
+        sandbox_module,
+        "sandbox",
+        SimpleNamespace(note=lambda channel, text: notes.append((channel, text))),
+    )
+    real = object.__new__(GuardedProtocol)
+    real.account = SimpleNamespace(platform="qq-client", self_id="10002")
+    fake = object.__new__(GuardedProtocol)
+    fake.account = SimpleNamespace(platform="sandbox", self_id=SANDBOX_BOT_ID)
+    create = {"channel_id": "40001", "content": "公告 &lt;今晚停服&gt;"}
+
+    with sandbox_origin(SANDBOX_GROUP_ID):
+        receipt = await real.call_api("message.create", create)
+        await real.call_api("internal/set_group_ban", {"group_id": 40001})
+        await real.call_api("guild.member.get", {"guild_id": "40001"})  # 只读放行
+        await real.call_api("internal/get_group_info", {})
+        await fake.call_api("message.create", create)  # 沙盒自己的回复照常
+    await real.call_api("message.create", create)  # 沙盒之外不受影响
+
+    assert receipt[0]["id"].startswith("sandbox-blocked-")
+    assert sent == [
+        "guild.member.get",
+        "internal/get_group_info",
+        "message.create",
+        "message.create",
+    ]
+    assert notes[0] == (
+        SANDBOX_GROUP_ID,
+        "[沙盒拦截] 本应由 10002 向 40001 发送：公告 <今晚停服>",
+    )
+    assert "internal/set_group_ban" in notes[1][1]
+
+
+async def _done(log, action):
+    log.append(action)
+    return {}
+
+
+def test_global_writes_are_refused_in_sandbox_but_sandbox_group_is_not():
+    from tenko.host.features import FeatureService
+    from tenko.host.sandbox import SandboxRefused, sandbox_origin
+
+    service = FeatureService()
+    with sandbox_origin(SANDBOX_GROUP_ID):
+        service.set_enabled("demo", ("sandbox", SANDBOX_GROUP_ID), False)
+        with pytest.raises(SandboxRefused, match="修改插件全局开关"):
+            service.set_global_enabled("demo", False)
+        with pytest.raises(SandboxRefused):
+            service.set_enabled("demo", "40001", False)
+    service.set_global_enabled("demo", False)  # 沙盒之外照常

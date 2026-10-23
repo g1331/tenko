@@ -19,6 +19,7 @@ from .errors import (
     is_database_unavailable,
 )
 from ..context import QQ_PLATFORM, GroupKey, group_key
+from ..host.sandbox import refuse_in_sandbox
 from .models import (
     AccountResponseState,
     ChatMessage,
@@ -113,6 +114,7 @@ class GroupSettingRepository(_Repository):
             return tuple((platform, group) for platform, group in result.all())
 
     async def set_frequency_limitation(self, group: object, enabled: bool) -> None:
+        refuse_in_sandbox("修改群频率限制", group)
         if type(enabled) is not bool:
             raise TypeError("frequency_limitation 必须是布尔值")
         platform, group_id = group_key(group)

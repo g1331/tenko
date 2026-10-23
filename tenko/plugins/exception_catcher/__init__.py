@@ -21,7 +21,9 @@ from tenko.host.actions import (
     ActionFailure,
     ActionTargetUnavailable,
 )
+from tenko.host import sandbox as sandbox_module
 from tenko.host.notify import notify
+from tenko.host.sandbox import SandboxRefused
 from tenko.host.render import RenderService, try_render
 
 
@@ -328,6 +330,11 @@ async def except_handle(
     """处理 Entari dispatcher 发出的异常事件。"""
 
     if isinstance(event.origin, ExceptionEvent):
+        return
+    if isinstance(event.exception, SandboxRefused):
+        # 沙盒里有意拦下的写入，不是故障：只在发起它的沙盒会话里说明。
+        if sandbox_module.sandbox is not None and event.exception.channel:
+            sandbox_module.sandbox.note(event.exception.channel, str(event.exception))
         return
     if is_ignored_exception(event.exception):
         return

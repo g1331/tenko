@@ -13,6 +13,7 @@ from loguru import logger
 
 from ..context import MessageContext, group_key, group_reference
 from .perm import Permission, PermissionChecker
+from .sandbox import refuse_in_sandbox
 from .plugins.runtime import external_plugin_for_module
 
 _FEATURE_MANAGER_NAMES = frozenset({"feature_manager", "功能开关"})
@@ -209,6 +210,7 @@ class FeatureService:
     def set_enabled(self, plugin: str, group: object, enabled: bool) -> bool:
         """更新指定群的插件开关；异步调用方随后应刷新 repository。"""
 
+        refuse_in_sandbox("修改插件开关", group)
         if type(enabled) is not bool:
             raise TypeError("enabled 必须是布尔值")
         state = self._plugin_state(plugin)
@@ -224,6 +226,7 @@ class FeatureService:
     def set_global_enabled(self, plugin: str, enabled: bool) -> bool:
         """更新宿主级插件开关；异步调用方随后应刷新 repository。"""
 
+        refuse_in_sandbox("修改插件全局开关")
         if type(enabled) is not bool:
             raise TypeError("enabled 必须是布尔值")
         self._plugin_state(plugin)["global_enabled"] = enabled
@@ -232,11 +235,13 @@ class FeatureService:
     def reset_global(self, plugin: str) -> None:
         """清除全局覆盖，恢复群级策略与默认值。"""
 
+        refuse_in_sandbox("修改插件全局开关")
         self._plugin_state(plugin).pop("global_enabled", None)
 
     def set_maintenance(self, plugin: str, maintenance: bool) -> bool:
         """设置全局维护状态；维护中等价于所有群关闭。"""
 
+        refuse_in_sandbox("修改插件维护状态")
         if type(maintenance) is not bool:
             raise TypeError("maintenance 必须是布尔值")
         self._plugin_state(plugin)["maintenance"] = maintenance
@@ -251,6 +256,7 @@ class FeatureService:
     def reset_group(self, plugin: str, group: object) -> None:
         """删除指定群的显式值，使其恢复默认策略。"""
 
+        refuse_in_sandbox("修改插件开关", group)
         state = self._plugins.get(_key(plugin, "插件名"))
         if state is None:
             return

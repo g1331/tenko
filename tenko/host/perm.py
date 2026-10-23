@@ -16,7 +16,7 @@ from arclet.entari.config import EntariConfig
 
 from ..context import LEGACY_QQ_PLATFORM, QQ_PLATFORM, MessageContext
 from ..context import normalize_platform
-from .sandbox import SANDBOX_MASTER_ID, SANDBOX_PLATFORM
+from .sandbox import SANDBOX_MASTER_ID, SANDBOX_PLATFORM, refuse_in_sandbox
 
 BlacklistKind = Literal["user", "group"]
 # 手动授权的范围：空串是全局（BotAdmin），否则是群号（该群的群管理）。
@@ -141,6 +141,7 @@ class PermissionStore:
     ) -> bool:
         """加入黑名单；已在名单里时返回 ``False``，不改原因。"""
 
+        refuse_in_sandbox("修改黑名单", (platform, target_id))
         from ..db.repositories import BlacklistRecord
 
         key = (normalize_platform(platform), str(target_id))
@@ -157,6 +158,7 @@ class PermissionStore:
     async def remove_blacklist(
         self, kind: BlacklistKind, platform: str, target_id: str
     ) -> bool:
+        refuse_in_sandbox("修改黑名单", (platform, target_id))
         key = (normalize_platform(platform), str(target_id))
         if key not in self._lists[kind]:
             return False
@@ -177,6 +179,7 @@ class PermissionStore:
         )
 
     async def grant(self, platform: str, scope: str, user_id: str) -> bool:
+        refuse_in_sandbox("修改权限", (platform, user_id))
         key = (normalize_platform(platform), str(scope), str(user_id))
         if key in self._grants:
             return False
@@ -186,6 +189,7 @@ class PermissionStore:
         return True
 
     async def revoke(self, platform: str, scope: str, user_id: str) -> bool:
+        refuse_in_sandbox("修改权限", (platform, user_id))
         key = (normalize_platform(platform), str(scope), str(user_id))
         if key not in self._grants:
             return False

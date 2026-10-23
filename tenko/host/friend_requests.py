@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from .sandbox import refuse_in_sandbox
+
 if TYPE_CHECKING:
     from ..db.repositories import ManagementRepository
 
@@ -32,6 +34,7 @@ async def get_mode(repository: ManagementRepository) -> str:
 
 
 async def set_mode(repository: ManagementRepository, mode: str) -> None:
+    refuse_in_sandbox("修改好友申请策略")
     if mode not in MODE_LABELS:
         raise ValueError("好友申请策略必须是 off、admins 或 all")
     await repository.save_setting(SETTING_NAME, mode)

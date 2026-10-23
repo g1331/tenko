@@ -35,6 +35,7 @@ from loguru import logger
 from packaging.requirements import InvalidRequirement, Requirement
 
 from ...context import MessageContext
+from ..sandbox import refuse_in_sandbox
 
 _DEFAULT_PLUGIN_DIR = Path(__file__).resolve().parents[2] / "plugins"
 # 扩展插件入口组；不能用 Entari 的 ``entari.plugin``，它会被无条件自动加载。
@@ -625,6 +626,7 @@ class PluginRuntime:
         否则原子重载插件。重载失败时旧插件按旧配置继续运行，并抛出原因。
         """
 
+        refuse_in_sandbox("修改插件配置")
         global _external_configs
         info = self._info(plugin)
         new = dict(config)
@@ -654,6 +656,7 @@ class PluginRuntime:
     ) -> Plugin | None:
         """按 Entari 的原生热重载方式卸载后重新加载。"""
 
+        refuse_in_sandbox("重载插件")
         info = self._info(plugin)
         unload_plugin(info.qualified_name)
         return await self.load(info, config=config)
@@ -671,6 +674,7 @@ class PluginRuntime:
         尝试直接加载，再用 ``restart_required`` 判断是否还需要提示重启。
         """
 
+        refuse_in_sandbox("启停插件")
         if type(enabled) is not bool:
             raise TypeError("enabled 必须是布尔值")
         info = self._info(plugin)
