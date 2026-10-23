@@ -1,10 +1,5 @@
 from __future__ import annotations
 
-import asyncio
-import base64
-import time
-
-import httpx
 from arclet.alconna import Alconna, Args, CommandMeta
 from arclet.entari import Session, command, plugin
 from arclet.entari.command import Match, Query
@@ -12,13 +7,12 @@ from arclet.entari.plugin import PluginRole
 
 from tenko.host.accounts import (
     AccountRegistry,
-    account_key,
-    account_reference,
     account_registry,
 )
+from tenko.host.bots import bot_avatars, bot_card
 from tenko.host.guards import group_only, private_only, require
 from tenko.host.perm import Permission
-from tenko.context import QQ_PLATFORM, context_from_session, group_reference
+from tenko.context import context_from_session, group_reference
 from tenko.plugins._common import list_data, render_or_text
 from tenko.host.render import RenderService
 
@@ -48,55 +42,7 @@ def _account_label(
     return status
 
 
-_AVATAR_TTL = 3600
-_AVATAR_BYTES = 512 * 1024
-# 头像地址 -> (取到的时间, data URI 或 None)；失败也缓存，避免每次都等超时。
-_avatar_cache: dict[str, tuple[float, str | None]] = {}
 _STRATEGY = {"random": "随机", "deterministic": "定向"}
-
-
-def _bot_user(account: object) -> object | None:
-    return getattr(getattr(account, "self_info", None), "user", None)
-
-
-def _avatar_url(account: object) -> str | None:
-    url = getattr(_bot_user(account), "avatar", None)
-    if isinstance(url, str) and url.startswith(("https://", "http://")):
-        return url
-    platform, account_id = account_key(account)
-    if platform == QQ_PLATFORM and account_id.isdigit():
-        return f"https://q1.qlogo.cn/g?b=qq&nk={account_id}&s=100"
-    return None
-
-
-async def _fetch_avatar(url: str) -> str | None:
-    """下载头像嵌进图片：渲染页面不联网，远程图片加载慢会拖到渲染超时。"""
-
-    now = time.monotonic()
-    if (hit := _avatar_cache.get(url)) and now - hit[0] < _AVATAR_TTL:
-        return hit[1]
-    value = None
-    try:
-        async with httpx.AsyncClient(timeout=3, follow_redirects=True) as client:
-            response = await client.get(url)
-        kind = response.headers.get("content-type", "").split(";")[0].strip()
-        if (
-            response.is_success
-            and kind.startswith("image/")
-            and len(response.content) <= _AVATAR_BYTES
-        ):
-            encoded = base64.b64encode(response.content).decode()
-            value = f"data:{kind};base64,{encoded}"
-    except httpx.HTTPError:
-        pass
-    _avatar_cache[url] = (now, value)
-    return value
-
-
-async def bot_avatars(accounts) -> dict[str, str | None]:
-    urls = {url for account in accounts if (url := _avatar_url(account))}
-    found = await asyncio.gather(*(_fetch_avatar(url) for url in urls))
-    return dict(zip(urls, found, strict=True))
 
 
 def build_bots_data(
@@ -111,42 +57,21 @@ def build_bots_data(
     leader = registry.deterministic_account_for_group(group_id)
     bots, lines, leader_name = [], [], "未指定的 BOT"
     for account in bound:
-        ref = account_reference(account_key(account))
-        user = _bot_user(account)
-        name = str(getattr(user, "name", None) or ref)
-        if not registry.is_available(account):
-            tone, state, note = "off", "离线", ""
-        elif registry.is_muted(account, group_id):
-            until = registry.mute_until(account, group_id)
-            tone, state = "warn", "禁言中"
-            note = "永久" if until is None else f"至 {until.astimezone():%m-%d %H:%M}"
-        else:
-            tone, state, note = "ok", "在线", ""
-        chips = []
+        bot = bot_card(registry, account, avatars, group_id)
+        ref = bot["ref"]
         if ref == leader:
-            leader_name = name
+            leader_name = bot["name"]
         if strategy == "deterministic":
-            chips.append(
+            bot["chips"].append(
                 {"text": "负责回复", "tone": "accent"}
                 if ref == leader
                 else {"text": "候补", "tone": ""}
             )
-        bots.append(
-            {
-                "id": account_key(account)[1],
-                "name": name,
-                "initial": name[:1],
-                "avatar": avatars.get(_avatar_url(account) or ""),
-                "tone": tone,
-                "state": state,
-                "state_note": note,
-                "chips": chips,
-            }
-        )
-        bot_id = bots[-1]["id"]
+        bots.append(bot)
+        name, bot_id, note = bot["name"], bot["id"], bot["state_note"]
         label = bot_id if name == bot_id else f"{name}({bot_id})"
-        extra = "".join(f" · {c['text']}" for c in chips)
-        lines.append(f"- {label}：{state}{f' {note}' if note else ''}{extra}")
+        extra = "".join(f" · {c['text']}" for c in bot["chips"])
+        lines.append(f"- {label}：{bot['state']}{f' {note}' if note else ''}{extra}")
     usable = len(registry.accounts_for_group(group_id))
     muted = sum(bot["tone"] == "warn" for bot in bots)
     if strategy == "deterministic":

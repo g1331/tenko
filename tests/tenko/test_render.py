@@ -94,6 +94,19 @@ async def test_placeholder_templates_render_to_jpeg() -> None:
                 "resources": None,
                 "online_bots": 1,
                 "active_groups": 1,
+                "bots": [
+                    {
+                        "id": "10001",
+                        "name": "Tenko",
+                        "initial": "T",
+                        "avatar": None,
+                        "platform": "QQ",
+                        "groups": 3,
+                        "tone": "ok",
+                        "state": "在线",
+                        "state_note": "",
+                    }
+                ],
             },
         )
         markdown_image = await service.render_markdown("# Report\n\nrendered")

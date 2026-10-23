@@ -258,7 +258,7 @@ async def test_bot_list_shows_each_bot_with_avatar_name_and_state(
     registry = make_registry()
     loaded_plugin.account_registry = registry
     fetch = AsyncMock(return_value="data:image/png;base64,AA==")
-    monkeypatch.setattr(loaded_plugin, "_fetch_avatar", fetch)
+    monkeypatch.setattr("tenko.host.bots.fetch_avatar", fetch)
     renderer = AsyncMock(return_value=b"jpeg-bytes")
     monkeypatch.setattr("tenko.plugins._common.try_render", renderer)
 

@@ -15,6 +15,26 @@
   .bar .v { text-align: right; opacity: .8; white-space: nowrap; }
   .bar .v b { font-family: "Cat"; font-weight: 600; font-size: 15px; margin-right: 6px; opacity: 1; }
 
+  .bots { display: grid; grid-template-columns: 1fr 1fr; gap: 10px 24px; }
+  .bot { display: grid; grid-template-columns: 48px 1fr auto; gap: 12px; align-items: center; min-width: 0;
+    padding: 8px 0; border-bottom: 1px solid rgba(255,255,255,.08); }
+  .bot.off { opacity: .55; }
+  .av { position: relative; width: 48px; height: 48px; }
+  .av img, .av .ph { width: 48px; height: 48px; border-radius: 50%; object-fit: cover; display: block; box-sizing: border-box;
+    border: 2px solid rgba(255,255,255,.22); }
+  .av .ph { display: grid; place-items: center; background: rgba(255,255,255,.14); font-size: 19px; font-weight: 800; }
+  .av .dot { position: absolute; right: 0; bottom: 0; width: 13px; height: 13px; border-radius: 50%;
+    border: 3px solid #1b2142; box-sizing: border-box; background: #8b93ad; }
+  .av .dot.ok { background: #5fd38d; }
+  .av .dot.warn { background: #ffb15c; }
+  .bot .nm { font-size: 15px; font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .bot .meta { font-size: 12px; opacity: .6; letter-spacing: .03em; margin-top: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .bot .meta b { font-family: "Cat"; font-weight: 500; font-size: 13px; }
+  .bot .st { text-align: right; white-space: nowrap; font-size: 13px; font-weight: 700; letter-spacing: .06em; }
+  .bot .st small { display: block; font-size: 10.5px; font-weight: 400; opacity: .55; margin-top: 2px; }
+  .bot .st.ok { color: #b9f2cc; }
+  .bot .st.warn { color: #ffcf9e; }
+
   .kv { display: grid; grid-template-columns: 1fr 1fr; column-gap: 24px; }
   .kv div { display: flex; gap: 14px; padding: 9px 0; border-bottom: 1px solid rgba(255,255,255,.08); font-size: 13.5px; min-width: 0; }
   .kv .k { flex: none; width: 72px; opacity: .6; letter-spacing: .06em; }
@@ -40,6 +60,26 @@
 {%- endmacro %}
 
 {% block content %}
+  {%- if bots %}
+  <div class="sec"><div class="sh"><span class="t">BOT</span><span class="who">在线 {{ online_bots }}</span></div>
+    <div class="bots">
+    {%- for bot in bots %}
+      <div class="bot{% if bot.tone == 'off' %} off{% endif %}">
+        <div class="av">
+          {%- if bot.avatar %}<img src="{{ bot.avatar }}" alt="">{% else %}<div class="ph">{{ bot.initial }}</div>{% endif %}
+          <span class="dot {{ bot.tone }}"></span>
+        </div>
+        <div style="min-width: 0">
+          <div class="nm">{{ bot.name }}</div>
+          <div class="meta"><b>{{ bot.id }}</b> · {{ bot.platform }} · {{ bot.groups }} 个群</div>
+        </div>
+        <div class="st {{ bot.tone }}">{{ bot.state }}{% if bot.state_note %}<small>{{ bot.state_note }}</small>{% endif %}</div>
+      </div>
+    {%- endfor %}
+    </div>
+  </div>
+  {%- endif %}
+
   <div class="sec"><div class="sh"><span class="t">消息</span><span class="who">本次启动以来</span></div>
     <div class="metrics">
       <div class="metric"><div class="k">接收</div><div class="v">{{ metrics.received_count }}</div><div class="r">实时 {{ metrics.received_rate }} 条/分钟</div></div>

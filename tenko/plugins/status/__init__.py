@@ -8,6 +8,8 @@ from arclet.entari.command import Query
 from arclet.entari.plugin import PluginRole
 
 from tenko.context import context_from_session
+from tenko.host.accounts import account_registry
+from tenko.host.bots import bot_avatars, bot_card
 from tenko.host.guards import require
 from tenko.host.perm import Permission, PermissionChecker
 from tenko.host.render import RenderService
@@ -33,6 +35,18 @@ def _plugin_count() -> int:
     from tenko.host.plugins.runtime import PluginRuntime  # 局部导入避免插件加载顺序耦合
 
     return len(PluginRuntime().loaded_plugins)
+
+
+_TONE_ORDER = {"ok": 0, "warn": 1, "off": 2}
+
+
+async def _bot_cards() -> list[dict[str, object]]:
+    """全部 BOT 账号，在线的在前；禁言汇总为所在群里被禁言的群数。"""
+
+    accounts = tuple(account_registry.accounts.values())
+    avatars = await bot_avatars(accounts)
+    cards = [bot_card(account_registry, a, avatars) for a in accounts]
+    return sorted(cards, key=lambda card: _TONE_ORDER[card["tone"]])
 
 
 status_command = Alconna(
@@ -76,4 +90,5 @@ async def status(
     text = str(status_data["content"])
     if text_mode.result:
         return text
+    status_data["bots"] = await _bot_cards()
     return await render_or_text(render_service, "status.html", status_data, text)

@@ -178,6 +178,15 @@ async def test_status_command_sends_rendered_image_when_available(
 ) -> None:
     loaded_plugin.permission_checker = make_checker()
     patch_status_data(loaded_plugin, monkeypatch)
+    registry = AccountRegistry()
+    registry.register(SimpleNamespace(self_id="10002"), available=False)
+    registry.register(SimpleNamespace(self_id="10001"), groups=["40001", "40002"])
+    registry.set_muted("10001", "40002", True)
+    loaded_plugin.account_registry = registry
+    monkeypatch.setattr(
+        "tenko.host.bots.fetch_avatar",
+        AsyncMock(return_value="data:image/png;base64,AA=="),
+    )
     renderer = AsyncMock(return_value=b"jpeg-bytes")
     monkeypatch.setattr("tenko.plugins._common.try_render", renderer)
     render_service = loaded_plugin.RenderService()
@@ -194,6 +203,13 @@ async def test_status_command_sends_rendered_image_when_available(
         "status.html",
     )
     assert renderer.await_args.args[2]["content"].startswith("开机时间：2026年")
+    # 全部 BOT 都列出，在线的在前；禁言汇总为“禁言群数/总群数”，与查询所在群无关。
+    bots = renderer.await_args.args[2]["bots"]
+    assert [(b["id"], b["state"], b["groups"]) for b in bots] == [
+        ("10001", "禁言 1/2", 2),
+        ("10002", "离线", 0),
+    ]
+    assert bots[0]["avatar"].startswith("data:image/png")
     assert isinstance(result[0], Image)
 
 
