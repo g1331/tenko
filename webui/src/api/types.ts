@@ -470,6 +470,10 @@ export interface PluginTask {
   changes: PluginChange[]
   /** 失败时环境是否已恢复；成功或未判断时为 null。 */
   restored: boolean | null
+  /** 更新和恢复：每个插件仍需重启的原因，null 表示已在运行中生效。 */
+  live?: Record<string, string | null>
+  /** 这次变更是否要重启才能生效。 */
+  restart_required?: boolean
   started_at: number
   finished_at: number | null
 }

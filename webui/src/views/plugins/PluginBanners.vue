@@ -24,6 +24,12 @@ const taskName = (item: PluginTask) =>
       ? '更新全部插件'
       : ACTIONS[item.action]
 const version = (value: string | null, fallback: string) => value ?? fallback
+/** 更新、恢复后每个插件是否已在运行中生效。 */
+function liveText(item: PluginTask, plugin: string) {
+  if (!item.live || !(plugin in item.live)) return ''
+  const reason = item.live[plugin]
+  return reason ? `（重启后生效：${reason}）` : '（已生效）'
+}
 
 async function restart() {
   const ok = await confirmAction(
@@ -65,7 +71,7 @@ async function restart() {
         <ul v-if="task.changes.length" class="changes">
           <li v-for="change in task.changes" :key="change.plugin_id">
             {{ change.plugin_id }}：{{ version(change.from, '未安装') }} →
-            {{ version(change.to, '已移除') }}
+            {{ version(change.to, '已移除') }}{{ liveText(task, change.plugin_id) }}
           </li>
         </ul>
         <p v-if="task.state === 'failed' && task.restored === true" class="text">

@@ -210,7 +210,13 @@ async def update(
             )
         except PluginManagerError as error:
             return str(error)
-        return f"已恢复插件<{target}> {_version_change(change)}，执行 /重启 后生效。"
+        live = await manager.go_live(PluginRuntime(), [change])
+        if target not in live:  # 停用前就没启用：装好即可，启用时再加载
+            return f"已恢复插件<{target}> {_version_change(change)}（未启用）。"
+        why = live[target]
+        return f"已恢复插件<{target}> {_version_change(change)}" + (
+            f"，但{why}，执行 /重启 后加载。" if why else "，已在运行中生效。"
+        )
     await session.send("正在检查并更新，请稍候…")
     try:
         changes = await manager.update(
@@ -225,8 +231,16 @@ async def update(
         return str(error)
     if not changes:
         return "已是最新版本"
-    lines = [f"<{c.plugin_id}> {_version_change(c)}" for c in changes]
-    return "已更新：\n" + "\n".join(lines) + "\n执行 /重启 后生效；不满意可 /回滚插件。"
+    live = await manager.go_live(PluginRuntime(), changes)
+    lines = [
+        f"<{c.plugin_id}> {_version_change(c)}"
+        + ("（已生效）" if live.get(c.plugin_id, "") is None else "")
+        + (f"（{why}）" if (why := live.get(c.plugin_id)) else "")
+        for c in changes
+    ]
+    pending = any(why for why in live.values())
+    tail = "执行 /重启 后生效" if pending else "运行中的插件已换成新版本"
+    return "已更新：\n" + "\n".join(lines) + f"\n{tail}；不满意可 /回滚插件。"
 
 
 uninstall_command = Alconna(

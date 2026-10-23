@@ -103,6 +103,9 @@ class PluginTask:
     message: str = ""
     changes: list[dict[str, Any]] = field(default_factory=list)
     restored: bool | None = None
+    # 更新和恢复：每个插件仍需重启的原因，None 表示已在运行中生效。
+    live: dict[str, str | None] = field(default_factory=dict)
+    restart_required: bool = False
     started_at: float = field(default_factory=time.time)
     finished_at: float | None = None
 
@@ -553,8 +556,20 @@ class PluginMarket:
             logger.exception("WebUI 插件任务 {} 失败", task.action)
             task.state, task.message = "failed", f"{type(error).__name__}: {error}"
         else:
-            changes = result if isinstance(result, list) else [result]
-            task.changes = [_change(c) for c in changes if isinstance(c, PluginChange)]
+            changes = [
+                c
+                for c in (result if isinstance(result, list) else [result])
+                if isinstance(c, PluginChange)
+            ]
+            task.changes = [_change(c) for c in changes]
+            runtime = self.service.plugin_runtime
+            if task.action in {"update", "resume"} and changes and runtime is not None:
+                task.live = await self.manager.go_live(runtime, changes)
+            # 没加载的插件不在 live 里：没有旧代码在跑，启用时再加载即可。
+            pending = {pid: why for pid, why in task.live.items() if why is not None}
+            task.restart_required = task.action not in {"install", "sync"} and (
+                bool(pending) or task.action in {"uninstall", "rollback"}
+            )
             if task.action == "sync":
                 task.message = (
                     "已重装：" + "、".join(result) if result else "环境与插件锁一致"
@@ -563,8 +578,14 @@ class PluginMarket:
                 task.message = "已是最新版本"
             elif task.action == "install":
                 task.message = "已安装，启用后生效"
-            elif task.action == "resume":
-                task.message = "已恢复，重启后生效"
+            elif task.action in {"update", "resume"}:
+                done = "已恢复" if task.action == "resume" else "已更新"
+                task.message = (
+                    f"{done}，已在运行中生效，无需重启"
+                    if not pending
+                    else f"{done}；重启后生效："
+                    + "；".join(f"{pid}（{why}）" for pid, why in pending.items())
+                )
             else:
                 task.message = "完成，重启后生效"
             task.state = "succeeded"

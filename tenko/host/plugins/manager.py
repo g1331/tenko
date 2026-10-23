@@ -12,8 +12,9 @@
 所以必须靠约束让解析器失败。
 
 所有变更（安装、更新、卸载、回滚）走同一个事务：解析（环境未动）→ 备份 → 应用 → 校验 →
-提交。应用或校验失败时按备份把环境恢复到原状。操作在重启后才生效，不做热加载；卸载连包也
-留到重启时（加载插件之前）再删，运行中的插件不会丢文件。
+提交。应用或校验失败时按备份把环境恢复到原状。卸载连包也留到重启时（加载插件之前）再删，
+运行中的插件不会丢文件。提交之后 :meth:`PluginManager.go_live` 让能不重启的变更立即生效：
+只换了自身代码的运行中插件原子重载，恢复的插件直接加载；其余变更重启后生效。
 
 不兼容新宿主的插件可以“停用并保留记录”（``state.json`` 的 ``suspended`` 节）：包和锁条目
 移出环境，安装记录、启用意愿、数据和配置都留下；之后装上兼容版本即恢复原样，也可以指定
@@ -27,6 +28,7 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import importlib
 import json
 import os
 import re
@@ -264,6 +266,16 @@ def _source_of(data: Mapping[str, Any]) -> PluginSource:
     )
 
 
+def _has_plugin_db(plugin_id: str) -> bool:
+    try:
+        import entari_plugin_database
+
+        engines = entari_plugin_database.service.engines
+    except Exception:  # noqa: BLE001 - 数据库插件未加载即没有插件库
+        return False
+    return f"plugin:{plugin_id}" in engines
+
+
 def _now() -> str:
     return datetime.now(UTC).isoformat()
 
@@ -301,8 +313,9 @@ class PluginManager:
         self.audit = audit or AuditLogger(Path(".tenko/upgrades/audit.jsonl"))
         self.import_check = import_check or self._default_import_check
         self._busy = threading.Lock()
-        # 本进程加载插件时的插件锁；之后只新增过包时，新启用的插件可以直接加载。
-        self._startup_lock: dict[str, str] | None = None
+        # 与本进程里运行的代码一致的插件锁：启动时记录，运行中加载或热更新成功后
+        # 跟上。之后只新增过包时，新启用的插件可以直接加载，只换了自身的插件可以热更新。
+        self._live_lock: dict[str, str] | None = None
 
     # ----------------------------------------------------------------- 文件
 
@@ -1402,7 +1415,7 @@ class PluginManager:
                     f"插件环境与 plugins.lock 不一致（{'、'.join(drift)}），"
                     "Master 可执行 /同步插件环境 恢复"
                 )
-            self._startup_lock = _lock_entries(self._read_lock())
+            self._live_lock = _lock_entries(self._read_lock())
             return problems
 
     async def load_now(self, runtime: PluginRuntime, info: PluginInfo) -> str | None:
@@ -1415,12 +1428,10 @@ class PluginManager:
 
         if not runtime.restart_required(info):
             return None
-        if self._startup_lock is None:
+        if self._live_lock is None:
             return "本次启动没有记录插件环境"
         current = _lock_entries(self._read_lock())
-        if any(
-            current.get(name) != entry for name, entry in self._startup_lock.items()
-        ):
+        if any(current.get(name) != entry for name, entry in self._live_lock.items()):
             return "启动之后已有的插件包发生过变化"
         if info.qualified_name.split(".")[0] in sys.modules:
             return "插件模块在本次运行中已导入过"
@@ -1438,8 +1449,78 @@ class PluginManager:
         finally:
             self._busy.release()
         _live_loaded[info.name] = _now()
+        self._live_lock = current
         logger.info("扩展插件 {} 已在运行中加载", info.name)
         return None
+
+    async def go_live(
+        self, runtime: PluginRuntime, changes: Sequence[PluginChange]
+    ) -> dict[str, str | None]:
+        """变更提交之后，让能不重启的立即生效；返回每个插件仍需重启的原因（``None`` 已生效）。
+
+        - 更新：运行中的插件只换了自己的包（已有的依赖版本都没变、没有独立数据库）时原子
+          重载成新代码。新版本加载失败时旧版本继续运行；这次只更新了它一个时，顺带回滚
+          插件环境，让磁盘上的代码与运行中的一致。
+        - 恢复停用的插件：按停用前的意愿启用时直接加载（见 :meth:`load_now`）。
+        """
+
+        results: dict[str, str | None] = {}
+        importlib.invalidate_caches()  # 让入口发现看见刚装进环境的包
+        for change in changes:
+            pid = change.plugin_id
+            try:
+                info = runtime._info(pid)
+            except KeyError:
+                results[pid] = "找不到插件入口"
+                continue
+            if change.action == "resume":
+                if pid in self.runtime.read_state()["enabled"]:
+                    results[pid] = await self.load_now(runtime, info)
+                continue
+            if change.action != "update" or not runtime.is_loaded(info):
+                continue
+            if reason := self._swap_blocker(change.dist):
+                results[pid] = reason
+                continue
+            if _has_plugin_db(pid):
+                results[pid] = "插件使用了独立数据库"
+                continue
+            try:
+                await runtime.swap(info)
+            except Exception as error:  # noqa: BLE001 - 插件代码的任何错误
+                cause = error.__cause__ or error.__context__ or error
+                logger.warning("插件 {} 的新版本无法热更新: {}", pid, cause)
+                if isinstance(cause, plugin_storage.PluginStorageError):
+                    # 新版本才开始用独立数据库：保留更新，重启后由新版本建库。
+                    results[pid] = "新版本使用了独立数据库"
+                elif len(changes) == 1:
+                    await self.rollback(actor="hot-swap")
+                    results[pid] = (
+                        f"新版本加载失败，已回滚到 {change.old_version}（{cause}）"
+                    )
+                else:
+                    results[pid] = f"新版本加载失败，旧版本继续运行（{cause}）"
+                continue
+            _live_loaded[pid] = _now()
+            self._live_lock = _lock_entries(self._read_lock())
+            results[pid] = None
+            logger.info("插件 {} 已热更新到 {}", pid, change.new_version)
+        return results
+
+    def _swap_blocker(self, dist: str) -> str | None:
+        """热更新 ``dist`` 之前：运行中已导入的其他插件包必须都没变。"""
+
+        if self._live_lock is None:
+            return "本次启动没有记录插件环境"
+        current = _lock_entries(self._read_lock())
+        changed = sorted(
+            name
+            for name, entry in self._live_lock.items()
+            if name != canonicalize_name(dist)
+            and name in current
+            and current[name] != entry
+        )
+        return f"依赖的版本也变了（{'、'.join(changed)}）" if changed else None
 
     # ------------------------------------------------------------ 查询
 

@@ -499,3 +499,49 @@ async def test_rollback_undoes_suspend(env) -> None:
     assert manager.suspended() == {}
     assert [(r.plugin_id, r.enabled) for r in manager.status()] == [("foo", True)]
     assert manager.startup_check() == [] and "tenko-plugin-foo" in env.freeze()
+
+
+SWAP_PLUGIN = (
+    "from arclet.entari import plugin\nplugin.metadata('swap')\nVERSION = {!r}\n"
+)
+
+
+@pytest.mark.asyncio
+async def test_update_swaps_running_plugin_and_rolls_back_a_broken_one(
+    env, entari_plugin_host, monkeypatch, tmp_path
+) -> None:
+    import asyncio
+
+    from arclet.letoderea.utils import _EventSystem
+    from external_plugin_support import drop_module
+
+    monkeypatch.setattr(_EventSystem, "loop", asyncio.get_running_loop())
+    env.plugin("swap", "1.0.0", source=SWAP_PLUGIN.format("1.0.0"))
+    manager = PluginManager(
+        python=env.python, runtime=PluginRuntime(tmp_path / "none"), cwd=tmp_path
+    )
+    manager.import_check = lambda _ids: OK
+    runtime = manager.runtime
+    await manager.install(parse_source("tenko-plugin-swap"))
+    runtime.write_state({**runtime.read_state(), "enabled": ["swap"]})
+    site = next((tmp_path / "venv" / "lib").glob("python*/site-packages"))
+    monkeypatch.syspath_prepend(str(site))  # 让本进程看见临时环境里装的插件
+    manager.startup_check()
+    try:
+        await runtime.load_all()
+        version = lambda: runtime.loaded_plugins["swap"].module.VERSION  # noqa: E731
+        assert version() == "1.0.0"
+
+        env.plugin("swap", "1.1.0", source=SWAP_PLUGIN.format("1.1.0"))
+        changes = await manager.update("swap")
+        assert await manager.go_live(runtime, changes) == {"swap": None}
+        assert version() == "1.1.0" and not manager.status()[0].restart_required
+
+        # 新版本加载失败：旧版本继续运行，环境也回滚，磁盘与运行中的代码一致。
+        broken = SWAP_PLUGIN.format("1.2.0") + "raise RuntimeError('boom')\n"
+        env.plugin("swap", "1.2.0", source=broken)
+        live = await manager.go_live(runtime, await manager.update("swap"))
+        assert "已回滚到 1.1.0" in live["swap"] and "boom" in live["swap"]
+        assert version() == "1.1.0" and manager.status()[0].version == "1.1.0"
+    finally:
+        drop_module("tenko_plugin_swap")

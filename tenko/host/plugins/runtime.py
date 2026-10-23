@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import importlib
+import importlib.util
 import json
 import os
 import re
+import shutil
 from collections.abc import Mapping
 from dataclasses import dataclass
 from importlib.metadata import entry_points
@@ -164,6 +166,17 @@ class PluginInfo:
         return tuple(dict.fromkeys(names))
 
 
+_load_failures: dict[str, str] = {}
+
+
+def _purge_bytecode(package: str) -> None:
+    # 新旧版本的源文件可能大小和修改时间都相同，旧的 .pyc 会被当成有效缓存。
+    spec = importlib.util.find_spec(package)
+    for root in (spec and spec.submodule_search_locations) or ():
+        for cache in Path(root).rglob("__pycache__"):
+            shutil.rmtree(cache, ignore_errors=True)
+
+
 def _failure_text(error: BaseException) -> str:
     # Entari 把插件抛出的异常包成 ImportError，原异常在 __cause__/__context__ 上。
     cause = error.__cause__ or error.__context__ or error
@@ -186,8 +199,8 @@ class PluginRuntime:
         # 数据库可用之前，所以不能放进数据库设置。
         self.state_file = Path(state_file or _DEFAULT_STATE_FILE)
         self._discovered: dict[str, PluginInfo] = {}
-        # 本进程里加载失败的插件及原因；失败只跳过该插件，由面板的待处理列出。
-        self.load_failures: dict[str, str] = {}
+        # 本进程里加载失败的插件及原因（各实例共用）；失败只跳过该插件，由面板的待处理列出。
+        self.load_failures = _load_failures
 
     def discover(self) -> tuple[PluginInfo, ...]:
         """发现内置插件和扩展插件入口，不导入任何插件模块。"""
@@ -526,6 +539,20 @@ class PluginRuntime:
             raise result.error
         self.load_failures.pop(info.name, None)
         return result.plugin
+
+    async def swap(self, plugin: str | PluginInfo) -> None:
+        """原子重载运行中的扩展插件，换成环境里的新代码；失败时旧插件继续运行并抛出原因。"""
+
+        info = self._info(plugin)
+        importlib.invalidate_caches()
+        _purge_bytecode(info.qualified_name.split(".")[0])
+        config = _external_configs.get(info.name)
+        result = await reload_plugin(
+            info.qualified_name, None if config is None else dict(config)
+        )
+        if not result:
+            raise result.error
+        self.load_failures.pop(info.name, None)
 
     async def apply_config(
         self, plugin: str | PluginInfo, config: Mapping[str, Any]

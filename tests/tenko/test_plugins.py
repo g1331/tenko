@@ -583,7 +583,7 @@ async def test_first_enable_loads_plugin_installed_after_startup(
         lock.write_text(
             "tenko-plugin-live==1.0.1\ntenko-plugin-late==1.0.0\n", encoding="utf-8"
         )
-        manager._startup_lock = {"tenko-plugin-live": "tenko-plugin-live==1.0.0"}
+        manager._live_lock = {"tenko-plugin-live": "tenko-plugin-live==1.0.0"}
         late = next(i for i in runtime.discover() if i.name == "late")
         assert await runtime.set_enabled(late, True)
         assert "变化" in (await manager.load_now(runtime, late) or "")
