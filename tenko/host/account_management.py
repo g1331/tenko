@@ -43,6 +43,12 @@ class AccountManagement:
             if type(default_enabled) is not bool:
                 raise ValueError("持久化功能默认值非法")
             features.default_enabled = default_enabled
+        controlled = await self.repository.setting("controlled-plugins") or {}
+        if not isinstance(controlled, dict) or not all(
+            type(value) is bool for value in controlled.values()
+        ):
+            raise ValueError("持久化受控插件设置非法")
+        features.controlled_overrides = dict(controlled)
         disabled = await self.repository.setting("disabled-plugins") or []
         if not isinstance(disabled, list) or not all(
             isinstance(name, str) for name in disabled

@@ -1,0 +1,1 @@
+import{Kn as e,Lr as t,Pr as n,dr as r,gr as i,ur as a}from"./css-DAuBXJz-.js";var o={class:`page-container`},s={key:0,class:`page-actions`},c=e(i({__name:`PageContainer`,setup(e){return(e,i)=>(n(),r(`div`,o,[e.$slots.actions?(n(),r(`div`,s,[t(e.$slots,`actions`,{},void 0,!0)])):a(``,!0),t(e.$slots,`default`,{},void 0,!0)]))}}),[[`__scopeId`,`data-v-a21689dd`]]);export{c as t};

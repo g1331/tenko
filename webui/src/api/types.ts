@@ -112,8 +112,8 @@ export interface GroupAccount {
   /** 禁言到期时间；永久禁言或未禁言为 null。 */
   muted_until: string | null
 }
-/** 群当前不会响应的原因：没有可用账号，或定向账号不可用。 */
-export type SilentReason = 'no_account' | 'target_unavailable'
+/** 群当前不会响应的原因：群在黑名单、没有可用账号，或定向账号不可用。 */
+export type SilentReason = 'blacklisted' | 'no_account' | 'target_unavailable'
 export interface GroupStatus {
   group_id: string
   strategy: ResponseStrategyName
@@ -142,6 +142,10 @@ export interface FeatureInfo {
   source: 'builtin' | 'external' | 'unmanaged'
   /** 控制平面插件，不能通过面板停用或改开关。 */
   protected: boolean
+  /** 受控插件：默认关闭，群里需 BOT 管理员开启，私聊仅 BOT 管理员可用。 */
+  controlled: boolean
+  /** 插件自己声明的受控状态；与 controlled 不同时说明 Master 在面板改过。 */
+  controlled_declared: boolean
   loaded: boolean
   enabled: boolean
   maintenance: boolean
@@ -257,11 +261,43 @@ export interface PluginToggleResult {
 /** POST /manage/features/{plugin} 的三种请求体：维护开关、全局开关（null 表示清除）、群级开关。 */
 export type FeatureToggleBody =
   | { maintenance: boolean }
+  /** null 恢复插件声明的受控状态。 */
+  | { controlled: boolean | null }
   | { group_id: null; enabled: boolean | null }
   | { group_id: string; enabled: boolean }
 export interface FeatureToggleResult {
   plugin: string
-  state: { maintenance?: boolean; global_enabled?: boolean; groups?: Record<string, boolean> }
+  state?: { maintenance?: boolean; global_enabled?: boolean; groups?: Record<string, boolean> }
+  controlled?: boolean
+}
+
+// ---------------------------------------------------------------- 黑名单 /manage/blacklist
+
+export type BlacklistKind = 'user' | 'group'
+export interface BlacklistEntry {
+  platform: string
+  id: string
+  /** 群名称（取自聊天记录），用户条目为空。 */
+  name: string
+  reason: string
+  /** 命令操作人的用户 ID；面板操作为 webui。 */
+  operator_id: string
+  created_at: string | null
+}
+export interface BlacklistData {
+  /** 权限状态是否已从数据库加载；未就绪时不能修改。 */
+  ready: boolean
+  users: BlacklistEntry[]
+  groups: BlacklistEntry[]
+  /** 可选的平台：已知账号的平台和已有条目的平台。 */
+  platforms: string[]
+}
+export interface BlacklistBody {
+  kind: BlacklistKind
+  platform: string
+  id: string
+  blacklisted: boolean
+  reason?: string
 }
 
 export interface GroupResponseBody {

@@ -56,6 +56,8 @@ class FeatureService:
         # 受控插件（#234）：默认关闭，只有 BotAdmin 及以上能在群里打开、在私聊使用。
         # 同 plugin_defaults，来自插件声明，configure() 不清空。
         self.controlled: set[str] = set()
+        # Master 在面板上对受控状态的覆盖（TenkoSetting ``controlled-plugins``）。
+        self.controlled_overrides: dict[str, bool] = {}
         self._plugins: dict[str, dict[str, Any]] = {}
         self._ready = repository is None
         self._persist_lock = asyncio.Lock()
@@ -185,7 +187,7 @@ class FeatureService:
         default_enabled = (
             self.default_enabled
             and self.plugin_defaults.get(plugin, True)
-            and plugin not in self.controlled
+            and not self.is_controlled(plugin)
         )
         if state is None:
             return default_enabled
@@ -201,7 +203,8 @@ class FeatureService:
         return default_enabled
 
     def is_controlled(self, plugin: str) -> bool:
-        return _key(plugin, "插件名") in self.controlled
+        plugin = _key(plugin, "插件名")
+        return self.controlled_overrides.get(plugin, plugin in self.controlled)
 
     def set_enabled(self, plugin: str, group: object, enabled: bool) -> bool:
         """更新指定群的插件开关；异步调用方随后应刷新 repository。"""

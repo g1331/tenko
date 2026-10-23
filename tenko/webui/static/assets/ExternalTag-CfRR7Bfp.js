@@ -1,0 +1,1 @@
+import{Jr as e,Pr as t,gr as n,lr as r,mr as i}from"./css-DAuBXJz-.js";import{t as a}from"./css-CwdCMdlv.js";var o=n({__name:`ExternalTag`,setup(n){return(n,o)=>{let s=a;return t(),r(s,{size:`small`,effect:`plain`,type:`warning`,"disable-transitions":``},{default:e(()=>[...o[0]||=[i(`扩展`,-1)]]),_:1})}}});export{o as t};

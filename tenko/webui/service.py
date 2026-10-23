@@ -43,11 +43,12 @@ from .auth import (
 )
 from .chat import ChatPanel
 from .sandbox import SandboxPanel
+from .blacklist import BlacklistPanel
 from .logs import LogReader
 from .plugins import PluginMarket
 from ..host.chat_log import chat_log
 from ..host import sandbox as sandbox_module
-from ..host.perm import Permission
+from ..host.perm import Permission, permission_store
 from ..host.sandbox import SANDBOX_GROUP_ID
 from ..host.metrics import MessageMetrics, message_metrics
 from . import core_config
@@ -57,7 +58,7 @@ from ..host.notify import (
     load_settings as load_notify_settings,
     save_settings as save_notify_settings,
 )
-from ..context import QQ_PLATFORM
+from ..context import QQ_PLATFORM, group_key, group_reference
 from ..host.accounts import AccountRegistry, account_reference, account_registry
 from ..host.features import FeatureService, feature_service as default_feature_service
 from ..host.plugins.runtime import PluginRuntime
@@ -289,11 +290,13 @@ class WebUIService(Service):
         self.market = PluginMarket(self)
         self.chat = ChatPanel(self)
         self.sandbox = SandboxPanel(self)
+        self.blacklist = BlacklistPanel(self)
         for path, methods, handler in (
             *routes,
             *self.market.routes(),
             *self.chat.routes(),
             *self.sandbox.routes(),
+            *self.blacklist.routes(),
         ):
             self.server.asgi_route(f"{WEBUI_PATH}{path}", methods=methods)(handler)
 
@@ -418,7 +421,9 @@ class WebUIService(Service):
                     "group_id": group_id,
                     "strategy": strategy,
                     "deterministic_account": target,
-                    "silent_reason": self.accounts.silent_reason(group_id),
+                    "silent_reason": "blacklisted"
+                    if permission_store.blacklisted("group", *group_key(group_id))
+                    else self.accounts.silent_reason(group_id),
                     "accounts": members,
                 }
             )
@@ -466,7 +471,8 @@ class WebUIService(Service):
                 if record.enabled is not None:
                     state["global_enabled"] = bool(record.enabled)
             elif record.enabled is not None:
-                state["groups"][str(group_id)] = bool(record.enabled)
+                key = group_key((record.platform, group_id))
+                state["groups"][group_reference(key)] = bool(record.enabled)
         return states
 
     def _feature_states_from_service(self) -> dict[str, dict[str, Any]]:
@@ -531,7 +537,7 @@ class WebUIService(Service):
 
             # 插件可以声明“新群默认关闭”（declare(default_enabled=False)）；受控插件
             # 也默认关闭（#234）。
-            controlled = plugin_name in getattr(self.feature_service, "controlled", ())
+            controlled = self.feature_service.is_controlled(plugin_name)
             plugin_default = (
                 default_enabled
                 and not controlled
@@ -552,6 +558,8 @@ class WebUIService(Service):
                     "scope": scope,
                     "source": source,
                     "controlled": controlled,
+                    "controlled_declared": plugin_name
+                    in self.feature_service.controlled,
                     "protected": bool(
                         info is not None
                         and self.plugin_runtime is not None
@@ -971,6 +979,24 @@ class WebUIService(Service):
                 raise RuntimeError("功能状态尚未就绪")
             info = self._plugin(request.path_params["plugin"])
             body = await read_json(request)
+            if set(body) == {"controlled"}:
+                # Master 覆盖插件声明的受控状态；null 恢复插件声明。
+                value = body["controlled"]
+                if value is not None and type(value) is not bool:
+                    raise ValueError("controlled 必须是布尔值或 null")
+                overrides = dict(self.feature_service.controlled_overrides)
+                if value is None:
+                    overrides.pop(info.name, None)
+                else:
+                    overrides[info.name] = value
+                await self._management().repository.save_setting(
+                    "controlled-plugins", overrides
+                )
+                self.feature_service.controlled_overrides = overrides
+                return {
+                    "plugin": info.name,
+                    "controlled": self.feature_service.is_controlled(info.name),
+                }
             if set(body) == {"maintenance"} and type(body["maintenance"]) is bool:
                 self.feature_service.set_maintenance(info.name, body["maintenance"])
             elif set(body) == {"group_id", "enabled"} and body["group_id"] is None:

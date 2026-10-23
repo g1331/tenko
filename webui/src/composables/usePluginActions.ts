@@ -5,7 +5,7 @@ import { confirmAction } from '@/composables/confirm'
 type Change = { title: string; message: string; done: string; body: () => Promise<unknown> }
 
 /**
- * 插件级操作：启停、维护、全局开关。确认 → 提交 → 提示并调用 after 刷新数据；
+ * 插件级操作：启停、维护、全局开关、受控状态。确认 → 提交 → 提示并调用 after 刷新数据；
  * 失败只提示，不改变界面状态。插件列表和插件详情页共用。
  */
 /** 启用后仍需重启时的提示，带上没能直接加载的原因。 */
@@ -70,5 +70,21 @@ export function usePluginActions(after: () => Promise<unknown>) {
       body: () => api.manage.toggleFeature(feature.plugin, { group_id: null, enabled: null }),
     })
 
-  return { busy, toggle, maintenance, globalToggle, resetGlobal }
+  /** 改回插件自己声明的值时清除覆盖（null），面板不保留与声明相同的覆盖。 */
+  const controlled = (feature: FeatureInfo) => {
+    const next = !feature.controlled
+    return apply(feature, {
+      title: next ? '设为受控插件' : '取消受控',
+      message: next
+        ? '未单独开启过的群将关闭该插件，群里只有 BOT 管理员能开启，私聊仅 BOT 管理员可用。'
+        : '该插件恢复为普通插件，群管理可以自行开关。',
+      done: next ? '已设为受控插件' : '已取消受控',
+      body: () =>
+        api.manage.toggleFeature(feature.plugin, {
+          controlled: next === feature.controlled_declared ? null : next,
+        }),
+    })
+  }
+
+  return { busy, toggle, maintenance, globalToggle, resetGlobal, controlled }
 }

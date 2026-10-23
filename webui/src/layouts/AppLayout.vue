@@ -4,6 +4,7 @@ import { useRoute, useRouter } from 'vue-router'
 import {
   Box,
   ChatDotRound,
+  CircleClose,
   Connection,
   Message,
   Odometer,
@@ -35,6 +36,7 @@ const icons: Record<string, Component> = {
   accounts: User,
   plugins: Connection,
   switches: Switch,
+  blacklist: CircleClose,
   upgrade: Upload,
   logs: Tickets,
   sandbox: Box,

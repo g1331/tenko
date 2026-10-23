@@ -76,7 +76,11 @@ export function clockText(date: Date): string {
 }
 
 export function platformText(value: string | null | undefined): string {
-  const known: Record<string, string> = { onebot: 'OneBot 11', satori: 'Satori' }
+  const known: Record<string, string> = {
+    'qq-client': 'QQ',
+    onebot: 'OneBot 11',
+    satori: 'Satori',
+  }
   const key = String(value ?? '')
   return known[key.toLowerCase()] ?? (key || 'unknown')
 }

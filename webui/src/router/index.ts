@@ -95,6 +95,16 @@ export const router = createRouter({
           },
         },
         {
+          path: 'blacklist',
+          name: 'blacklist',
+          component: () => import('@/views/BlacklistView.vue'),
+          meta: {
+            title: '黑名单',
+            subtitle: '全局拉黑的用户和群，与群里的 /拉黑、/拉黑群 是同一份名单',
+            nav: { label: '黑名单', short: '黑名单', group: '管理' },
+          },
+        },
+        {
           path: 'upgrade',
           name: 'upgrade',
           component: () => import('@/views/UpgradeView.vue'),

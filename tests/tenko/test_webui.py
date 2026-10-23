@@ -221,27 +221,14 @@ async def test_webui_read_only_apis_expose_safe_account_and_feature_data(
     accounts.register(second, available=False, groups=("40002",))
     accounts.set_muted(first, "40001", True)
 
+    from tenko.db.repositories import FeatureStateRecord
+
     class FeatureRepository:
         async def list_states(self):
             return (
-                SimpleNamespace(
-                    plugin_name="demo",
-                    group_id="40001",
-                    enabled=False,
-                    maintenance=False,
-                ),
-                SimpleNamespace(
-                    plugin_name="global",
-                    group_id=None,
-                    enabled=False,
-                    maintenance=False,
-                ),
-                SimpleNamespace(
-                    plugin_name="maintenance",
-                    group_id=None,
-                    enabled=None,
-                    maintenance=True,
-                ),
+                FeatureStateRecord("demo", "40001", False, False),
+                FeatureStateRecord("global", None, False, False),
+                FeatureStateRecord("maintenance", None, None, True),
             )
 
     plugin_info = SimpleNamespace(name="demo", display_name="演示插件", lookup_names=())
@@ -338,6 +325,7 @@ async def test_webui_read_only_apis_expose_safe_account_and_feature_data(
             "scope": "group",
             "source": "builtin",
             "controlled": False,
+            "controlled_declared": False,
             "protected": False,
             "loaded": False,
             "enabled": False,
@@ -353,6 +341,7 @@ async def test_webui_read_only_apis_expose_safe_account_and_feature_data(
             "scope": "group",
             "source": "builtin",
             "controlled": False,
+            "controlled_declared": False,
             "protected": False,
             "loaded": False,
             "enabled": False,
@@ -368,6 +357,7 @@ async def test_webui_read_only_apis_expose_safe_account_and_feature_data(
             "scope": "group",
             "source": "builtin",
             "controlled": False,
+            "controlled_declared": False,
             "protected": False,
             "loaded": False,
             "enabled": False,
@@ -841,6 +831,16 @@ async def test_plugin_and_group_switches_use_host_state_and_protect_control_plan
             )
         ).status_code == 200
         assert not features.is_enabled("status", "40001")
+        # Master 覆盖受控状态并持久化；null 恢复插件声明。
+        assert (
+            await client.post(feature + "status", json={"controlled": True})
+        ).status_code == 200
+        assert features.is_controlled("status")
+        assert await management.repository.setting("controlled-plugins") == {
+            "status": True
+        }
+        await client.post(feature + "status", json={"controlled": None})
+        assert not features.is_controlled("status")
         assert service is not None
 
 
@@ -1036,6 +1036,71 @@ async def test_webui_features_apply_plugin_declared_default_off(tenko_database):
     (row,) = response.json()["data"]["features"]
     assert row["source"] == "external"
     assert row["groups"] == {"40001": False, "40002": True}
+
+
+@pytest.mark.asyncio
+async def test_blacklist_panel_adds_refuses_and_removes(tenko_database, monkeypatch):
+    accounts = AccountRegistry()
+    accounts.register(
+        SimpleNamespace(self_id="10001", platform="qq-client"),
+        available=True,
+        groups=("40001",),
+    )
+    monkeypatch.setattr(
+        "tenko.webui.blacklist.superuser_ids", lambda _platform: ("90001",)
+    )
+    server, _ = _service(WebUIConfig(enabled=True), accounts=accounts)
+    url = "/webui/api/manage/blacklist"
+
+    async with _session_client(server.app) as client:
+        added = await client.post(
+            url,
+            json={
+                "kind": "user",
+                "platform": "onebot",
+                "id": "30001",
+                "blacklisted": True,
+                "reason": "刷屏",
+            },
+        )
+        master = await client.post(
+            url,
+            json={
+                "kind": "user",
+                "platform": "qq-client",
+                "id": "90001",
+                "blacklisted": True,
+            },
+        )
+        await client.post(
+            url,
+            json={
+                "kind": "group",
+                "platform": "qq-client",
+                "id": "40001",
+                "blacklisted": True,
+            },
+        )
+        groups = (await client.get("/webui/api/accounts")).json()["data"]["groups"]
+        removed = await client.post(
+            url,
+            json={
+                "kind": "user",
+                "platform": "qq-client",
+                "id": "30001",
+                "blacklisted": False,
+            },
+        )
+
+    (user,) = added.json()["data"]["users"]
+    assert (user["platform"], user["id"], user["reason"]) == (
+        "qq-client",
+        "30001",
+        "刷屏",
+    )
+    assert master.status_code == 403
+    assert groups[0]["silent_reason"] == "blacklisted"
+    assert removed.json()["data"]["users"] == []
 
 
 @pytest.mark.asyncio

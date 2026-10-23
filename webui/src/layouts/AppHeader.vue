@@ -51,10 +51,16 @@ async function logout() {
     </div>
     <div class="tools">
       <div class="sync-status" role="status" aria-live="polite">
-        <button v-if="live === 'down'" class="warn-pill" type="button" @click="retryLive">
+        <button
+          v-if="live === 'down'"
+          class="warn-pill"
+          type="button"
+          :title="warning"
+          @click="retryLive"
+        >
           <span class="dot is-offline" aria-hidden="true" />{{ warning }}
         </button>
-        <span v-else-if="warning" class="warn-pill is-static">
+        <span v-else-if="warning" class="warn-pill is-static" :title="warning">
           <span class="dot" aria-hidden="true" />{{ warning }}
         </span>
       </div>
@@ -219,16 +225,21 @@ button.warn-pill {
   color: var(--tk-danger);
 }
 
+/* 窄屏：按钮留在标题右上角，不单独占一行 */
 @media (max-width: 820px) {
-  .tools {
-    width: 100%;
-    justify-content: flex-end;
+  .page-head {
+    flex-wrap: nowrap;
+    align-items: flex-start;
   }
-  .sync-status {
-    min-width: 0;
-    margin-right: auto;
+  .title-block {
+    flex: 1;
+  }
+  .tools {
+    flex: none;
+    gap: 8px;
   }
   .warn-pill {
+    max-width: 150px;
     overflow: hidden;
     text-overflow: ellipsis;
   }
@@ -237,8 +248,20 @@ button.warn-pill {
   h1 {
     font-size: 22px;
   }
+  .page-head {
+    margin-bottom: 16px;
+  }
+  .user-button {
+    padding: 0 3px;
+  }
   .user-name {
-    max-width: 70px;
+    display: none;
+  }
+  /* 只留状态圆点，完整文字在 title 里 */
+  .warn-pill {
+    gap: 0;
+    padding: 9px;
+    font-size: 0;
   }
 }
 </style>

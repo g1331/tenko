@@ -35,7 +35,9 @@ function describe(feature: SwitchModel['features'][number]) {
     ? '插件未加载；开关状态会保留，加载后生效'
     : !feature.enabled
       ? '插件已在插件页停用；开关状态会保留，启用后生效'
-      : ''
+      : feature.controlled
+        ? '受控插件：群里需 BOT 管理员用 /开启 打开，面板可直接修改'
+        : ''
   return { kind: 'switch' as const, note }
 }
 </script>
@@ -60,7 +62,7 @@ function describe(feature: SwitchModel['features'][number]) {
     <p v-if="silent" class="sw-silent" role="status">
       <el-icon><WarningFilled /></el-icon>这个群当前不会响应：{{
         silent
-      }}。开关照常保存，账号恢复后生效。
+      }}。开关照常保存，恢复响应后生效。
     </p>
     <ul v-if="model.groupFeatures.length" class="sw-items">
       <SwitchItem

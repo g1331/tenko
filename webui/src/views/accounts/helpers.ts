@@ -25,6 +25,7 @@ export function memberStateText(account: GroupAccount): string {
 
 /** 群不会响应的原因，与后端选路判定一致。 */
 export function silentText(group: GroupStatus): string {
+  if (group.silent_reason === 'blacklisted') return '群在黑名单，任何消息都不响应'
   if (group.silent_reason === 'target_unavailable') {
     const target = group.accounts.find((item) => item.ref === group.deterministic_account)
     return target

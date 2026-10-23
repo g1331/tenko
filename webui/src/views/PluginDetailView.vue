@@ -22,7 +22,7 @@ const { features, refresh } = usePanelData()
 const ops = providePluginOps()
 const detail = resource<PluginDetail>()
 const configOpen = ref(false)
-const { busy, toggle, maintenance, globalToggle, resetGlobal } = usePluginActions(() =>
+const { busy, toggle, maintenance, globalToggle, resetGlobal, controlled } = usePluginActions(() =>
   Promise.all([refresh(), ops.loadInstalled(), load()]),
 )
 
@@ -196,6 +196,7 @@ const switchesLink = computed(() => ({
             <StatusTag v-if="status" :kind="status.kind">{{ status.label }}</StatusTag>
             <span class="chip">{{ sourceText }}</span>
             <span v-if="scopeText" class="chip">{{ scopeText }}</span>
+            <span v-if="feature?.controlled" class="chip">受控插件</span>
             <span v-if="detail.data.value.update" class="chip warn">
               可更新到 v{{ detail.data.value.update }}
             </span>
@@ -371,6 +372,25 @@ const switchesLink = computed(() => ({
                 </div>
               </template>
               <p v-else class="note">还没有已知的群。</p>
+              <div v-if="!feature.protected" class="controlled">
+                <div class="switch-row">
+                  <span>受控插件</span>
+                  <el-switch
+                    :model-value="feature.controlled"
+                    :disabled="!!busy"
+                    aria-label="受控插件"
+                    @change="controlled(feature)"
+                  />
+                </div>
+                <p class="note">
+                  受控插件默认关闭，群里只有 BOT 管理员能用 <code>/开启</code> 打开，私聊仅 BOT
+                  管理员可用。{{
+                    feature.controlled === feature.controlled_declared
+                      ? ''
+                      : `插件自身声明为${feature.controlled_declared ? '受控' : '普通'}，这里已覆盖。`
+                  }}
+                </p>
+              </div>
             </template>
           </PagePanel>
         </aside>
@@ -721,6 +741,20 @@ const switchesLink = computed(() => ({
 }
 .switch-row + .el-button {
   margin-top: 10px;
+}
+.controlled {
+  margin-top: 12px;
+  padding-top: 8px;
+  border-top: 1px solid var(--tk-line);
+}
+.controlled .switch-row {
+  align-items: center;
+}
+.controlled .note {
+  margin: 4px 0 0;
+}
+.controlled code {
+  white-space: nowrap;
 }
 
 @media (max-width: 960px) {
