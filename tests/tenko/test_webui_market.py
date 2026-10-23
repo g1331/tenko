@@ -433,3 +433,32 @@ async def test_upgrade_changelog_lists_skipped_releases_newest_first() -> None:
     # 正式版通道跳过预发布；不含当前版本和候选之后的版本。
     assert [n["tag"] for n in notes] == ["v1.2.0", "v1.1.0"]
     assert notes[0]["url"] == "https://github.com/o/r/releases/tag/v1.2.0"
+
+
+@pytest.mark.asyncio
+async def test_upgrade_notes_returns_the_running_version_once() -> None:
+    import json
+    from types import SimpleNamespace
+
+    from tenko.host.updater import parse_version
+    from tenko.webui.upgrade import HostUpgrade
+
+    source = SimpleNamespace(
+        name="git_tag", repository="https://github.com/o/r.git", tag_prefix="v"
+    )
+    updater = SimpleNamespace(
+        sources=[source], current_version=parse_version("1.1.0rc1")
+    )
+    upgrade = HostUpgrade(SimpleNamespace(updater=updater))
+    calls = []
+
+    async def get_json(url, *, headers=None):
+        calls.append(url)
+        return [{"tag_name": t, "body": f"## {t}"} for t in ("v1.1.0", "v1.1.0-rc1")]
+
+    upgrade.http = SimpleNamespace(get_json=get_json)
+    first = json.loads((await upgrade.notes(None)).body)
+    await upgrade.notes(None)
+
+    assert first["data"]["note"]["body"] == "## v1.1.0-rc1"
+    assert len(calls) == 1  # 版本不变就不再请求 GitHub

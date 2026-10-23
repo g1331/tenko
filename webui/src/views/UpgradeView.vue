@@ -3,6 +3,7 @@ import { computed, onMounted, onScopeDispose, ref, shallowRef, watch } from 'vue
 import {
   api,
   ApiError,
+  type ReleaseNote,
   type UpgradeAction,
   type UpgradeHistoryEntry,
   type UpgradeJob,
@@ -36,6 +37,8 @@ const starting = ref(false)
 /** 等待重启期间连不上面板的起始时间。 */
 const offlineSince = ref<number | null>(null)
 const now = ref(Date.now())
+/** 当前版本的发布说明；读取失败或 GitHub 上没有时为 null，界面退回发布页链接。 */
+const currentNote = ref<ReleaseNote | null>(null)
 const outcome = ref<{ type: 'success' | 'warning'; text: string } | null>(null)
 
 let alive = true
@@ -83,7 +86,14 @@ async function load() {
   }
   if (isActive(job.value)) void follow()
 }
-onMounted(load)
+onMounted(async () => {
+  await load()
+  try {
+    currentNote.value = (await api.manage.upgradeNotes()).note
+  } catch {
+    // 读不到就只显示“在 GitHub 查看”。
+  }
+})
 
 /**
  * 升级任务进行中时轮询状态。进入重启后旧进程一直报告 restarting，随后连不上；
@@ -313,7 +323,7 @@ const versions = (entry: UpgradeHistoryEntry) =>
                 <dt>上一个版本</dt>
                 <dd class="tk-mono">{{ status.previous_version }}</dd>
               </div>
-              <div v-if="status.release_url">
+              <div v-if="status.release_url && !currentNote">
                 <dt>发布说明</dt>
                 <dd>
                   <a :href="status.release_url" target="_blank" rel="noopener noreferrer"
@@ -340,6 +350,36 @@ const versions = (entry: UpgradeHistoryEntry) =>
               回滚到 {{ status.previous_version }}
             </el-button>
           </div>
+        </div>
+        <div v-if="currentNote" class="changelog">
+          <details>
+            <summary>
+              <strong>本版本更新内容</strong>
+              <time
+                v-if="currentNote.published_at"
+                class="muted"
+                :title="timeText(currentNote.published_at)"
+              >
+                发布于 {{ relativeText(currentNote.published_at) }}
+              </time>
+              <a
+                v-if="currentNote.url"
+                class="release-link"
+                :href="currentNote.url"
+                target="_blank"
+                rel="noopener noreferrer"
+                @click.stop
+                >发布页</a
+              >
+            </summary>
+            <!-- eslint-disable-next-line vue/no-v-html -->
+            <div
+              v-if="currentNote.body.trim()"
+              class="notes"
+              v-html="renderMarkdown(currentNote.body)"
+            />
+            <p v-else class="muted">这个版本没有写发布说明。</p>
+          </details>
         </div>
       </PagePanel>
 

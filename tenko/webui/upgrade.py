@@ -132,6 +132,8 @@ class HostUpgrade:
         self.last_check: dict[str, Any] | None = None
         self._task: asyncio.Task | None = None
         self.http = UrllibHttpClient(timeout=10)
+        # 当前版本的发布说明：版本只在重启后变，读到一次就够了。
+        self._current_notes: tuple[str, dict[str, Any] | None] | None = None
 
     @property
     def busy(self) -> bool:
@@ -141,6 +143,7 @@ class HostUpgrade:
         return (
             ("/api/manage/upgrade", ["GET", "POST"], self.upgrade),
             ("/api/manage/upgrade/check", ["POST"], self.check),
+            ("/api/manage/upgrade/notes", ["GET"], self.notes),
         )
 
     # ------------------------------------------------------------------ 状态
@@ -221,17 +224,17 @@ class HostUpgrade:
         tag = prefix + _display(updater.current_version)
         return f"https://github.com/{repository}/releases/tag/{tag}"
 
-    async def _changelog(
-        self, result: CheckResult
-    ) -> tuple[list[dict[str, Any]], str | None]:
-        """当前版本之后、直到候选版本的各版发布说明（新到旧），取自 GitHub Releases。
+    async def _releases(
+        self,
+    ) -> tuple[list[tuple[str, dict[str, Any]]], str, str | None]:
+        """GitHub Releases 里的已发布版本：``([(tag, 说明)], tag 前缀, 失败原因)``。
 
-        读取失败不影响检查结果，只返回原因；升级源不在 GitHub 上时返回空列表。
+        升级源不在 GitHub 上时返回空列表。
         """
 
         found = _github(self.market.updater)
         if found is None:
-            return [], None
+            return [], "v", None
         repository, api, token, prefix = found
         headers = {"Accept": "application/vnd.github+json"}
         if token:
@@ -241,36 +244,57 @@ class HostUpgrade:
                 f"{api}/repos/{repository}/releases?per_page=100", headers=headers
             )
         except UpdaterError as error:
-            return [], _clean(error)
+            return [], prefix, _clean(error)
         if not isinstance(payload, list):
-            return [], "GitHub Releases 返回格式不对"
-        high = result.candidate.version
-        prerelease = result.channel.value == "prerelease" or result.candidate.prerelease
-        entries = []
+            return [], prefix, "GitHub Releases 返回格式不对"
+        releases = []
         for item in payload:
             if not isinstance(item, dict) or item.get("draft"):
                 continue
             tag = str(item.get("tag_name") or "")
+            note = {
+                "tag": tag,
+                "name": str(item.get("name") or tag),
+                "published_at": item.get("published_at"),
+                "prerelease": bool(item.get("prerelease")),
+                "url": f"https://github.com/{repository}/releases/tag/{tag}"
+                if api == "https://api.github.com"
+                else None,
+                "body": str(item.get("body") or "")[:_NOTES_LIMIT],
+            }
+            releases.append((tag, note))
+        return releases, prefix, None
+
+    async def _changelog(
+        self, result: CheckResult
+    ) -> tuple[list[dict[str, Any]], str | None]:
+        """当前版本之后、直到候选版本的各版发布说明（新到旧），取自 GitHub Releases。
+
+        读取失败不影响检查结果，只返回原因。
+        """
+
+        releases, prefix, error = await self._releases()
+        high = result.candidate.version
+        prerelease = result.channel.value == "prerelease" or result.candidate.prerelease
+        entries = []
+        for tag, note in releases:
             version = _in_range(tag, prefix, result.current_version, high, prerelease)
-            if version is None:
-                continue
-            entries.append(
-                (
-                    version,
-                    {
-                        "tag": tag,
-                        "name": str(item.get("name") or tag),
-                        "published_at": item.get("published_at"),
-                        "prerelease": bool(item.get("prerelease")),
-                        "url": f"https://github.com/{repository}/releases/tag/{tag}"
-                        if api == "https://api.github.com"
-                        else None,
-                        "body": str(item.get("body") or "")[:_NOTES_LIMIT],
-                    },
-                )
-            )
+            if version is not None:
+                entries.append((version, note))
         entries.sort(key=lambda pair: pair[0], reverse=True)
-        return [entry for _, entry in entries[:_CHANGELOG_LIMIT]], None
+        return [entry for _, entry in entries[:_CHANGELOG_LIMIT]], error
+
+    async def notes(self, request: Request) -> JSONResponse:
+        """当前运行版本的发布说明；GitHub 上没有这个版本时 note 为 null。"""
+
+        current = _display(self.market.updater.current_version)
+        if self._current_notes is None or self._current_notes[0] != current:
+            releases, prefix, error = await self._releases()
+            if error is not None:
+                return error_response("release_notes_failed", error, 502)
+            note = next((n for tag, n in releases if tag == prefix + current), None)
+            self._current_notes = (current, note)
+        return success_response({"note": self._current_notes[1]})
 
     async def upgrade(self, request: Request) -> JSONResponse:
         if request.method == "GET":
