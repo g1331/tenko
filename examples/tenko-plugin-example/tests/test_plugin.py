@@ -25,7 +25,7 @@ async def test_plugin_loads_with_config_and_declared_metadata(runtime, module):
     # 装饰器声明的权限登记在命令上，/帮助 <编号> 据此显示。
     requires = command_requirements(runtime.loaded_plugins["example"])
     assert requires["示例"] == {"user": Permission.User}
-    # 命令归属于 example，所以功能开关和限流会按插件 ID 生效。
+    # 命令归属于 example 插件，所以功能开关和限流会按插件 ID 生效。
     assert runtime.command_owner("示例").name == "example"
 
 

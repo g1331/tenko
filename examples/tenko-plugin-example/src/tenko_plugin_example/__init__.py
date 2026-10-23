@@ -1,6 +1,6 @@
 """Tenko 扩展插件示例：问候计数。
 
-演示 tenko_api 的主要能力：声明元数据（含群等级）、读取配置、带版本的 JSON
+演示 tenko_api 的主要能力：声明元数据（按群开关、限流权重）、读取配置、带版本的 JSON
 存储、插件自己的 SQLite 库（``Model``），以及声明式权限装饰器。写法与内置插件一样，
 都是 Entari 原生的 ``plugin.metadata``、``command.on``。
 """

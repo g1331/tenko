@@ -2,7 +2,7 @@
 
 [Tenko](https://github.com/g1331/tenko) 扩展插件的示例与起步模板。它演示：
 
-- 用 `tenko_api.features.declare` 声明按群开关、默认状态、限流权重和群等级；
+- 用 `tenko_api.features.declare` 声明按群开关、默认状态和限流权重；
 - 用 `[plugin_config.example]` 配置插件（Entari 的 `BasicConfModel`）；
 - 用 `tenko_api.storage.Store` 保存带版本号的 JSON 数据，用 `Model` 和 `get_session()` 使用插件自己的 SQLite 库；
 - 用 `tenko_api.perm` 的装饰器（`@require` 等）声明命令权限，用 Entari 原生的 `command.on` 注册命令。
@@ -11,18 +11,26 @@
 
 ## 从模板开始
 
-1. 复制本目录作为新项目（在 GitHub 上可以把它放进自己的仓库）。
-2. 改名：分发名用 `tenko-plugin-xxx`，模块名用 `tenko_plugin_xxx`。同步修改
-   `pyproject.toml` 的 `name`、`[tool.hatch.build.targets.wheel]`、`src/` 目录名，以及
-   入口 `[project.entry-points."tenko.plugins"]` 里的 `<插件 ID> = "<模块>"`。
-   插件 ID 匹配 `[a-z][a-z0-9_]*`，全局唯一，不能和内置插件同名；它是功能开关、
-   配置节和数据目录的键。
-3. 换成你自己的信息：`plugin.metadata` 的 `author`、`description`，以及 `pyproject.toml`
-   的 `[project.urls]`（插件目录靠这里的 GitHub 地址确认仓库归你所有）。示例本身作为真实
-   插件发布在 PyPI 上，这些地方写的是 Tenko 维护者的信息。
-4. **不要声明 `entari.plugin` 入口**：Entari 会无视 Tenko 的启用状态自动加载它。
-5. 依赖只写 `tenko-api` 的兼容范围（预览期为 `>=0.4,<0.5`）和插件自己的依赖，
-   不要依赖 `tenko` 本体，也不要用 `==` 锁死依赖版本。
+1. 在 [tenko-plugin-template](https://github.com/g1331/tenko-plugin-template) 点
+   “Use this template” 建自己的仓库并 clone 下来（也可以直接复制本目录）。
+2. 改名，一条命令改完分发名、模块名、`src/` 目录、入口、配置节、数据目录、仓库地址和作者：
+
+   ```text
+   python3 scripts/rename.py weather --name 天气 --author 你的名字
+   ```
+
+   插件 ID（这里的 `weather`）匹配 `[a-z][a-z0-9_]*`，全局唯一，不能和内置插件同名；它是
+   功能开关、配置节和数据目录的键。仓库地址默认取 `git remote origin`，没有时用
+   `--repo 你/仓库` 指定。脚本会重写 README 并删除自己。
+3. `uv sync && uv run pytest -q` 确认通过，然后把示例命令改成你自己的功能，补上
+   `plugin.metadata` 的 `description`。
+
+另外注意：
+
+- **不要声明 `entari.plugin` 入口**：Entari 会无视 Tenko 的启用状态自动加载它。
+- 依赖只写 `tenko-api` 的兼容范围（预览期为 `>=0.4,<0.5`，用到 `@rate_limit` 时下限写
+  `0.4.2`）和插件自己的依赖，不要依赖 `tenko` 本体，也不要用 `==` 锁死依赖版本。
+- 开发依赖里的 Tenko 宿主默认跟随 `main`，发布前固定到一个版本标签。
 
 ## 开发与测试
 

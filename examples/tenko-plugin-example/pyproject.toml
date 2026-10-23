@@ -42,3 +42,9 @@ dev = [
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 asyncio_mode = "auto"
+
+# 显式列出规则：Ruff 新版本扩大了默认规则集，不写的话升级 Ruff 就可能让 CI 变红。
+[tool.ruff.lint]
+select = ["E", "F", "W"]
+# 行长交给 ruff format；改名后注释里的路径会变长。
+ignore = ["E501"]
