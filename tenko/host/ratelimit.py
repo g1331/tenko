@@ -33,6 +33,8 @@ class RateLimitDecision:
     allowed: bool
     retry_after: float = 0.0
     current_weight: int = 0
+    # 这次调用刚越线、开始冷却或拉黑；只有这一次回复提示。
+    tripped: bool = False
 
 
 class RateLimitService:
@@ -49,7 +51,7 @@ class RateLimitService:
         *,
         enabled: bool = True,
         window_seconds: float = 15.0,
-        max_weight: int = 24,
+        max_weight: int = 10,
         default_weight: int = 1,
         cooldown_seconds: float = 5.0,
         blacklist_seconds: float = 300.0,
@@ -345,6 +347,7 @@ class RateLimitService:
                 False,
                 retry_after,
                 current_weight + actual_weight,
+                tripped=True,
             )
 
         self._events.setdefault(key, []).append((current, actual_weight))
@@ -359,7 +362,7 @@ def configure_rate_limiter(
     *,
     enabled: bool = True,
     window_seconds: float = 15.0,
-    max_weight: int = 24,
+    max_weight: int = 10,
     default_weight: int = 1,
     cooldown_seconds: float = 5.0,
     blacklist_seconds: float = 300.0,

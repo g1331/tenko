@@ -19,6 +19,14 @@ from .plugins.runtime import external_plugin_for_module
 _FEATURE_MANAGER_NAMES = frozenset({"feature_manager", "功能开关"})
 _RATE_LIMIT_UNAVAILABLE_NOTICE = "限流状态暂不可用，请稍后再试"
 
+
+def _duration(seconds: float) -> str:
+    seconds = round(seconds)
+    if seconds >= 60 and seconds % 60 == 0:
+        return f"{seconds // 60} 分钟"
+    return f"{seconds} 秒"
+
+
 if TYPE_CHECKING:
     from ..db.repositories import FeatureStateRepository
 
@@ -369,7 +377,7 @@ class CommandPolicy:
     去掉 @bot、前导空白、命令前缀和昵称，并匹配出具体的 Alconna 命令，因此
     无论消息怎样写，命中的都是同一条命令。私聊只检查受控插件，其余只对群聊生效。
     黑名单在更早的事件入口拦截（``MessageEventHandler.should_skip``）。
-    限流只记录调试日志，不回复，避免刷屏者借提示继续刷屏。
+    限流只在刚越线时回复一次，之后静默，避免刷屏者借提示继续刷屏。
     """
 
     def __init__(
@@ -519,14 +527,19 @@ class CommandPolicy:
             **extra,
         )
         if not decision.allowed:
-            # 静默拒绝：不回复提示，避免刷屏者通过提示继续刷屏。
             logger.debug(
                 "Ignore rate-limited plugin command: plugin={} group={} user={}",
                 plugin_name,
                 context.channel_id,
                 context.user_id,
             )
-            return PolicyVerdict(False, reason="rate_limited")
+            # 只在刚越线时提示一次，之后静默，避免刷屏者借提示继续刷屏。
+            notice = (
+                f"请求太频繁，已进入限流 {_duration(decision.retry_after)}"
+                if decision.tripped
+                else None
+            )
+            return PolicyVerdict(False, notice, "rate_limited")
         return _ALLOW
 
 

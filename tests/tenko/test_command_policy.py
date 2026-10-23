@@ -124,15 +124,16 @@ async def test_policy_applies_to_every_form_entari_accepts(env, form) -> None:
 
 
 @pytest.mark.asyncio
-async def test_rate_limit_is_silent_and_skips_groups_with_limit_off(env) -> None:
+async def test_rate_limit_notifies_once_and_skips_groups_with_limit_off(env) -> None:
     env.limiter.set_group_limited("40002", False)
     for form in ["plain", "at_bot", "leading_space", "nickname", "at_bot_no_space"]:
         await env.send(text_of(form))
         await env.send(text_of(form), group="40002")
 
-    # max_weight=3：40001 前两次放行，之后无论写法都被静默拦截；40002 关闭了限流。
+    # max_weight=3：40001 前两次放行，第三次提示一次，之后无论写法都静默拦截；
+    # 40002 关闭了限流。
     assert len(env.ext_calls) == 2 + 5
-    assert env.account.sent == []
+    assert env.account.sent == ["请求太频繁，已进入限流 10 秒"]
 
 
 @pytest.mark.asyncio

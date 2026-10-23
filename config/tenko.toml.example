@@ -93,7 +93,7 @@ default_enabled = true
 enabled = true
 # 频控窗口、冷却和黑名单状态保存在 database.url 指定的数据库中。
 window_seconds = 15.0
-max_weight = 24
+max_weight = 10
 default_weight = 1
 cooldown_seconds = 5.0
 blacklist_seconds = 300.0

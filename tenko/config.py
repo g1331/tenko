@@ -657,7 +657,7 @@ class RateLimitConfig:
 
     enabled: bool = True
     window_seconds: float = 15.0
-    max_weight: int = 24
+    max_weight: int = 10
     default_weight: int = 1
     cooldown_seconds: float = 5.0
     blacklist_seconds: float = 300.0

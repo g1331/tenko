@@ -236,7 +236,9 @@ async def test_declare_default_disabled_and_rate_weight_reach_command_policy(
             features.enable("decl", "40002")
             await send("40002")
             assert account.sent[-1] == "ok"
-            # 限流静默：超限后不再有任何回复。
+            # 越线时提示一次，之后静默。
+            await send("40002")
+            assert account.sent[-1] == "请求太频繁，已进入限流 10 秒"
             sent = len(account.sent)
             await send("40002")
             assert len(account.sent) == sent

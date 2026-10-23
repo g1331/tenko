@@ -150,7 +150,7 @@ FIELDS: tuple[ConfigField, ...] = (
         "ratelimit",
         "窗口内命令上限",
         "integer",
-        24,
+        10,
         "同一用户在统计窗口内累计的命令权重上限。",
         minimum=1,
         maximum=1000,
