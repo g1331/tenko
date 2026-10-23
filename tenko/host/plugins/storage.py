@@ -34,6 +34,10 @@ class PluginStorageError(RuntimeError):
     """无法确定调用方插件，或存储文件不可用。"""
 
 
+class PluginMigrationError(PluginStorageError):
+    """运行中加载或热更新后，插件库迁移失败；此时插件的新代码已经在运行。"""
+
+
 class StoreVersionError(PluginStorageError):
     """存储文件的版本无法被当前插件处理；文件保持原样。"""
 

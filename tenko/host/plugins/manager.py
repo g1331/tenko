@@ -266,16 +266,6 @@ def _source_of(data: Mapping[str, Any]) -> PluginSource:
     )
 
 
-def _has_plugin_db(plugin_id: str) -> bool:
-    try:
-        import entari_plugin_database
-
-        engines = entari_plugin_database.service.engines
-    except Exception:  # noqa: BLE001 - 数据库插件未加载即没有插件库
-        return False
-    return f"plugin:{plugin_id}" in engines
-
-
 def _now() -> str:
     return datetime.now(UTC).isoformat()
 
@@ -1422,8 +1412,7 @@ class PluginManager:
         """已启用但未加载的扩展插件尝试不重启直接加载；返回仍需重启的原因。
 
         只在不会新旧代码混用时加载：启动以来插件锁只新增过包（已导入的依赖版本
-        都没变），且插件模块从未在本进程导入过。插件定义了数据库模型等运行中
-        无法完成的初始化时，加载失败，由调用方提示重启。
+        都没变），且插件模块从未在本进程导入过。插件的数据库模型在加载后迁移。
         """
 
         if not runtime.restart_required(info):
@@ -1443,8 +1432,6 @@ class PluginManager:
             # Entari 把插件抛出的异常包成 ImportError，原异常在 __context__ 上。
             cause = error.__cause__ or error.__context__ or error
             logger.warning("扩展插件 {} 无法在运行中加载: {}", info.name, cause)
-            if isinstance(cause, plugin_storage.PluginStorageError):
-                return "插件使用了独立数据库"
             return f"运行中加载失败（{cause}）"
         finally:
             self._busy.release()
@@ -1458,9 +1445,9 @@ class PluginManager:
     ) -> dict[str, str | None]:
         """变更提交之后，让能不重启的立即生效；返回每个插件仍需重启的原因（``None`` 已生效）。
 
-        - 更新：运行中的插件只换了自己的包（已有的依赖版本都没变、没有独立数据库）时原子
-          重载成新代码。新版本加载失败时旧版本继续运行；这次只更新了它一个时，顺带回滚
-          插件环境，让磁盘上的代码与运行中的一致。
+        - 更新：运行中的插件只换了自己的包（已有的依赖版本都没变）时原子重载成新代码，
+          插件库随后迁移。新版本加载失败时旧版本继续运行；这次只更新了它一个时，顺带回滚
+          插件环境，让磁盘上的代码与运行中的一致（迁移失败时新代码已在运行，再换回旧版本）。
         - 恢复停用的插件：按停用前的意愿启用时直接加载（见 :meth:`load_now`）。
         """
 
@@ -1482,22 +1469,24 @@ class PluginManager:
             if reason := self._swap_blocker(change.dist):
                 results[pid] = reason
                 continue
-            if _has_plugin_db(pid):
-                results[pid] = "插件使用了独立数据库"
-                continue
             try:
                 await runtime.swap(info)
             except Exception as error:  # noqa: BLE001 - 插件代码的任何错误
                 cause = error.__cause__ or error.__context__ or error
                 logger.warning("插件 {} 的新版本无法热更新: {}", pid, cause)
-                if isinstance(cause, plugin_storage.PluginStorageError):
-                    # 新版本才开始用独立数据库：保留更新，重启后由新版本建库。
-                    results[pid] = "新版本使用了独立数据库"
-                elif len(changes) == 1:
+                migrated = isinstance(error, plugin_storage.PluginMigrationError)
+                failed = "数据库迁移失败" if migrated else "加载失败"
+                if len(changes) == 1:
                     await self.rollback(actor="hot-swap")
                     results[pid] = (
-                        f"新版本加载失败，已回滚到 {change.old_version}（{cause}）"
+                        f"新版本{failed}，已回滚到 {change.old_version}（{cause}）"
                     )
+                    if migrated:
+                        results[pid] = await self._swap_back(
+                            runtime, info, results[pid]
+                        )
+                elif migrated:
+                    results[pid] = f"新版本{failed}（{cause}）"
                 else:
                     results[pid] = f"新版本加载失败，旧版本继续运行（{cause}）"
                 continue
@@ -1506,6 +1495,17 @@ class PluginManager:
             results[pid] = None
             logger.info("插件 {} 已热更新到 {}", pid, change.new_version)
         return results
+
+    @staticmethod
+    async def _swap_back(runtime: PluginRuntime, info: PluginInfo, reason: str) -> str:
+        """回滚后把已经在运行的新代码换回旧版本；插件库同时还原成升级前的备份。"""
+
+        try:
+            await runtime.swap(info)
+        except Exception as error:  # noqa: BLE001 - 旧版本也换不回来，只能重启
+            logger.warning("插件 {} 换回旧版本失败: {}", info.name, error)
+            return f"{reason}；旧版本没能换回，需要重启"
+        return reason
 
     def _swap_blocker(self, dist: str) -> str | None:
         """热更新 ``dist`` 之前：运行中已导入的其他插件包必须都没变。"""

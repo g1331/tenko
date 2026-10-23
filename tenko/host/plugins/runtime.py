@@ -7,6 +7,7 @@ import os
 import re
 import shutil
 from collections.abc import Mapping
+from contextlib import AbstractAsyncContextManager, nullcontext
 from dataclasses import dataclass
 from importlib.metadata import entry_points
 from pathlib import Path
@@ -167,6 +168,18 @@ class PluginInfo:
 
 
 _load_failures: dict[str, str] = {}
+
+
+def _db_reload(plugin_id: str) -> AbstractAsyncContextManager[Any]:
+    """运行中导入插件时切换它的独立数据库；数据库插件没加载时什么都不做。"""
+
+    from ...db.errors import DatabaseUnavailableError
+
+    try:
+        from .database import plugin_db_reload
+    except (ImportError, AttributeError, LookupError, DatabaseUnavailableError):
+        return nullcontext()
+    return plugin_db_reload(plugin_id)
 
 
 def _purge_bytecode(package: str) -> None:
@@ -530,13 +543,14 @@ class PluginRuntime:
         info = self._info(plugin)
         importlib.invalidate_caches()  # 让导入系统看见启动之后才装进环境的包
         config = _external_configs.get(info.name)
-        result = (
-            load_plugin(info.qualified_name)
-            if config is None
-            else load_plugin(info.qualified_name, dict(config))
-        )
-        if not result:
-            raise result.error
+        async with _db_reload(info.name):
+            result = (
+                load_plugin(info.qualified_name)
+                if config is None
+                else load_plugin(info.qualified_name, dict(config))
+            )
+            if not result:
+                raise result.error
         self.load_failures.pop(info.name, None)
         return result.plugin
 
@@ -547,11 +561,12 @@ class PluginRuntime:
         importlib.invalidate_caches()
         _purge_bytecode(info.qualified_name.split(".")[0])
         config = _external_configs.get(info.name)
-        result = await reload_plugin(
-            info.qualified_name, None if config is None else dict(config)
-        )
-        if not result:
-            raise result.error
+        async with _db_reload(info.name):
+            result = await reload_plugin(
+                info.qualified_name, None if config is None else dict(config)
+            )
+            if not result:
+                raise result.error
         self.load_failures.pop(info.name, None)
 
     async def apply_config(
@@ -573,9 +588,10 @@ class PluginRuntime:
             event = ConfigReload("plugin", info.qualified_name, new, old)
             handled = await post(event, scope=info.native_plugin._scope)
             if not (handled and handled.value):
-                result = await reload_plugin(info.qualified_name, dict(new))
-                if not result:
-                    raise result.error
+                async with _db_reload(info.name):
+                    result = await reload_plugin(info.qualified_name, dict(new))
+                    if not result:
+                        raise result.error
         _external_configs = {**_external_configs, info.name: new}
 
     def unload(self, plugin: str | PluginInfo) -> bool:

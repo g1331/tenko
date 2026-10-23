@@ -175,3 +175,38 @@ async def test_model_bound_to_the_main_database_is_rejected(plugin_db) -> None:
         plugin_db.define(source)
     assert "db_demo_bad" not in Base.metadata.tables
     assert "plugin:db_demo" not in plugin_db.service.engines
+
+
+@pytest.mark.asyncio
+async def test_hot_reload_migrates_new_columns_and_keeps_old_tables_on_failure(
+    plugin_db,
+) -> None:
+    from tenko.host.plugins.database import plugin_db_reload
+
+    plugin_db.define(NOTE_V1)
+    await plugin_db.boot()
+    old_table = Base.metadata.tables[TABLE]
+
+    def load(source: str) -> dict:
+        namespace = {"__name__": MODULE}
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", sa_exc.SAWarning)
+            exec(compile(source, MODULE, "exec", dont_inherit=True), namespace)
+        return namespace
+
+    # 导入失败：新表撤掉，旧表回到元数据里。
+    with pytest.raises(RuntimeError, match="boom"):
+        async with plugin_db_reload("db_demo"):
+            load(NOTE_V1 + "raise RuntimeError('boom')\n")
+    assert Base.metadata.tables[TABLE] is old_table
+
+    async with plugin_db_reload("db_demo"):
+        note_model = load(
+            NOTE_V1 + "    memo: Mapped[str | None] = mapped_column(String(50))\n"
+        )["Note"]
+    async with get_session() as session:
+        session.add(note_model(id=1, text="新", memo="热更新"))
+        await session.commit()
+
+    assert plugin_db.rows(f"SELECT text, memo FROM {TABLE}") == [("新", "热更新")]
+    assert not plugin_db.errors
