@@ -1,209 +1,53 @@
 from __future__ import annotations
 
-from collections.abc import Mapping
-from dataclasses import replace
-
 from arclet.alconna import Alconna, Args, CommandMeta, Field, MultiVar, Option
 from arclet.entari import Session, command, plugin
 from arclet.entari.command import Match, Query
-from arclet.entari.event.base import (
-    GuildMemberAddedEvent,
-    GuildMemberRemovedEvent,
-    GuildMemberUpdatedEvent,
-    InternalEvent,
-)
+from arclet.entari.event.base import GuildMemberRemovedEvent, InternalEvent
 from arclet.entari.plugin import PluginRole
 from loguru import logger
 
+from tenko.context import context_from_session
 from tenko.db.errors import DatabaseUnavailableError
 from tenko.host.actions import ActionServiceError, action_service
 from tenko.host.guards import group_only, private_only, require
-from tenko.host.notify import load_settings, notify
-from tenko.host.perm import Permission, PermissionChecker
-from tenko.plugins._common import (
-    list_data,
-    normalize_targets,
-    render_or_text,
+from tenko.host.notify import load_settings
+from tenko.host.perm import (
+    GLOBAL_SCOPE,
+    Permission,
+    PermissionChecker,
+    superuser_ids,
 )
-from tenko.context import context_from_session
 from tenko.host.render import RenderService
+from tenko.plugins._common import list_data, normalize_targets, render_or_text
 
 
 plugin.metadata(
     "权限管理",
     PluginRole.NORMAL,
     author=["13"],
-    description="管理 Tenko 的成员权限、群权限和权限同步。",
+    description="管理 Tenko 的手动授权、BOT 管理员和黑名单。",
     classifier=["required"],
 )
-# 未激活群也要能在本群用 /修改群权限 恢复，不受 CommandPolicy 的群等级静默。
-plugin.get_plugin().metadata.group_level = Permission.InactiveGroup
 
 
 permission_checker = PermissionChecker()
 
-
-async def _is_notify_group(group_id: str) -> bool:
-    """通知群的权限不能通过命令修改；未配置通知群时不启用该保护。"""
-
-    settings = await load_settings()
-    return settings.mode == "group" and group_id == settings.group
-
-
-def _member_repository():
-    from tenko.db.repositories import member_perm_repository
-
-    return member_perm_repository
+_GROUP_OPTION = Option(
+    "--group",
+    Args["group_id", str],
+    alias=["-g", "群"],
+    help_text="指定目标群（跨群需要 BOT 管理员）",
+)
+_REASON_OPTION = Option(
+    "--reason", Args["reason", str], alias=["-r", "原因"], help_text="拉黑原因"
+)
 
 
-def _group_repository():
-    from tenko.db.repositories import group_perm_repository
-
-    return group_perm_repository
-
-
-def _setting_repository():
-    from tenko.db.repositories import group_setting_repository
-
-    return group_setting_repository
-
-
-async def _member_permission(group_id: str | int, user_id: str | int) -> int:
-    result = await _member_repository().get_permission(group_id, user_id)
-    return Permission.User if result is None else int(result)
-
-
-async def _bot_admin_ids() -> set[str]:
-    return {str(value) for value in await _member_repository().list_bot_admins()}
-
-
-async def _global_black_ids() -> set[str]:
-    return {str(value) for value in await _member_repository().list_global_blacklist()}
-
-
-async def _permission_type(group_id: str | int) -> str:
-    result = await _setting_repository().get(group_id)
-    return (
-        "default"
-        if result is None or result.permission_type is None
-        else str(result.permission_type)
-    )
-
-
-async def _write_member_permission(
-    group_id: str | int, user_id: str | int, permission: int
-) -> None:
-    await _member_repository().set_permission(group_id, user_id, int(permission))
-
-
-async def _delete_member_permission(group_id: str | int, user_id: str | int) -> None:
-    await _member_repository().delete_permission(group_id, user_id)
-
-
-async def _vip_groups():
-    return await _group_repository().list_vip()
-
-
-async def _group_member_permissions(group_id: str | int):
-    return await _member_repository().list_group_permissions(group_id)
-
-
-async def _target_member(
-    session: Session, group_id: str, user_id: str
-) -> object | None:
-    account = getattr(session, "account", None)
-    if account is None:
-        raise ActionServiceError("当前会话没有可用账号，无法确认群成员身份")
-    return await action_service.get_group_member(account, group_id, user_id)
-
-
-async def _target_members(session: Session, group_id: str) -> tuple[object, ...]:
-    account = getattr(session, "account", None)
-    if account is None:
-        raise ActionServiceError("当前会话没有可用账号，无法读取群成员列表")
-    return await action_service.list_group_members(account, group_id)
-
-
-def _member_id(member: object) -> str:
-    if isinstance(member, Mapping):
-        value = member.get("user_id", member.get("id"))
-    else:
-        value = getattr(member, "user_id", None)
-        if value is None:
-            user = getattr(member, "user", None)
-            value = getattr(user, "id", None)
-        if value is None:
-            value = getattr(member, "id", None)
-    if value is None or not str(value):
-        raise ValueError("群成员列表缺少用户 ID")
-    return str(value)
-
-
-def _member_permission_from_platform(member: object) -> int:
-    level = action_service._management_level(member)
-    if level is None or level < Permission.GroupAdmin:
-        return Permission.User
-    return (
-        Permission.GroupOwner
-        if level >= Permission.GroupOwner
-        else Permission.GroupAdmin
-    )
-
-
-def _permission_demotion_notice(event: GuildMemberUpdatedEvent) -> str:
-    user_id = event.user.id
-    name = event.user.name or user_id
-    return (
-        "检测到群管理权限变动\n"
-        f"{name}({user_id})->16\n"
-        "Tenko 权限暂不自动修改，请人工确认；如需修改请使用指令 "
-        f"/修改权限 16 {user_id}（群 {event.guild.id}）"
-    )
-
-
-async def _notify_permission_demotion(
-    event: GuildMemberUpdatedEvent, session: Session
-) -> None:
-    notice = _permission_demotion_notice(event)
-    if event.channel:
-        try:
-            await session.send(notice)
-        except Exception:
-            logger.exception(
-                "管理员降级提示发送失败: group={} user={}",
-                event.guild.id,
-                event.user.id,
-            )
-        return
-
-    await notify(notice, preferred=event.account, permission_checker=permission_checker)
-
-
-def _database_error_message(error: BaseException, *, action: str) -> object:
-    logger.warning("权限数据库不可用，{}未执行: {}", action, error)
-    return f"数据库暂不可用，{action}未执行"
-
-
-def _current_group(session: Session, group: Query[int]) -> str | None:
-    if group.available:
-        return str(group.result)
-    event_group = getattr(session.event, "guild", None)
-    return event_group.id if event_group else None
-
-
-async def _target_group(session: Session, group: Query[int]) -> tuple[str | None, bool]:
-    """返回目标群 ID，以及它是否不同于当前群。"""
-
-    context = context_from_session(session)
-    target = _current_group(session, group)
-    if target is None:
-        return None, False
-    is_cross_group = target != context.channel_id
-    if is_cross_group and not await permission_checker.require_perm(
-        context, Permission.BotAdmin
-    ):
-        return None, True
-    return target, is_cross_group
+def _targets_arg():
+    return Args[
+        "member_id", MultiVar(str), Field(missing_tips=lambda: "至少需要一个用户 ID")
+    ]
 
 
 def _failure_summary(targets: tuple[str, ...], failures: list[tuple[str, str]]) -> str:
@@ -218,303 +62,212 @@ def _failure_summary(targets: tuple[str, ...], failures: list[tuple[str, str]]) 
     return result
 
 
-def build_vip_groups_data(rows) -> dict[str, object]:
-    items = tuple(
-        {
-            "number": index,
-            "name": f"{row.group_id}({row.group_name})",
-            "meta": "VIP 群",
-            "detail": f"群号：{row.group_id}",
-            "badge": "VIP",
-        }
-        for index, row in enumerate(rows, 1)
-    )
-    return list_data(
-        "VIP 群列表",
-        "Master 私聊 · 已授权的群组",
-        "VIP",
-        f"共 {len(items)} 个 VIP 群",
-        items,
-        "当前没有VIP群~",
-    )
+def _database_error(error: BaseException, action: str) -> str:
+    logger.warning("权限数据库不可用，{}未执行: {}", action, error)
+    return f"数据库暂不可用，{action}未执行"
 
 
-def build_permission_list_data(
-    target_group: str, group_level: int, rows
-) -> dict[str, object]:
-    entries = tuple(row for row in rows if row.perm != Permission.User)
-    items = tuple(
-        {
-            "number": index,
-            "name": str(row.qq),
-            "meta": f"权限等级：{row.perm}",
-            "detail": f"群{target_group}成员权限",
-            "badge": str(row.perm),
-        }
-        for index, row in enumerate(entries, 1)
-    )
-    return list_data(
-        "权限列表",
-        f"群{target_group} · 成员权限",
-        f"群 {target_group}",
-        f"群{target_group}权限等级: {group_level}",
-        items,
-        "暂无额外权限成员",
-    )
+async def _target_group(session: Session, group: Query[str]) -> str | None:
+    """返回目标群；跨群操作要求 BotAdmin，不满足时返回 ``None``。"""
+
+    context = context_from_session(session)
+    if not group.available:
+        return context.channel_id
+    target = str(group.result)
+    if target != context.channel_id and not await permission_checker.require_perm(
+        context, Permission.BotAdmin
+    ):
+        return None
+    return target
 
 
-def build_global_blacklist_data(values) -> dict[str, object]:
-    items = tuple(
-        {
-            "number": index,
-            "name": str(value),
-            "meta": "全局黑名单成员",
-            "detail": "该成员在所有群组中受限",
-            "badge": "黑名单",
-        }
-        for index, value in enumerate(values, 1)
-    )
-    return list_data(
-        "全局黑名单",
-        "Master 私聊 · 全局权限限制",
-        "BLACK",
-        f"共 {len(items)} 名成员",
-        items,
-        "全局黑名单为空哦~",
-    )
+async def _in_group(session: Session, group_id: str, user_id: str) -> bool:
+    account = getattr(session, "account", None)
+    if account is None:
+        raise ActionServiceError("当前会话没有可用账号，无法确认群成员身份")
+    return await action_service.get_group_member(account, group_id, user_id) is not None
 
 
-def build_bot_admins_data(values) -> dict[str, object]:
-    items = tuple(
-        {
-            "number": index,
-            "name": str(value),
-            "meta": "BOT 管理员",
-            "detail": "可执行受授权的机器人管理操作",
-            "badge": "ADMIN",
-        }
-        for index, value in enumerate(values, 1)
-    )
-    return list_data(
-        "BOT 管理列表",
-        "Master 私聊 · Tenko 管理权限",
-        "ADMIN",
-        f"共 {len(items)} 名 BOT 管理员",
-        items,
-        "当前还没有BOT管理哦~",
-    )
-
-
-modify_user_command = Alconna(
-    "修改权限",
-    Args["perm", "0|16|32|64"],
-    Args[
-        "member_id",
-        MultiVar(str),
-        Field(missing_tips=lambda: "至少需要一个成员 ID"),
-    ],
-    Option(
-        "--group",
-        Args["group_id", int],
-        alias=["-g", "群"],
-        help_text="修改指定群的权限（跨群需要 BotAdmin）",
-    ),
+grant_command = Alconna(
+    "授权",
+    Args["level", "群管理"],
+    _targets_arg(),
+    _GROUP_OPTION,
     meta=CommandMeta(
-        "修改群成员权限",
-        usage="修改权限 <0|16|32|64> <成员ID...> [--group <群号>]",
-        example="修改权限 32 123456",
-        compact=True,
+        "授予群管理权限（群主、群管理按实时群身份计算，不用授权）",
+        usage="授权 群管理 <用户ID...> [--group <群号>]",
+        example="授权 群管理 123456",
+        compact=False,
     ),
 )
 
 
-@command.on(modify_user_command)
+@command.on(grant_command)
 @group_only()
-@require(Permission.GroupOwner)
-async def change_user_perm(
+@require(Permission.GroupAdmin)
+async def grant(
     session: Session,
-    perm: Match[str],
     member_id: Match[tuple[str, ...]],
-    group: Query[int] = Query("group.group_id"),
+    group: Query[str] = Query("group.group_id"),
 ):
     context = context_from_session(session)
-    # 装饰器保证了 GroupOwner 的底线；跨群改权限取决于参数，由 _target_group 额外
-    # 要求 BotAdmin，所以这一项只能留在函数体里。
-    target_group, _ = await _target_group(session, group)
+    # 跨群授权取决于参数，额外要求 BotAdmin，所以留在函数体里。
+    target_group = await _target_group(session, group)
     if target_group is None:
-        return "权限不足或没有找到目标群"
-
+        return "跨群授权需要 BOT 管理员"
     targets = normalize_targets(member_id.result)
-    actor_permission = await permission_checker.get_user_perm(context)
     failures: list[tuple[str, str]] = []
     for target in targets:
         try:
-            current_permission = await _member_permission(target_group, target)
-            if actor_permission < current_permission:
-                failures.append((target, f"无法降级{target}({current_permission})"))
-            elif current_permission >= Permission.BotAdmin:
-                failures.append((target, "无法直接通过该指令修改BOT管理权限"))
-            elif await _target_member(session, target_group, target) is None:
-                failures.append((target, f"没有在群{target_group}找到群成员"))
-            else:
-                await _write_member_permission(target_group, target, int(perm.result))
+            if not await _in_group(session, target_group, target):
+                failures.append((target, f"没有在群{target_group}找到该成员"))
+            elif not await permission_checker.store.grant(
+                context.platform, target_group, target
+            ):
+                failures.append((target, "已经是授权的群管理"))
         except DatabaseUnavailableError as error:
-            logger.warning("成员 {} 的权限修改未执行，数据库不可用: {}", target, error)
-            failures.append((target, "数据库暂不可用，未写入权限"))
+            logger.warning("授权 {} 未执行，数据库不可用: {}", target, error)
+            failures.append((target, "数据库暂不可用，未授权"))
         except ActionServiceError as error:
             logger.warning("成员 {} 的群成员身份确认失败: {}", target, error)
             failures.append((target, f"无法确认{target}是否在群内"))
-        except ValueError as error:
-            failures.append((target, str(error)))
     return _failure_summary(targets, failures)
 
 
-modify_group_command = Alconna(
-    "修改群权限",
-    Args["perm", "0|1|2|3"],
-    Option(
-        "--group",
-        Args["group_id", int],
-        alias=["-g", "群"],
-        help_text="指定目标群（跨群需要 BotAdmin）",
-    ),
+revoke_command = Alconna(
+    "取消授权",
+    _targets_arg(),
+    _GROUP_OPTION,
     meta=CommandMeta(
-        "修改群权限等级",
-        usage="修改群权限 <0|1|2|3> [--group <群号>]",
-        example="修改群权限 2",
-        compact=True,
+        "取消手动授予的群管理权限",
+        usage="取消授权 <用户ID...> [--group <群号>]",
+        example="取消授权 123456",
+        compact=False,
     ),
 )
 
 
-@command.on(modify_group_command)
+@command.on(revoke_command)
 @group_only()
-@require(Permission.BotAdmin)
-async def change_group_perm(
+@require(Permission.GroupAdmin)
+async def revoke(
     session: Session,
-    perm: Match[str],
-    group: Query[int] = Query("group.group_id"),
+    member_id: Match[tuple[str, ...]],
+    group: Query[str] = Query("group.group_id"),
 ):
-    target_group, _ = await _target_group(session, group)
+    context = context_from_session(session)
+    target_group = await _target_group(session, group)
     if target_group is None:
-        return "没有找到目标群"
-    if await _is_notify_group(target_group):
-        return f"无法通过该指令修改通知群({target_group})权限!"
-    try:
-        await _group_repository().set(
-            target_group,
-            int(perm.result),
-            group_name=target_group,
-            active=True,
-        )
-    except DatabaseUnavailableError as error:
-        return _database_error_message(error, action="修改群权限")
-    except ValueError as error:
-        return f"群号无效，未修改群权限: {error}"
-    return f"已修改群{target_group}权限为{perm.result}"
+        return "跨群取消授权需要 BOT 管理员"
+    targets = normalize_targets(member_id.result)
+    failures: list[tuple[str, str]] = []
+    for target in targets:
+        try:
+            if not await permission_checker.store.revoke(
+                context.platform, target_group, target
+            ):
+                failures.append((target, "不是手动授权的群管理"))
+        except DatabaseUnavailableError as error:
+            logger.warning("取消授权 {} 未执行，数据库不可用: {}", target, error)
+            failures.append((target, "数据库暂不可用，未取消"))
+    return _failure_summary(targets, failures)
 
 
-modify_group_type_command = Alconna(
-    "修改群权限类型",
-    Args["permission_type", "admin|default"],
-    Option(
-        "--group",
-        Args["group_id", int],
-        alias=["-g", "群"],
-        help_text="指定目标群（跨群需要 BotAdmin）",
-    ),
+bot_admin_command = Alconna(
+    "BOT管理",
+    Args["action", "添加|删除"],
+    _targets_arg(),
     meta=CommandMeta(
-        "修改群成员权限同步策略",
-        usage="修改群权限类型 <admin|default> [--group <群号>]",
-        example="修改群权限类型 admin",
-        compact=True,
+        "增删 BOT 管理员",
+        usage="BOT管理 <添加|删除> <用户ID...>",
+        example="BOT管理 添加 123456",
+        compact=False,
     ),
 )
 
 
-@command.on(modify_group_type_command)
-@group_only()
-@require(Permission.BotAdmin)
-async def change_group_perm_type(
-    session: Session,
-    permission_type: Match[str],
-    group: Query[int] = Query("group.group_id"),
+@command.on(bot_admin_command)
+@require(Permission.Master)
+async def change_bot_admin(
+    session: Session, action: Match[str], member_id: Match[tuple[str, ...]]
 ):
-    target_group, _ = await _target_group(session, group)
-    if target_group is None:
-        return "没有找到目标群"
-    if await _is_notify_group(target_group):
-        return f"无法通过该指令修改通知群({target_group})权限!"
-    try:
-        members = await _target_members(session, target_group)
-        await _setting_repository().set_permission_type(
-            target_group, permission_type.result
-        )
-        for member in members:
-            member_id = _member_id(member)
-            current_permission = await _member_permission(target_group, member_id)
-            if current_permission == Permission.GroupBlack:
-                continue
-            if permission_type.result == "admin":
-                if current_permission < Permission.GroupAdmin:
-                    await _write_member_permission(
-                        target_group, member_id, Permission.GroupAdmin
-                    )
-                continue
-            if current_permission >= Permission.GroupOwner:
-                continue
-            target_permission = _member_permission_from_platform(member)
-            if current_permission != target_permission:
-                await _write_member_permission(
-                    target_group, member_id, target_permission
-                )
-    except DatabaseUnavailableError as error:
-        return _database_error_message(error, action="修改群权限类型")
-    except ActionServiceError as error:
-        logger.warning("群 {} 的成员权限同步未完成: {}", target_group, error)
-        return f"无法读取群{target_group}成员，未完成权限同步"
-    except ValueError as error:
-        return f"群{target_group}成员数据无效，未完成权限同步: {error}"
-    return f"已修改群{target_group}权限类型为{permission_type.result}"
+    context = context_from_session(session)
+    targets = normalize_targets(member_id.result)
+    failures: list[tuple[str, str]] = []
+    for target in targets:
+        try:
+            if action.result == "添加":
+                if permission_checker.store.blacklisted(
+                    "user", context.platform, target
+                ):
+                    failures.append((target, "在黑名单内，请先解除拉黑"))
+                elif not await permission_checker.store.grant(
+                    context.platform, GLOBAL_SCOPE, target
+                ):
+                    failures.append((target, "已经是BOT管理"))
+            elif not await permission_checker.store.revoke(
+                context.platform, GLOBAL_SCOPE, target
+            ):
+                failures.append((target, "还不是BOT管理"))
+        except DatabaseUnavailableError as error:
+            logger.warning("BOT 管理员 {} 修改失败: {}", target, error)
+            failures.append((target, "数据库暂不可用，未修改"))
+    return _failure_summary(targets, failures)
+
+
+def _id_list_data(title: str, badge: str, meta: str, values) -> dict[str, object]:
+    items = tuple(
+        {"number": index, "name": str(value), "meta": meta, "detail": "", "badge": ""}
+        for index, value in enumerate(values, 1)
+    )
+    return list_data(title, "", badge, f"共 {len(items)} 项", items, f"{title}为空")
+
+
+def _blacklist_data(title: str, records) -> dict[str, object]:
+    items = tuple(
+        {
+            "number": index,
+            "name": record.target_id,
+            "meta": record.reason or "未填写原因",
+            "detail": (
+                f"操作人 {record.operator_id or '-'} · "
+                f"{record.created_at:%Y-%m-%d %H:%M}"
+                if record.created_at
+                else f"操作人 {record.operator_id or '-'}"
+            ),
+            "badge": "",
+        }
+        for index, record in enumerate(records, 1)
+    )
+    return list_data(title, "", "BLACK", f"共 {len(items)} 项", items, f"{title}为空")
 
 
 @command.on(
     Alconna(
-        "VIP群列表",
-        meta=CommandMeta(
-            "查询 VIP 群列表",
-            usage="VIP群列表",
-            example="VIP群列表",
-            compact=True,
-        ),
+        "BOT管理列表",
+        meta=CommandMeta("查询 BOT 管理员", usage="BOT管理列表", compact=True),
     )
 )
 @private_only()
 @require(Permission.Master)
-async def get_vg_list(session: Session, *, render_service: RenderService):
-    try:
-        rows = await _vip_groups()
-    except DatabaseUnavailableError as error:
-        return _database_error_message(error, action="查询 VIP 群列表")
-    groups = [f"{row.group_id}({row.group_name})" for row in rows]
-    result = "当前没有VIP群~" if not groups else "VIP群列表:\n" + "\n".join(groups)
-    if not groups:
-        return result
+async def bot_admin_list(session: Session, *, render_service: RenderService):
+    context = context_from_session(session)
+    values = permission_checker.store.grants(context.platform, GLOBAL_SCOPE)
+    if not values:
+        return "当前还没有BOT管理哦~"
     return await render_or_text(
-        render_service, "list.html", build_vip_groups_data(rows), result
+        render_service,
+        "list.html",
+        _id_list_data("BOT 管理列表", "ADMIN", "BOT 管理员", values),
+        "BOT管理列表:\n" + "\n".join(values),
     )
 
 
 permission_list_command = Alconna(
     "权限列表",
-    Option(
-        "--group",
-        Args["group_id", int],
-        alias=["-g", "群"],
-        help_text="指定目标群（跨群需要 BotAdmin）",
-    ),
+    _GROUP_OPTION,
     meta=CommandMeta(
-        "查询群成员权限",
+        "查询群内手动授权的群管理",
         usage="权限列表 [--group <群号>]",
         example="权限列表\n权限列表 --group 40001",
         compact=True,
@@ -526,304 +279,240 @@ permission_list_command.shortcut(
 )
 
 
-# 群聊要求 GroupAdmin、私聊要求 Master，随聊天类型而变，所以不用装饰器。
+# 群聊查本群要求群管理、查别的群和私聊要求 BotAdmin，随参数而变，所以不用装饰器。
 @command.on(permission_list_command)
-async def get_perm_list(
+async def permission_list(
     session: Session,
-    group: Query[int] = Query("group.group_id"),
+    group: Query[str] = Query("group.group_id"),
     *,
     render_service: RenderService,
 ):
     context = context_from_session(session)
-    if context.chat_type == "group":
-        target_group = str(group.result) if group.available else context.channel_id
-        if target_group != context.channel_id:
-            return "群内只能查询当前群"
-        if not await permission_checker.require_perm(context, Permission.GroupAdmin):
-            return "权限不足"
-        target_context = context
-    elif context.chat_type == "private":
-        if not await permission_checker.require_perm(context, Permission.Master):
-            return "权限不足"
-        if not group.available:
-            return "Master 私聊查询请提供 --group <群号>"
+    if context.chat_type == "group" and not group.available:
+        target_group = context.channel_id
+        required = Permission.GroupAdmin
+    elif group.available:
         target_group = str(group.result)
-        target_context = replace(
-            context,
-            chat_type="group",
-            channel_id=target_group,
+        required = (
+            Permission.GroupAdmin
+            if target_group == context.channel_id
+            else Permission.BotAdmin
         )
     else:
-        return "该指令仅支持群聊或 Master 私聊执行"
-    try:
-        rows = await _group_member_permissions(target_group)
-    except DatabaseUnavailableError as error:
-        return _database_error_message(error, action="查询成员权限")
-    entries = [f"{row.qq}: {row.perm}" for row in rows if row.perm != Permission.User]
-    group_level = await permission_checker.get_group_perm(target_context)
-    result = f"群{target_group}权限等级: {group_level}"
-    if entries:
-        result += "\n" + "\n".join(entries)
-    return await render_or_text(
-        render_service,
-        "list.html",
-        build_permission_list_data(target_group, group_level, rows),
-        result,
+        return "私聊查询请提供 --group <群号>"
+    if not await permission_checker.require_perm(context, required):
+        return "权限不足"
+    values = permission_checker.store.grants(context.platform, target_group)
+    note = "群主、群管理按实时群身份计算，这里只列手动授权的群管理"
+    text = f"群{target_group}手动授权的群管理:\n" + (
+        "\n".join(values) if values else "（无）"
     )
+    data = _id_list_data(f"群{target_group} 授权列表", "GRANT", "群管理", values)
+    data["subtitle"] = note
+    return await render_or_text(render_service, "list.html", data, f"{text}\n\n{note}")
 
 
-global_black_command = Alconna(
-    "全局黑",
-    Args["action", "添加|删除"],
-    Args["member_id", MultiVar(str)],
+def _protected(platform: str, user_id: str) -> str | None:
+    if user_id in superuser_ids(platform):
+        return "无法拉黑 Master"
+    if permission_checker.store.granted(platform, GLOBAL_SCOPE, user_id):
+        return "无法拉黑BOT管理，请先取消其BOT管理"
+    return None
+
+
+blacklist_command = Alconna(
+    "拉黑",
+    _targets_arg(),
+    _REASON_OPTION,
     meta=CommandMeta(
-        "增删全局黑名单",
-        usage="全局黑 <添加|删除> <成员ID...>",
-        example="全局黑 添加 123456",
-        compact=True,
+        "把用户加入全局黑名单（任何群和私聊都不再响应）",
+        usage="拉黑 <用户ID...> [--reason <原因>]",
+        example="拉黑 123456 -r 刷屏",
+        compact=False,
     ),
 )
 
 
-@command.on(global_black_command)
-@group_only()
+@command.on(blacklist_command)
 @require(Permission.BotAdmin)
-async def change_global_black(
+async def add_user_blacklist(
     session: Session,
-    action: Match[str],
     member_id: Match[tuple[str, ...]],
+    reason: Query[str] = Query("reason.reason"),
 ):
+    context = context_from_session(session)
     targets = normalize_targets(member_id.result)
-    try:
-        black_list = await _global_black_ids()
-        admin_ids = await _bot_admin_ids()
-    except DatabaseUnavailableError as error:
-        return _database_error_message(error, action="修改全局黑名单")
     failures: list[tuple[str, str]] = []
-    master_id = permission_checker.registry.master_id
     for target in targets:
-        if action.result == "添加":
-            if target in admin_ids or target == master_id:
-                failures.append((target, "无法修改BOT管理/Master的权限哦~"))
-            elif target in black_list:
-                failures.append((target, f"{target}已经在全局黑名单内!"))
-            else:
-                try:
-                    await _write_member_permission(0, target, Permission.GlobalBlack)
-                except DatabaseUnavailableError as error:
-                    logger.warning("全局黑名单写入失败: {}", error)
-                    failures.append((target, "数据库暂不可用，未写入权限"))
-                except ValueError as error:
-                    failures.append((target, str(error)))
-        elif target not in black_list:
-            failures.append((target, f"{target}不在全局黑名单内!"))
-        else:
-            try:
-                await _delete_member_permission(0, target)
-            except DatabaseUnavailableError as error:
-                logger.warning("全局黑名单删除失败: {}", error)
-                failures.append((target, "数据库暂不可用，未删除权限"))
-            except ValueError as error:
-                failures.append((target, str(error)))
+        if problem := _protected(context.platform, target):
+            failures.append((target, problem))
+            continue
+        try:
+            if not await permission_checker.store.add_blacklist(
+                "user",
+                context.platform,
+                target,
+                reason=reason.result if reason.available else "",
+                operator_id=context.user_id,
+            ):
+                failures.append((target, "已经在黑名单内"))
+        except DatabaseUnavailableError as error:
+            logger.warning("拉黑 {} 未执行，数据库不可用: {}", target, error)
+            failures.append((target, "数据库暂不可用，未拉黑"))
     return _failure_summary(targets, failures)
 
 
-@command.on(
-    Alconna(
-        "全局黑名单列表",
-        meta=CommandMeta(
-            "查询全局黑名单",
-            usage="全局黑名单列表",
-            example="全局黑名单列表",
-            compact=True,
-        ),
-    )
-)
-@private_only()
-@require(Permission.Master)
-async def get_global_black_list(session: Session, *, render_service: RenderService):
-    try:
-        values = sorted(await _global_black_ids())
-    except DatabaseUnavailableError as error:
-        return _database_error_message(error, action="查询全局黑名单")
-    result = "全局黑名单为空哦~" if not values else "全局黑名单:\n" + "\n".join(values)
-    if not values:
-        return result
-    return await render_or_text(
-        render_service, "list.html", build_global_blacklist_data(values), result
-    )
-
-
-bot_admin_command = Alconna(
-    "BOT管理",
-    Args["action", "添加|删除"],
-    Args["member_id", MultiVar(str)],
+unblacklist_command = Alconna(
+    "解除拉黑",
+    _targets_arg(),
     meta=CommandMeta(
-        "增删 BOT 管理员",
-        usage="BOT管理 <添加|删除> <成员ID...>",
-        example="BOT管理 添加 123456",
-        compact=True,
+        "把用户移出全局黑名单",
+        usage="解除拉黑 <用户ID...>",
+        example="解除拉黑 123456",
+        compact=False,
     ),
 )
 
 
-@command.on(bot_admin_command)
-@group_only()
-@require(Permission.Master)
-async def change_bot_admin(
-    session: Session,
-    action: Match[str],
-    member_id: Match[tuple[str, ...]],
-):
+@command.on(unblacklist_command)
+@require(Permission.BotAdmin)
+async def remove_user_blacklist(session: Session, member_id: Match[tuple[str, ...]]):
+    context = context_from_session(session)
     targets = normalize_targets(member_id.result)
-    try:
-        admin_ids = await _bot_admin_ids()
-    except DatabaseUnavailableError as error:
-        return _database_error_message(error, action="修改 BOT 管理员")
     failures: list[tuple[str, str]] = []
     for target in targets:
-        if action.result == "添加":
-            if target in admin_ids:
-                failures.append((target, f"{target}已经是BOT管理啦!"))
-            else:
-                try:
-                    await _write_member_permission(0, target, Permission.BotAdmin)
-                except DatabaseUnavailableError as error:
-                    logger.warning("BOT 管理员写入失败: {}", error)
-                    failures.append((target, "数据库暂不可用，未写入权限"))
-                except ValueError as error:
-                    failures.append((target, str(error)))
-        else:
-            try:
-                # 同时清掉旧版本写入的群内 128 行，否则撤销后该群仍保留权限。
-                if not await _member_repository().delete_bot_admin(target):
-                    failures.append((target, f"{target}还不是BOT管理哦!"))
-            except DatabaseUnavailableError as error:
-                logger.warning("BOT 管理员删除失败: {}", error)
-                failures.append((target, "数据库暂不可用，未删除权限"))
-            except ValueError as error:
-                failures.append((target, str(error)))
+        try:
+            if not await permission_checker.store.remove_blacklist(
+                "user", context.platform, target
+            ):
+                failures.append((target, "不在黑名单内"))
+        except DatabaseUnavailableError as error:
+            logger.warning("解除拉黑 {} 未执行，数据库不可用: {}", target, error)
+            failures.append((target, "数据库暂不可用，未解除"))
     return _failure_summary(targets, failures)
 
 
 @command.on(
+    Alconna("黑名单", meta=CommandMeta("查询全局黑名单", usage="黑名单", compact=True))
+)
+@private_only()
+@require(Permission.BotAdmin)
+async def user_blacklist(session: Session, *, render_service: RenderService):
+    return await _show_blacklist(session, "user", "全局黑名单", render_service)
+
+
+async def _show_blacklist(
+    session: Session, kind, title: str, render_service: RenderService
+):
+    platform = context_from_session(session).platform
+    records = [
+        r for r in permission_checker.store.blacklist(kind) if r.platform == platform
+    ]
+    if not records:
+        return f"{title}为空"
+    text = f"{title}:\n" + "\n".join(
+        f"{r.target_id}" + (f"（{r.reason}）" if r.reason else "") for r in records
+    )
+    return await render_or_text(
+        render_service, "list.html", _blacklist_data(title, records), text
+    )
+
+
+async def _is_notify_group(group_id: str) -> bool:
+    settings = await load_settings()
+    return settings.mode == "group" and group_id == settings.group
+
+
+group_blacklist_command = Alconna(
+    "拉黑群",
+    Args["group_id?", str],
+    _REASON_OPTION,
+    meta=CommandMeta(
+        "把群加入黑名单（该群完全不响应；省略群号时为当前群）",
+        usage="拉黑群 [群号] [--reason <原因>]",
+        example="拉黑群 40001 -r 广告群",
+        compact=False,
+    ),
+)
+
+
+@command.on(group_blacklist_command)
+@require(Permission.BotAdmin)
+async def add_group_blacklist(
+    session: Session,
+    group_id: Match[str],
+    reason: Query[str] = Query("reason.reason"),
+):
+    context = context_from_session(session)
+    if group_id.available:
+        target = str(group_id.result)
+    elif context.chat_type == "group":
+        target = context.channel_id
+    else:
+        return "私聊中请提供群号"
+    if await _is_notify_group(target):
+        return f"群{target}是通知群，不能拉黑"
+    try:
+        added = await permission_checker.store.add_blacklist(
+            "group",
+            context.platform,
+            target,
+            reason=reason.result if reason.available else "",
+            operator_id=context.user_id,
+        )
+    except DatabaseUnavailableError as error:
+        return _database_error(error, "拉黑群")
+    if not added:
+        return f"群{target}已经在黑名单内"
+    return f"已拉黑群{target}，可在私聊用 /解除拉黑群 {target} 恢复"
+
+
+@command.on(
     Alconna(
-        "BOT管理列表",
+        "解除拉黑群",
+        Args["group_id", str],
         meta=CommandMeta(
-            "查询 BOT 管理员",
-            usage="BOT管理列表",
-            example="BOT管理列表",
-            compact=True,
+            "把群移出黑名单",
+            usage="解除拉黑群 <群号>",
+            example="解除拉黑群 40001",
+            compact=False,
         ),
     )
 )
-@private_only()
-@require(Permission.Master)
-async def get_bot_admins_list(session: Session, *, render_service: RenderService):
+@require(Permission.BotAdmin)
+async def remove_group_blacklist(session: Session, group_id: Match[str]):
+    context = context_from_session(session)
     try:
-        values = sorted(await _bot_admin_ids())
+        removed = await permission_checker.store.remove_blacklist(
+            "group", context.platform, str(group_id.result)
+        )
     except DatabaseUnavailableError as error:
-        return _database_error_message(error, action="查询 BOT 管理员")
-    result = (
-        "当前还没有BOT管理哦~" if not values else "BOT管理列表:\n" + "\n".join(values)
+        return _database_error(error, "解除拉黑群")
+    if not removed:
+        return f"群{group_id.result}不在黑名单内"
+    return f"已解除拉黑群{group_id.result}"
+
+
+@command.on(
+    Alconna(
+        "群黑名单", meta=CommandMeta("查询群黑名单", usage="群黑名单", compact=True)
     )
-    if not values:
-        return result
-    return await render_or_text(
-        render_service, "list.html", build_bot_admins_data(values), result
-    )
+)
+@private_only()
+@require(Permission.BotAdmin)
+async def group_blacklist(session: Session, *, render_service: RenderService):
+    return await _show_blacklist(session, "group", "群黑名单", render_service)
 
 
 @plugin.listen(GuildMemberRemovedEvent)
-async def auto_delete_member_permission(
-    event: GuildMemberRemovedEvent, session: Session
-):
+async def revoke_on_leave(event: GuildMemberRemovedEvent):
+    # 退群即撤销该群的手动授权，免得重新入群后自动带着群管理权限。
     try:
-        previous = await _member_permission(event.guild.id, event.user.id)
-        # 群黑名单记录需要在退群后保留，避免重新入群即被洗白。
-        if previous == Permission.GroupBlack:
-            return
-        await _delete_member_permission(event.guild.id, event.user.id)
-    except DatabaseUnavailableError as error:
-        logger.warning("退群成员 {} 的权限清理失败: {}", event.user.id, error)
-        return
-    if previous < Permission.GroupAdmin or not event.channel:
-        return
-    await session.send(
-        f"已自动删除退群成员{event.user.name or event.user.id}({event.user.id})的权限"
-    )
-
-
-@plugin.listen(GuildMemberAddedEvent)
-async def auto_add_member_permission(event: GuildMemberAddedEvent, session: Session):
-    group_id = event.guild.id
-    try:
-        permission_type = await _permission_type(group_id)
-        permission: int | None = None
-        if permission_type == "admin":
-            permission = Permission.GroupAdmin
-        elif permission_checker.registry.master_id == event.user.id:
-            permission = Permission.Master
-        # BotAdmin 只在全局（群 0）记录，不写入群成员行。
-        if permission is not None:
-            await _write_member_permission(group_id, event.user.id, permission)
-            if event.channel and permission == Permission.GroupAdmin:
-                await session.send(
-                    f"已自动修改成员{event.user.name or event.user.id}({event.user.id})的权限为32"
-                )
-    except DatabaseUnavailableError as error:
-        logger.warning("新成员 {} 的权限同步失败: {}", event.user.id, error)
-
-
-@plugin.listen(GuildMemberUpdatedEvent)
-async def auto_change_member_permission(
-    event: GuildMemberUpdatedEvent, session: Session
-):
-    if event.user.id == permission_checker.registry.master_id:
-        return
-    try:
-        if event.user.id in await _bot_admin_ids():
-            return
-        if await _permission_type(event.guild.id) == "admin":
-            return
-
-        previous_permission = await _member_permission(event.guild.id, event.user.id)
-
-        roles = {
-            str(role.id).lower()
-            for role in getattr(event.member, "roles", ())
-            if getattr(role, "id", None)
-        }
-        if "owner" in roles or "群主" in roles:
-            permission = Permission.GroupOwner
-        elif roles.intersection({"admin", "administrator", "管理员"}):
-            permission = Permission.GroupAdmin
-        else:
-            permission = Permission.User
-    except DatabaseUnavailableError as error:
-        logger.warning("成员 {} 的权限变更同步失败: {}", event.user.id, error)
-        return
-
-    if permission == Permission.User and previous_permission >= Permission.GroupAdmin:
-        logger.info(
-            "成员 {} 在群 {} 的平台管理权限已降为普通成员；待人工确认 Tenko 权限",
-            event.user.id,
-            event.guild.id,
+        await permission_checker.store.revoke(
+            event.login.platform, event.guild.id, event.user.id
         )
-        await _notify_permission_demotion(event, session)
-        return
-
-    try:
-        await _write_member_permission(event.guild.id, event.user.id, permission)
     except DatabaseUnavailableError as error:
-        logger.warning("成员 {} 的权限变更同步失败: {}", event.user.id, error)
-        return
-
-    if permission != Permission.User and event.channel:
-        await session.send(
-            f"检测到群管理权限变动\n已自动修改{event.user.name or event.user.id}"
-            f"({event.user.id})权限为{permission}"
-        )
+        logger.warning("退群成员 {} 的授权清理失败: {}", event.user.id, error)
 
 
 @plugin.listen(InternalEvent)

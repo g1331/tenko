@@ -81,12 +81,19 @@ async def _change(session: Session, operation: str, feature: Match[str]):
         context, Permission.BotAdmin
     ):
         return "权限不足"
+    requested_enabled = operation == "开启"
+    # 受控插件（#234）谁都能关，只有 BotAdmin 及以上能开。
+    if (
+        requested_enabled
+        and feature_service.is_controlled(info.name)
+        and not await permission_checker.require_perm(context, Permission.BotAdmin)
+    ):
+        return f"<{target_name}>是受控插件，需要 BOT 管理员开启"
     enabled = (
         feature_service.is_enabled(info.name)
         if is_global
         else feature_service.is_enabled(info.name, context.channel_id)
     )
-    requested_enabled = operation == "开启"
     if enabled == requested_enabled:
         return f"功能{target_name}已处于{operation}状态请不要重复{operation}!"
     if is_global:

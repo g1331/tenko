@@ -18,6 +18,7 @@ from .host.accounts import AccountRegistry, account_key
 from .host.sandbox import is_sandbox
 from .host.chat_log import ChatLog
 from .host.metrics import MessageMetrics, message_metrics
+from .host.perm import PermissionStore, permission_store
 
 
 def _event_group_id(event: Event) -> str | None:
@@ -122,6 +123,7 @@ class MessageEventHandler:
     metrics: MessageMetrics | None = None
     action_service: Any | None = None
     chat_log: ChatLog | None = None
+    permissions: PermissionStore = permission_store
     # 在有界缓存中保留 origin 引用，确保在重复检查前，object ID 不会被其他
     # 事件复用。
     _received_event_cache: deque[tuple[int, object]] = field(
@@ -162,6 +164,24 @@ class MessageEventHandler:
         # 会被丢弃。
         if _is_member_removed_event(event) or _is_guild_invite_request_event(event):
             return False
+
+        # 黑名单（#234）：名单里的人在任何群和私聊、名单里的群对任何人，都不响应，
+        # 包括复读这类不经命令的功能。
+        platform = account_key(account)[0]
+        for kind, target in (
+            ("user", _event_user_id(event)),
+            ("group", _event_group_id(event)),
+        ):
+            if target is not None and self.permissions.blacklisted(
+                kind, platform, target
+            ):
+                logger.debug(
+                    "Ignore event from blacklisted {}: account={} id={}",
+                    kind,
+                    account.self_id,
+                    target,
+                )
+                return True
 
         if self.debug_config.enabled:
             user_id = _event_user_id(event)

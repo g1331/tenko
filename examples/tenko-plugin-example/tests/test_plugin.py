@@ -22,7 +22,6 @@ async def test_plugin_loads_with_config_and_declared_metadata(runtime, module):
     assert module.config.greeting == "测试问候"
     metadata = runtime.loaded_plugins["example"].metadata
     assert (metadata.feature_scope, metadata.rate_weight) == ("group", 1)
-    assert metadata.group_level == Permission.ActiveGroup
     # 装饰器声明的权限登记在命令上，/帮助 <编号> 据此显示。
     requires = command_requirements(runtime.loaded_plugins["example"])
     assert requires["示例"] == {"user": Permission.User}

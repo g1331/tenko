@@ -17,10 +17,10 @@ from satori.element import At, Author, select
 
 from tenko.host.actions import action_service
 from tenko.host.accounts import account_registry
-from tenko.context import MessageContext
+from tenko.context import QQ_PLATFORM, MessageContext
 from tenko.host.guards import group_only, private_only, require
 from tenko.host.inbox import InboxItem, inbox
-from tenko.host.perm import Permission, PermissionChecker
+from tenko.host.perm import Permission, PermissionChecker, permission_store
 from tenko.host.ratelimit import rate_limit_service
 from tenko.plugins._common import list_data, render_or_text
 from tenko.host.action_errors import action_errors, report_action_error
@@ -529,19 +529,18 @@ async def reset_capability(
     return f"已重置账号 {target_account} 的 {reset_count} 项平台能力学习状态"
 
 
-async def read_group_settings(group_id: str) -> dict[str, object]:
+async def read_group_settings(
+    group_id: str, platform: str = QQ_PLATFORM
+) -> dict[str, object]:
     """只读查询群设置；数据库不可用时返回默认值。"""
 
     from tenko.db.errors import DatabaseUnavailableError
 
+    blacklisted = permission_store.blacklisted("group", platform, group_id)
     try:
-        from tenko.db.repositories import (
-            group_perm_repository,
-            group_setting_repository,
-        )
+        from tenko.db.repositories import group_setting_repository
 
         setting_row = await group_setting_repository.get(group_id)
-        permission_row = await group_perm_repository.get(group_id)
     except DatabaseUnavailableError as error:
         if group_id not in _database_warning_groups:
             _database_warning_groups.add(group_id)
@@ -549,11 +548,9 @@ async def read_group_settings(group_id: str) -> dict[str, object]:
                 "群 {} 的设置数据库不可用，使用默认设置: {}", group_id, error
             )
         return {
+            "blacklisted": blacklisted,
             "frequency_limitation": True,
             "response_type": "random",
-            "permission_type": "default",
-            "permission": 1,
-            "active": True,
         }
 
     response_type = account_registry.response_type_for_group(group_id)
@@ -563,34 +560,24 @@ async def read_group_settings(group_id: str) -> dict[str, object]:
         )
 
     return {
+        "blacklisted": blacklisted,
         "frequency_limitation": (
             True if setting_row is None else bool(setting_row.frequency_limitation)
         ),
         "response_type": response_type,
-        "permission_type": (
-            "default" if setting_row is None else str(setting_row.permission_type)
-        ),
-        "permission": 1 if permission_row is None else int(permission_row.perm),
-        "active": True if permission_row is None else bool(permission_row.active),
     }
 
 
 def format_group_settings(group_id: str, settings: dict[str, object]) -> str:
     return (
         f"群{group_id}设置:\n"
-        f"群权限: {settings['permission']}\n"
-        f"群状态: {'启用' if settings['active'] else '停用'}\n"
+        f"群状态: {'黑名单' if settings['blacklisted'] else '正常'}\n"
         f"频率限制: {'开启' if settings['frequency_limitation'] else '关闭'}\n"
-        f"响应账号策略: {settings['response_type']}\n"
-        f"权限类型: {settings['permission_type']}"
+        f"响应账号策略: {settings['response_type']}"
     )
 
 
 _STRATEGY = {"random": "随机", "deterministic": "定向"}
-_PERMISSION_TYPE = {
-    "default": "按群身份同步成员权限",
-    "admin": "新成员自动设为群管理权限",
-}
 
 
 def group_settings_data(
@@ -599,13 +586,10 @@ def group_settings_data(
     """``list.html`` 的渲染数据，内容与 :func:`format_group_settings` 一致。"""
 
     strategy = str(settings["response_type"])
-    permission_type = str(settings["permission_type"])
     rows = (
-        ("群状态", "启用" if settings["active"] else "停用", ""),
-        ("群权限", f"等级 {settings['permission']}", ""),
+        ("群状态", "黑名单" if settings["blacklisted"] else "正常", ""),
         ("频率限制", "开启" if settings["frequency_limitation"] else "关闭", ""),
         ("响应账号策略", _STRATEGY.get(strategy, strategy), strategy),
-        ("权限类型", permission_type, _PERMISSION_TYPE.get(permission_type, "")),
     )
     items = tuple(
         {"number": number, "name": name, "meta": value, "detail": detail, "badge": ""}
@@ -656,7 +640,7 @@ async def group_setting(
         target_group = str(group.result)
     else:
         return "该指令仅支持群聊或 Master 私聊执行"
-    settings = await read_group_settings(target_group)
+    settings = await read_group_settings(target_group, context.platform)
     return await render_or_text(
         render_service,
         "list.html",

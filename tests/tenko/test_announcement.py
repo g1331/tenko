@@ -21,6 +21,7 @@ from satori import (
 from satori.element import At
 from satori.model import Event, Member
 
+from perm_support import make_checker
 from tenko.context import MessageContext
 from tenko.host.actions import (
     ActionCapability,
@@ -29,7 +30,6 @@ from tenko.host.actions import (
 )
 from tenko.host.accounts import AccountRegistry
 from tenko.host.features import FeatureService
-from tenko.host.perm import PermissionChecker, PermissionRegistry
 from tenko.host.plugins.runtime import PluginInfo
 
 
@@ -205,9 +205,7 @@ async def test_announcement_command_uses_switches_and_returns_group_summary(
     )
     monkeypatch.setattr(loaded_plugin, "account_registry", registry)
     monkeypatch.setattr(loaded_plugin, "action_service", service)
-    loaded_plugin.permission_checker = PermissionChecker(
-        registry=PermissionRegistry(bot_admin_ids=["20001"])
-    )
+    loaded_plugin.permission_checker = make_checker(None, bot_admins=["20001"])
     monkeypatch.setattr(loaded_plugin, "resolve_feature", lambda name: make_feature())
     monkeypatch.setattr(loaded_plugin, "feature_enabled", lambda feature, group: True)
 
@@ -243,9 +241,7 @@ async def test_announcement_without_confirmation_is_not_pushed(
     monkeypatch.setattr(loaded_plugin, "action_service", service)
     monkeypatch.setattr(loaded_plugin, "resolve_feature", lambda name: make_feature())
     monkeypatch.setattr(loaded_plugin, "feature_enabled", lambda feature, group: True)
-    loaded_plugin.permission_checker = PermissionChecker(
-        registry=PermissionRegistry(bot_admin_ids=["20001"])
-    )
+    loaded_plugin.permission_checker = make_checker(None, bot_admins=["20001"])
 
     result = await loaded_plugin.push_handle.callable_target(
         make_session(answer=answer),
@@ -274,9 +270,7 @@ async def test_master_group_announcement_receives_full_results_privately(
     monkeypatch.setattr(loaded_plugin, "action_service", service)
     monkeypatch.setattr(loaded_plugin, "resolve_feature", lambda name: make_feature())
     monkeypatch.setattr(loaded_plugin, "feature_enabled", lambda feature, group: True)
-    loaded_plugin.permission_checker = PermissionChecker(
-        registry=PermissionRegistry(master_id="20001")
-    )
+    loaded_plugin.permission_checker = make_checker("20001")
 
     session = make_session()
     result = await loaded_plugin.push_handle.callable_target(
@@ -311,9 +305,7 @@ async def test_announcement_progress_counts_muted_preflight_groups(
     )
     monkeypatch.setattr(loaded_plugin, "account_registry", registry)
     monkeypatch.setattr(loaded_plugin, "action_service", service)
-    loaded_plugin.permission_checker = PermissionChecker(
-        registry=PermissionRegistry(bot_admin_ids=["20001"])
-    )
+    loaded_plugin.permission_checker = make_checker(None, bot_admins=["20001"])
     monkeypatch.setattr(loaded_plugin, "resolve_feature", lambda name: make_feature())
     monkeypatch.setattr(loaded_plugin, "feature_enabled", lambda feature, group: True)
     session = make_session()

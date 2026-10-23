@@ -91,14 +91,17 @@ config/tenko.toml.example    # 配置模板
 2. 对外命令统一使用 `/` 前缀。命令解析、帮助内容和权限检查应复用现有的
    command manager、`tenko.context` 以及 `tenko.host` 服务。
    命令权限用 `tenko.host.guards` 的装饰器声明（扩展插件从 `tenko_api.perm` 导入）：
-   `@require(Permission.X)`、`@require_group(...)`、`@group_only()`、`@private_only()`，
+   `@require(Permission.X)`、`@group_only()`、`@private_only()`，
    放在 `@command.on(...)` 之下（之上也生效）。要求登记在处理函数的
    `__tenko_requires__` 上，`/帮助 <编号>` 据此显示；回复措辞统一由装饰器给出。
    只有要求取决于运行时数据（按参数、聊天类型或目标插件区分）时才在函数体里调用
    `permission_checker.require_perm`，并写一行注释说明原因。
-   插件的群等级（默认 `ActiveGroup`，低于它的群里命令被静默忽略）由 `CommandPolicy`
-   集中检查，不要在处理函数里再判断；内置插件需要别的等级时，在
-   `plugin.get_plugin().metadata.group_level` 上设置，与 `feature_scope` 的写法一致。
+   权限（`tenko/host/perm.py`，#234）：成员权限 0 成员、1 群管理、2 群主、3 BotAdmin、4 Master，
+   取 `max(实时群身份, 手动授权)`，只用名字比较；手动授权（本群群管理、全局 BotAdmin）和人、群
+   黑名单存在 `PermissionStore` 的内存快照里，键都是 `(平台, ID)`。黑名单在事件入口
+   （`MessageEventHandler.should_skip`）统一丢弃，插件不必判断；受控插件（`declare(controlled=True)`）
+   默认关闭、只有 BotAdmin 能在群里打开和在私聊使用，由 `CommandPolicy`、`feature_required` 和
+   `/开启` 检查。
    群聊回复默认引用触发消息：`tenko/host/quote.py` 挂在 Entari 的 `SendRequest` 上，给
    `session.send` 发往触发它的群的回复自动补 `Quote`，插件不用自己写 `reply_to`。已含 `Quote`
    或 `<message>`（合并转发/多条消息）的内容、私聊、以及不经 session 的主动发送
@@ -142,8 +145,7 @@ config/tenko.toml.example    # 配置模板
   空白、前缀和昵称并匹配出命令后，按 `get_plugin_commands` 把命令映射到所属插件，返回
   `False` 即阻断；不要再按消息原文判断命令归属。限流（冷却或临时拉黑）静默，只记调试日志；
   `GroupSetting.frequency_limitation` 为假的群不限流（`/频率限制` 修改）。
-  群等级低于插件要求（`declare(level=...)`，默认 `ActiveGroup`）时同样静默忽略，对内置和扩展插件
-  插件一视同仁；检查在维护、开关和限流之前。不经过命令的监听器（例如响应 @bot 的消息）用
+  私聊只检查受控插件。不经过命令的监听器（例如响应 @bot 的消息）用
   `tenko_api.features.feature_required` 装饰，检查所属插件的开关和维护模式。
   Entari 里已注册命令、但未登记为内置或扩展的插件，其群聊命令会被拒绝执行。
   扩展插件不能自封“受保护”：`classifier` 里的 `host`/`required` 对它无效。

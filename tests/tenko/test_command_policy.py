@@ -28,8 +28,8 @@ from external_plugin_support import (
     patch_entry_points,
     write_plugin,
 )
+from perm_support import make_checker
 from tenko.host.features import CommandPolicy, FeatureService
-from tenko.host.perm import PermissionChecker, PermissionRegistry
 from tenko.host.plugins.runtime import PluginRuntime
 from tenko.host.ratelimit import RateLimitService
 
@@ -76,7 +76,7 @@ async def env(entari_plugin_host, monkeypatch, tmp_path):
         features,
         limiter,
         plugin_runtime=runtime,
-        permission_checker=PermissionChecker(registry=PermissionRegistry()),
+        permission_checker=make_checker(),
     )
     # 命令前缀要在插件构建 Alconna 命令之前配置。
     with entari_command_dispatch(policy):

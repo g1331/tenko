@@ -4,7 +4,7 @@
 
 插件依赖它，而不是依赖 `tenko` 本体：`tenko-api` 没有任何运行时依赖，
 只是转发到正在运行的 Tenko 宿主，因此不会影响插件自己的依赖解析。插件声明
-`tenko-api>=0.3,<0.4` 这样的范围；宿主加载插件前按自己提供的 `tenko-api` 版本检查
+`tenko-api>=0.4,<0.5` 这样的范围；宿主加载插件前按自己提供的 `tenko-api` 版本检查
 这个范围，不兼容的插件不加载并在日志中说明原因，插件不需要另写兼容检查。
 
 > 当前为预览版（0.x）。1.0 之前接口可能调整，请把上限写到次版本。
@@ -19,7 +19,7 @@
 [project]
 name = "tenko-plugin-hello"
 version = "0.1.0"
-dependencies = ["tenko-api>=0.3,<0.4"]
+dependencies = ["tenko-api>=0.4,<0.5"]
 
 [project.entry-points."tenko.plugins"]
 hello = "tenko_plugin_hello"   # 入口名 = 插件 ID
@@ -34,9 +34,7 @@ from tenko_api.features import declare
 from tenko_api.perm import Permission, require
 
 plugin.metadata("你好", author=["you"], version="0.1.0", description="打招呼")
-declare(
-    scope="group", default_enabled=True, rate_weight=1, level=Permission.ActiveGroup
-)
+declare(scope="group", default_enabled=True, rate_weight=1)
 
 
 @command.on(Alconna("你好"))
@@ -57,16 +55,19 @@ async def hello(session: Session):
 
 | 装饰器 | 作用 |
 |---|---|
-| `@require(Permission.X)` | 发送者的成员权限不低于 X（含 Master、BotAdmin 和数据库里的黑名单）；不足时回复“权限不足（当前权限：… / 需要权限：…）” |
-| `@require_group(Permission.X)` | 当前群等级不低于 X，不足时**静默忽略**；私聊不受限 |
+| `@require(Permission.X)` | 发送者的成员权限不低于 X；不足时回复“权限不足（当前权限：… / 需要权限：…）” |
 | `@group_only()` / `@private_only()` | 只允许群聊 / 私聊，否则回复“该指令只能在群聊/私聊中使用” |
 
 - 装饰器放在 `@command.on(...)` 之下，放在之上也同样生效；同一种装饰器在一个函数上只能用一次。
   它们在命令匹配之后执行，所以只有命中命令的消息才会收到拒绝回复。
 - 声明的要求登记在处理函数上，`/帮助 <编号>` 会显示每条命令的“权限”。
 - 只有权限取决于运行时数据时（例如按参数区分的权限）才在函数体里调用 `require_perm(session, level)`。
-- `declare(level=Permission.X)` 声明整个插件要求的群等级，默认 `ActiveGroup`：群等级更低的群里，
-  该插件的所有命令都被宿主静默忽略。
+- 权限从低到高是 `User`（成员）、`GroupAdmin`（群管理）、`GroupOwner`（群主）、`BotAdmin`、
+  `Master`，只用名字比较，不要写数值。群主、群管理取消息里的实时群身份，另可手动授予本群群管理
+  或全局 BotAdmin。
+- 黑名单里的人和群的消息在进入插件之前就被丢弃（包括不走命令的监听器），插件不需要判断。
+- `declare(controlled=True)` 把插件标为受控插件（例如消耗 token 的 AI 插件）：所有群默认关闭，
+  只有 BotAdmin 及以上能在群里打开；私聊里只有 BotAdmin 及以上能用。
 - 不走命令的监听器（例如响应 @bot 的消息监听）没有宿主的命令策略保护，用
   `@feature_required()` 检查所属插件的功能开关和维护模式（只在群聊生效，默认静默，
   `notify=True` 时回复提示）。所属插件按被装饰函数的模块确定，规则与 `data_dir()` 相同。
@@ -86,10 +87,10 @@ async def on_message(event: MessageCreatedEvent): ...
 
 | 模块 | 内容 |
 |---|---|
-| `tenko_api.perm` | `Permission`；装饰器 `require`、`require_group`、`group_only`、`private_only`；函数体内的 `require_perm`、`get_user_perm`、`get_group_perm` |
+| `tenko_api.perm` | `Permission`；装饰器 `require`、`group_only`、`private_only`；函数体内的 `require_perm`、`get_user_perm` |
 | `tenko_api.actions` | 发消息、禁言、踢人、撤回、查询群成员等宿主动作，以及 `ActionServiceError` 系列异常 |
-| `tenko_api.accounts` | 只读账号信息：在线账号、某群可响应的账号 |
-| `tenko_api.features` | `feature_enabled` 只读查询；`declare` 声明范围、默认开关、限流权重和群等级；`feature_required` 装饰非命令监听器 |
+| `tenko_api.accounts` | 只读账号信息：在线账号、某群可响应的账号（群在黑名单时为空） |
+| `tenko_api.features` | `feature_enabled` 只读查询；`declare` 声明范围、默认开关、限流权重和是否受控；`feature_required` 装饰非命令监听器 |
 | `tenko_api.render` | `RenderService`、`try_render`（浏览器不可用时得到 `None`，回退文本；`render_or_none` 是按方法名分发的旧写法） |
 | `tenko_api.messages` | `report_error` |
 | `tenko_api.storage` | 插件独立数据目录 `data_dir()`、带版本号并自动备份迁移的 JSON `Store`、插件自己的 SQLite 库 `Model` 与 `get_session()` |
@@ -132,7 +133,9 @@ async def latest() -> str | None:
 ## 版本承诺
 
 版本号独立于 Tenko 本体，遵循语义化版本（1.0 起生效）。1.0 之前删除或改变语义时次版本号 +1，
-例如 0.3.0 移除了 `tenko_api.context` 和 `text_message`，权限函数改为接收 `Session`。
+例如 0.3.0 移除了 `tenko_api.context` 和 `text_message`，权限函数改为接收 `Session`；
+0.4.0 重做权限（#234）：`Permission` 改为 0–4 的五级、删除群等级（`require_group`、
+`get_group_perm`、`declare(level=...)`），新增 `declare(controlled=...)`。
 
 | 变更 | 版本号 |
 |---|---|

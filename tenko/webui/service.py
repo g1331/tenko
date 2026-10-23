@@ -47,6 +47,7 @@ from .logs import LogReader
 from .plugins import PluginMarket
 from ..host.chat_log import chat_log
 from ..host import sandbox as sandbox_module
+from ..host.perm import Permission
 from ..host.sandbox import SANDBOX_GROUP_ID
 from ..host.metrics import MessageMetrics, message_metrics
 from . import core_config
@@ -194,7 +195,6 @@ class WebUIService(Service):
         metrics: MessageMetrics = message_metrics,
         feature_service: FeatureService = default_feature_service,
         feature_repository: Any | None = None,
-        group_repository: Any | None = None,
         plugin_runtime: PluginRuntime | None = None,
         management: AccountManagement | None = None,
         connection: Any | None = None,
@@ -208,7 +208,6 @@ class WebUIService(Service):
         self.metrics = metrics
         self.feature_service = feature_service
         self.feature_repository = feature_repository
-        self.group_repository = group_repository
         self.plugin_runtime = plugin_runtime
         self.management = management
         self.connection = connection
@@ -388,7 +387,9 @@ class WebUIService(Service):
         level = self.accounts.group_permission(key, group_id)
         if level is None:
             return None
-        return "owner" if level >= 64 else "admin" if level >= 32 else "member"
+        if level >= Permission.GroupOwner:
+            return "owner"
+        return "admin" if level >= Permission.GroupAdmin else "member"
 
     def _accounts_data(self) -> dict[str, Any]:
         groups = []
@@ -528,10 +529,16 @@ class WebUIService(Service):
                 description = str(getattr(metadata, "description", None) or "")
                 icon = self.market.icon_of(plugin_name, source)
 
-            # 插件可以声明“新群默认关闭”（declare(default_enabled=False)）。
-            plugin_default = default_enabled and getattr(
-                self.feature_service, "plugin_defaults", {}
-            ).get(plugin_name, True)
+            # 插件可以声明“新群默认关闭”（declare(default_enabled=False)）；受控插件
+            # 也默认关闭（#234）。
+            controlled = plugin_name in getattr(self.feature_service, "controlled", ())
+            plugin_default = (
+                default_enabled
+                and not controlled
+                and getattr(self.feature_service, "plugin_defaults", {}).get(
+                    plugin_name, True
+                )
+            )
             groups = {
                 group_id: self._effective_enabled(state, group_id, plugin_default)
                 for group_id in group_ids
@@ -544,6 +551,7 @@ class WebUIService(Service):
                     "icon": icon,
                     "scope": scope,
                     "source": source,
+                    "controlled": controlled,
                     "protected": bool(
                         info is not None
                         and self.plugin_runtime is not None
@@ -573,20 +581,15 @@ class WebUIService(Service):
         return {"features": features, "group_names": await self._group_names()}
 
     async def _group_names(self) -> dict[str, str]:
-        """群名称仅用于展示；读取失败不能影响功能开关接口。"""
+        """群名称取聊天记录里最近记下的名字，仅用于展示；读取失败不影响调用方。"""
 
-        if self.group_repository is None:
+        if not chat_log.enabled:
             return {}
         try:
-            rows = await self.group_repository.list_all()
+            return await chat_log.repository.group_names()
         except Exception as error:
             logger.debug("WebUI group names unavailable: {}", type(error).__name__)
             return {}
-        return {
-            str(row.group_id): row.group_name
-            for row in rows
-            if row.group_name and row.group_name != str(row.group_id)
-        }
 
     @staticmethod
     def _effective_enabled(

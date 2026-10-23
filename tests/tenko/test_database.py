@@ -129,12 +129,15 @@ async def test_official_database_plugin_preserves_legacy_schema_and_rows(
         AccountResponseState,
         AccountRoute,
         FeatureState,
+        GroupBlacklist,
         GroupPerm,
         GroupSetting,
         MemberPerm,
+        PermissionGrant,
         RateLimitEvent,
         RateLimitSubjectState,
         StartupTime,
+        UserBlacklist,
     )
 
     await service.initialize()
@@ -199,6 +202,9 @@ async def test_official_database_plugin_preserves_legacy_schema_and_rows(
         "TenkoWebUIAccount": WebUIAccount,
         "TenkoWebUISession": WebUISession,
         "TenkoChatMessage": ChatMessage,
+        "TenkoUserBlacklist": UserBlacklist,
+        "TenkoGroupBlacklist": GroupBlacklist,
+        "TenkoPermissionGrant": PermissionGrant,
     }
     assert {model.__tablename__ for model in MODEL_CLASSES} == set(expected_models)
     assert set(expected_models) <= set(state)

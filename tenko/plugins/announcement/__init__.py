@@ -23,10 +23,10 @@ from tenko.host.actions import (
     ActionTargetUnavailable,
     action_service,
 )
-from tenko.host.accounts import AccountRegistry, account_registry
+from tenko.host.accounts import AccountRegistry, account_key, account_registry
 from tenko.host.features import feature_service
 from tenko.host.guards import group_only, require
-from tenko.host.perm import Permission, PermissionChecker
+from tenko.host.perm import Permission, PermissionChecker, permission_store
 from tenko.host.plugins.runtime import PluginInfo, PluginRuntime
 from tenko.host.action_errors import action_error_message, report_action_error
 from tenko.context import context_from_session
@@ -112,6 +112,8 @@ def _preflight_group(
     bound = registry.bound_accounts_for_group(group_id)
     if not bound:
         return None, PushResult(group_id, "skipped_no_account", "没有绑定账号")
+    if permission_store.blacklisted("group", account_key(bound[0])[0], group_id):
+        return None, PushResult(group_id, "skipped_blacklisted", "群在黑名单")
 
     available = [account for account in bound if registry.is_available(account)]
     if not available:

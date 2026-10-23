@@ -7,6 +7,7 @@ import pytest
 from satori.exception import ActionFailed
 from satori.model import IterablePageResult, PageResult
 
+from perm_support import make_checker
 from tenko.context import MessageContext
 from tenko.host.actions import (
     ActionCapability,
@@ -19,7 +20,7 @@ from tenko.host.actions import (
 )
 from tenko.host.accounts import AccountRegistry
 from tenko.host.actions import ActionAccountUnavailable
-from tenko.host.perm import Permission, PermissionChecker, PermissionRegistry
+from tenko.host.perm import Permission
 
 
 @dataclass
@@ -135,13 +136,13 @@ def make_service(
     account = FakeAccount("10001", actual_protocol)
     accounts = AccountRegistry()
     accounts.register(account, groups=["40001"])
-    permissions = PermissionRegistry(
-        master_id=user_id if role == "master" else None,
-        bot_admin_ids=[user_id] if role == "bot_admin" else [],
+    permissions = make_checker(
+        user_id if role == "master" else None,
+        bot_admins=[user_id] if role == "bot_admin" else [],
     )
     service = ActionService(
         accounts,
-        PermissionChecker(registry=permissions),
+        permissions,
         capability_overrides=overrides,
     )
     return service, account, make_context(user_id, role=role), actual_protocol
@@ -502,7 +503,7 @@ async def test_group_manager_action_falls_back_to_another_admin_account() -> Non
     accounts.register(first, groups=["40001"])
     accounts.register(second, groups=["40001"])
     accounts.set_group_permission(second, "40001", Permission.GroupAdmin)
-    permissions = PermissionChecker(registry=PermissionRegistry())
+    permissions = make_checker()
     service = ActionService(accounts, permissions)
     context = make_context(account_id="10001")
 
@@ -534,7 +535,7 @@ async def test_group_manager_discovers_admin_from_raw_onebot_member_info() -> No
     accounts.register(second, groups=["40001"])
     service = ActionService(
         accounts,
-        PermissionChecker(registry=PermissionRegistry()),
+        make_checker(),
     )
 
     receipt = await service.mute_member(

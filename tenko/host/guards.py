@@ -31,19 +31,11 @@ REQUIRES_ATTR = "__tenko_requires__"
 permission_checker = PermissionChecker()
 
 _USER_LABELS = {
-    Permission.GlobalBlack: "全局黑名单",
-    Permission.GroupBlack: "群黑名单",
     Permission.User: "成员",
     Permission.GroupAdmin: "群管理员",
     Permission.GroupOwner: "群主",
     Permission.BotAdmin: "BOT 管理员",
     Permission.Master: "Master",
-}
-_GROUP_LABELS = {
-    Permission.InactiveGroup: "未激活群",
-    Permission.ActiveGroup: "活跃群",
-    Permission.VipGroup: "VIP 群",
-    Permission.TestGroup: "测试群",
 }
 _CHAT_LABELS = {"group": "群聊", "private": "私聊"}
 
@@ -82,7 +74,7 @@ class _Guard(Propagator):
     """一个声明式检查：登记要求，并在 Alconna 匹配之后拦截。"""
 
     kind: ClassVar[str]
-    # Alconna 匹配是 70；用户权限最后检查，群等级不足时不应先提示权限。
+    # Alconna 匹配是 70；先查聊天类型，再查用户权限。
     priority: ClassVar[int]
 
     def __init__(self, value: Any) -> None:
@@ -116,15 +108,6 @@ class _ChatGate(_Guard):
         return False
 
 
-class _GroupGate(_Guard):
-    kind, priority = "group", 81
-
-    async def allowed(self, session, context):
-        # 私聊没有群等级约束（require_group_perm 直接放行）；群等级不足时静默
-        # 忽略，等同 Graia v3 group_require 的 if_noticed=False。
-        return await permission_checker.require_group_perm(context, self.value)
-
-
 class _UserGate(_Guard):
     kind, priority = "user", 82
 
@@ -156,14 +139,6 @@ def require(
     return _UserGate(Permission(level), checker)
 
 
-def require_group(level: Permission) -> Callable[[Any], Any]:
-    """要求当前群等级不低于 ``level``，不足时静默忽略；私聊不受限制。"""
-
-    if level not in _GROUP_LABELS:
-        raise ValueError(f"群等级必须是 Permission.InactiveGroup..TestGroup: {level!r}")
-    return _GroupGate(Permission(level))
-
-
 def private_only() -> Callable[[Any], Any]:
     """仅允许私聊触发，群聊中回复提示。"""
 
@@ -182,8 +157,6 @@ def requirement_text(requires: Mapping[str, object]) -> str | None:
     parts = []
     if "user" in requires:
         parts.append(user_label(requires["user"]))  # type: ignore[arg-type]
-    if "group" in requires:
-        parts.append(f"{_GROUP_LABELS[requires['group']]}及以上")  # type: ignore[index]
     if "chat" in requires:
         parts.append(f"仅{_CHAT_LABELS[requires['chat']]}")  # type: ignore[index]
     return "，".join(parts) or None
@@ -237,9 +210,19 @@ class _FeatureGate(Propagator):
 
     async def check(self, session: Session | None = None):
         context = _context(session)
-        if context is None or session is None or context.chat_type != "group":
+        if context is None or session is None:
             return
         label = getattr(getattr(self.native, "metadata", None), "name", self.plugin_id)
+        if context.chat_type != "group":
+            # 受控插件在私聊里只有 BotAdmin 及以上能用，与命令的规则一致。
+            if context.chat_type == "private" and feature_service.is_controlled(
+                self.plugin_id
+            ):
+                if not await permission_checker.require_perm(
+                    context, Permission.BotAdmin
+                ):
+                    return STOP
+            return
         if not feature_service.ready:
             notice = "功能状态暂不可用，请稍后再试"
         elif feature_service.is_maintenance(self.plugin_id):
@@ -260,6 +243,5 @@ __all__ = [
     "group_only",
     "private_only",
     "require",
-    "require_group",
     "requirement_text",
 ]

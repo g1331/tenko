@@ -10,6 +10,8 @@ from typing import TYPE_CHECKING, Literal
 
 from loguru import logger
 from satori.client import Account
+
+from .perm import Permission
 from satori.exception import ActionFailed
 
 from ..context import QQ_PLATFORM, MessageContext, normalize_platform
@@ -23,14 +25,14 @@ SilentReason = Literal["no_account", "target_unavailable"]
 _NO_MUTE = object()
 _MAX_EVENT_SELECTIONS = 4096
 _GROUP_PERMISSION_LEVELS = {
-    "member": 16,
-    "user": 16,
-    "admin": 32,
-    "administrator": 32,
-    "owner": 64,
-    "群员": 16,
-    "管理员": 32,
-    "群主": 64,
+    "member": Permission.User,
+    "user": Permission.User,
+    "admin": Permission.GroupAdmin,
+    "administrator": Permission.GroupAdmin,
+    "owner": Permission.GroupOwner,
+    "群员": Permission.User,
+    "管理员": Permission.GroupAdmin,
+    "群主": Permission.GroupOwner,
 }
 
 
@@ -585,7 +587,7 @@ class AccountRegistry:
         return self._group_permissions.get((account_key(account_or_id), _key(group_id)))
 
     def management_accounts_for_group(
-        self, group_id: str | int, *, minimum: int = 32
+        self, group_id: str | int, *, minimum: int = Permission.GroupAdmin
     ) -> tuple[Account, ...]:
         """返回在线且已知达到管理权限的群账号。"""
 

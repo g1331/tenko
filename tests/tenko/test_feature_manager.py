@@ -18,8 +18,8 @@ from satori import (
 )
 from satori.model import Event, Member
 
+from perm_support import make_checker
 from tenko.host.features import FeatureService
-from tenko.host.perm import PermissionChecker, PermissionRegistry
 
 
 def make_session(user_id: str = "20001", role: str = "admin"):
@@ -52,7 +52,7 @@ async def test_feature_commands_persist_group_switch_and_restore(
     service = FeatureService(repositories["feature"])
     await service.initialize()
     monkeypatch.setattr(loaded_plugin, "feature_service", service)
-    loaded_plugin.permission_checker = PermissionChecker(registry=PermissionRegistry())
+    loaded_plugin.permission_checker = make_checker()
     session = make_session()
 
     disabled = await loaded_plugin.disable.callable_target(
@@ -77,7 +77,7 @@ async def test_feature_commands_persist_group_switch_and_restore(
 @pytest.mark.asyncio
 @pytest.mark.parametrize("loaded_plugin", ["feature_manager"], indirect=True)
 async def test_feature_commands_cannot_disable_required_host_plugin(loaded_plugin):
-    loaded_plugin.permission_checker = PermissionChecker(registry=PermissionRegistry())
+    loaded_plugin.permission_checker = make_checker()
 
     result = await loaded_plugin.disable.callable_target(
         make_session(), Match("feature_manager", True)
@@ -107,7 +107,7 @@ async def test_feature_commands_can_disable_required_function_plugin(
     )
     service = FeatureService()
     monkeypatch.setattr(loaded_plugin, "feature_service", service)
-    loaded_plugin.permission_checker = PermissionChecker(registry=PermissionRegistry())
+    loaded_plugin.permission_checker = make_checker()
 
     result = await loaded_plugin.disable.callable_target(
         make_session(), Match("announcement", True)
@@ -140,9 +140,7 @@ async def test_feature_commands_toggle_global_feature(loaded_plugin, monkeypatch
     )
     service = FeatureService()
     monkeypatch.setattr(loaded_plugin, "feature_service", service)
-    loaded_plugin.permission_checker = PermissionChecker(
-        registry=PermissionRegistry(bot_admin_ids=["20001"])
-    )
+    loaded_plugin.permission_checker = make_checker(None, bot_admins=["20001"])
 
     refused = await loaded_plugin.disable.callable_target(
         make_session("20002"), Match("startup_notify", True)
@@ -162,7 +160,7 @@ async def test_feature_commands_toggle_global_feature(loaded_plugin, monkeypatch
 @pytest.mark.asyncio
 @pytest.mark.parametrize("loaded_plugin", ["feature_manager"], indirect=True)
 async def test_feature_commands_reject_unknown_plugin(loaded_plugin):
-    loaded_plugin.permission_checker = PermissionChecker(registry=PermissionRegistry())
+    loaded_plugin.permission_checker = make_checker()
 
     unknown_result = await loaded_plugin.disable.callable_target(
         make_session(), Match("not-a-plugin", True)
@@ -205,7 +203,7 @@ async def test_feature_numbers_match_help_and_external_cannot_claim_protection(
     )
     service = FeatureService()
     monkeypatch.setattr(loaded_plugin, "feature_service", service)
-    loaded_plugin.permission_checker = PermissionChecker(registry=PermissionRegistry())
+    loaded_plugin.permission_checker = make_checker()
 
     # /帮助 只列出已加载的插件：ext_on 是第 2 号，而不是发现顺序里的第 3 号。
     assert loaded_plugin.resolve_plugin("2").name == "ext_on"

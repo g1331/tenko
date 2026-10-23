@@ -97,7 +97,8 @@ max_weight = 24
 default_weight = 1
 cooldown_seconds = 5.0
 blacklist_seconds = 300.0
-override_permission = 32
+# 1 群管理、2 群主、3 BOT 管理员、4 Master。
+override_permission = 1
 
 [render]
 # 图片渲染由内置 RenderService 提供（Playwright + Chromium，必装，无开关）。

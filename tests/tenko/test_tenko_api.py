@@ -26,8 +26,8 @@ from external_plugin_support import (
     write_plugin,
 )
 
+from perm_support import make_checker
 from tenko.host.features import CommandPolicy, feature_service
-from tenko.host.perm import PermissionChecker, PermissionRegistry
 from tenko.host.plugins.runtime import PluginRuntime
 from tenko.host.ratelimit import RateLimitService
 
@@ -39,9 +39,7 @@ PUBLIC_API = {
         "Permission",
         "require_perm",
         "get_user_perm",
-        "get_group_perm",
         "require",
-        "require_group",
         "private_only",
         "group_only",
     },
@@ -118,7 +116,7 @@ async def test_perm_facade_hides_checker_argument(monkeypatch) -> None:
     session = SimpleNamespace(event=SimpleNamespace(_origin=message_event("hi")))
     monkeypatch.setattr(
         "tenko.host.perm.PermissionChecker",
-        lambda: PermissionChecker(registry=PermissionRegistry()),
+        lambda: make_checker(),
     )
     assert await perm.require_perm(session, perm.Permission.User)
     assert not await perm.require_perm(session, perm.Permission.Master)
@@ -220,7 +218,7 @@ async def test_declare_default_disabled_and_rate_weight_reach_command_policy(
         features,
         limiter,
         plugin_runtime=runtime,
-        permission_checker=PermissionChecker(registry=PermissionRegistry()),
+        permission_checker=make_checker(),
     )
     account = FakeAccount()
 
@@ -260,7 +258,7 @@ async def test_declare_rejects_bad_values_and_foreign_callers(
         declare(rate_weight=0)
     with pytest.raises(TypeError, match="default_enabled"):
         declare(default_enabled="no")  # type: ignore[arg-type]
-    with pytest.raises(ValueError):
-        declare(level=16)  # type: ignore[arg-type]
+    with pytest.raises(TypeError, match="controlled"):
+        declare(controlled="yes")  # type: ignore[arg-type]
     with pytest.raises(RuntimeError, match="扩展插件"):
         declare()

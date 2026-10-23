@@ -11,6 +11,7 @@ from unittest.mock import AsyncMock, Mock, call
 import pytest
 from loguru import logger
 
+from perm_support import make_checker
 from tenko.context import MessageContext
 from tenko.host.plugins import runtime as plugin_host
 from tenko.host.plugins.runtime import PluginRuntime
@@ -162,7 +163,6 @@ async def test_command_owner_resolves_real_plugins_by_registered_command(
     from command_dispatch_support import message_event
     from tenko.commands import configure_command_prefix
     from tenko.host.features import CommandPolicy, FeatureService
-    from tenko.host.perm import PermissionChecker, PermissionRegistry
 
     runtime = PluginRuntime()
     configure_command_prefix(())
@@ -172,8 +172,8 @@ async def test_command_owner_resolves_real_plugins_by_registered_command(
         # 归属取自 Entari 的插件命令登记，按 Alconna 命令名查询。
         assert runtime.command_owner("禁言").name == "group_manager"
         assert runtime.command_owner("全体禁言").name == "group_manager"
-        assert runtime.command_owner("修改权限").name == "perm_manager"
-        assert runtime.command_owner("全局黑").name == "perm_manager"
+        assert runtime.command_owner("授权").name == "perm_manager"
+        assert runtime.command_owner("拉黑").name == "perm_manager"
         assert runtime.command_owner("禁言x") is None
         assert runtime.command_owner("普通消息") is None
 
@@ -182,7 +182,7 @@ async def test_command_owner_resolves_real_plugins_by_registered_command(
         policy = CommandPolicy(
             features,
             plugin_runtime=runtime,
-            permission_checker=PermissionChecker(registry=PermissionRegistry()),
+            permission_checker=make_checker(),
         )
         session = SimpleNamespace(
             event=SimpleNamespace(_origin=message_event("/禁言 @1 2"))

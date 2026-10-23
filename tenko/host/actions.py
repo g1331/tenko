@@ -339,12 +339,14 @@ class ActionService:
         *,
         checker: PermissionChecker | None = None,
     ) -> bool:
-        """按旧 ``core.control`` 数值语义检查群状态和成员权限。"""
+        """检查群是否在黑名单、发送者权限是否足够。"""
 
         if context is None:
             raise ActionPermissionDenied("管理动作缺少消息权限上下文")
         permission = checker or self.permission_checker
-        if not await permission.require_group_perm(context, Permission.ActiveGroup):
+        if context.chat_type == "group" and permission.store.blacklisted(
+            "group", context.platform, context.channel_id
+        ):
             raise ActionPermissionDenied("当前群不可用")
         if not await permission.require_perm(context, required):
             raise ActionPermissionDenied("权限不足")

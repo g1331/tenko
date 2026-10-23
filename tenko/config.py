@@ -661,7 +661,8 @@ class RateLimitConfig:
     default_weight: int = 1
     cooldown_seconds: float = 5.0
     blacklist_seconds: float = 300.0
-    override_permission: int = 32
+    # 1 群管理、2 群主、3 BotAdmin、4 Master（tenko.host.perm.Permission）。
+    override_permission: int = 1
 
     def __post_init__(self) -> None:
         if self.window_seconds <= 0:
@@ -670,8 +671,11 @@ class RateLimitConfig:
             raise ValueError("ratelimit weight 必须大于 0")
         if self.cooldown_seconds < 0 or self.blacklist_seconds < 0:
             raise ValueError("ratelimit 冷却时间不能为负数")
-        if self.override_permission < 0:
-            raise ValueError("ratelimit override_permission 不能为负数")
+        if not 1 <= self.override_permission <= 4:
+            raise ValueError(
+                "ratelimit override_permission 必须是 1（群管理）、2（群主）、"
+                "3（BOT 管理员）或 4（Master）"
+            )
 
     @classmethod
     def from_mapping(cls, section: Mapping[str, Any]) -> RateLimitConfig:

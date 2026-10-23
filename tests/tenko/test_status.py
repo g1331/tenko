@@ -21,10 +21,10 @@ from satori import (
 from satori.model import Event, Member
 
 import tenko.host.status as host_status
+from perm_support import make_checker
 from tenko.host.metrics import MessageMetrics
 from tenko.context import MessageContext
 from tenko.host.accounts import AccountRegistry
-from tenko.host.perm import PermissionChecker, PermissionRegistry
 
 
 def make_session(user_id: str, role: str, protocol=None):
@@ -134,7 +134,7 @@ def test_status_declares_render_service_for_entari_injection(loaded_plugin) -> N
 async def test_status_command_reports_legacy_group_fields_without_context_details(
     loaded_plugin, monkeypatch
 ) -> None:
-    loaded_plugin.permission_checker = PermissionChecker(registry=PermissionRegistry())
+    loaded_plugin.permission_checker = make_checker()
     monkeypatch.setattr(host_status, "message_metrics", MessageMetrics())
     patch_status_data(loaded_plugin, monkeypatch)
 
@@ -176,7 +176,7 @@ async def test_status_command_reports_legacy_group_fields_without_context_detail
 async def test_status_command_sends_rendered_image_when_available(
     loaded_plugin, monkeypatch
 ) -> None:
-    loaded_plugin.permission_checker = PermissionChecker(registry=PermissionRegistry())
+    loaded_plugin.permission_checker = make_checker()
     patch_status_data(loaded_plugin, monkeypatch)
     renderer = AsyncMock(return_value=b"jpeg-bytes")
     monkeypatch.setattr("tenko.plugins._common.try_render", renderer)
@@ -202,7 +202,7 @@ async def test_status_command_sends_rendered_image_when_available(
 async def test_status_command_falls_back_to_text_when_rendering_fails(
     loaded_plugin, monkeypatch
 ) -> None:
-    loaded_plugin.permission_checker = PermissionChecker(registry=PermissionRegistry())
+    loaded_plugin.permission_checker = make_checker()
     patch_status_data(loaded_plugin, monkeypatch)
     renderer = AsyncMock(return_value=None)
     monkeypatch.setattr("tenko.plugins._common.try_render", renderer)
@@ -228,9 +228,7 @@ async def test_master_private_status_appends_only_operational_diagnostic(
     loaded_plugin, monkeypatch
 ) -> None:
     protocol = PrivateMessageProtocol()
-    loaded_plugin.permission_checker = PermissionChecker(
-        registry=PermissionRegistry(master_id="90001")
-    )
+    loaded_plugin.permission_checker = make_checker("90001")
     patch_status_data(loaded_plugin, monkeypatch)
 
     result = await loaded_plugin.status.callable_target(
@@ -259,9 +257,7 @@ async def test_master_group_status_never_pushes_private_diagnostic(
     loaded_plugin, monkeypatch
 ) -> None:
     protocol = PrivateMessageProtocol()
-    loaded_plugin.permission_checker = PermissionChecker(
-        registry=PermissionRegistry(master_id="90001")
-    )
+    loaded_plugin.permission_checker = make_checker("90001")
     patch_status_data(loaded_plugin, monkeypatch)
 
     result = await loaded_plugin.status.callable_target(

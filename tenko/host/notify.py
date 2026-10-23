@@ -136,10 +136,9 @@ def masters(
 ) -> tuple[str, ...]:
     """接收私聊通知的 Master：运行时指定的 Master 加上该平台的全部 superusers。"""
 
-    registry = getattr(permission_checker, "registry", None)
-    first = str(getattr(registry, "master_id", None) or "").strip()
+    given = sorted(getattr(permission_checker, "masters", None) or ())
     platform = getattr(account, "platform", None) or QQ_PLATFORM
-    return tuple(dict.fromkeys(x for x in (first, *superuser_ids(platform)) if x))
+    return tuple(dict.fromkeys(x for x in (*given, *superuser_ids(platform)) if x))
 
 
 async def notify(

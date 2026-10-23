@@ -28,7 +28,7 @@ from .migration import LEGACY_SCHEMA_REVISION
 
 
 class MemberPerm(BaseOrm):
-    """成员权限；``group_id=0`` 表示全局权限记录。"""
+    """已废弃（#234）：旧成员权限，不再读写；类保留是为了不触发删表。"""
 
     __tablename__ = "MemberPerm"
     __revision__ = LEGACY_SCHEMA_REVISION
@@ -44,7 +44,7 @@ class MemberPerm(BaseOrm):
 
 
 class GroupPerm(BaseOrm):
-    """群等级和启用状态。"""
+    """已废弃（#234）：旧群等级，不再读写；类保留是为了不触发删表。"""
 
     __tablename__ = "GroupPerm"
     __revision__ = LEGACY_SCHEMA_REVISION
@@ -76,6 +76,7 @@ class GroupSetting(BaseOrm):
         info={"check": ["random", "deterministic"]},
         default="random",
     )
+    # 已废弃（#234），不再读写；删列会被“只前进”保护拒绝，所以保留。
     permission_type: Mapped[str] = mapped_column(
         String,
         nullable=True,
@@ -220,6 +221,44 @@ class WebUISession(BaseOrm):
     user_agent: Mapped[str] = mapped_column(String(200), nullable=False, default="")
 
 
+class UserBlacklist(BaseOrm):
+    """全局黑名单：名单里的人在任何群和私聊都得不到响应。"""
+
+    __tablename__ = "TenkoUserBlacklist"
+
+    platform: Mapped[str] = mapped_column(String(128), primary_key=True)
+    user_id: Mapped[str] = mapped_column(String(128), primary_key=True)
+    reason: Mapped[str] = mapped_column(String(200), nullable=False, default="")
+    operator_id: Mapped[str] = mapped_column(String(128), nullable=False, default="")
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False
+    )
+
+
+class GroupBlacklist(BaseOrm):
+    """群黑名单：名单里的群完全不响应。"""
+
+    __tablename__ = "TenkoGroupBlacklist"
+
+    platform: Mapped[str] = mapped_column(String(128), primary_key=True)
+    group_id: Mapped[str] = mapped_column(String(128), primary_key=True)
+    reason: Mapped[str] = mapped_column(String(200), nullable=False, default="")
+    operator_id: Mapped[str] = mapped_column(String(128), nullable=False, default="")
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False
+    )
+
+
+class PermissionGrant(BaseOrm):
+    """手动授予的权限：``scope`` 为空串是全局 BotAdmin，否则是该群的群管理。"""
+
+    __tablename__ = "TenkoPermissionGrant"
+
+    platform: Mapped[str] = mapped_column(String(128), primary_key=True)
+    scope: Mapped[str] = mapped_column(String(128), primary_key=True)
+    user_id: Mapped[str] = mapped_column(String(128), primary_key=True)
+
+
 class ChatMessage(BaseOrm):
     """面板聊天页的消息记录：某个 bot 账号在群聊或私聊里收到、发出的一条消息。
 
@@ -270,12 +309,18 @@ MODEL_CLASSES = (
     WebUIAccount,
     WebUISession,
     ChatMessage,
+    UserBlacklist,
+    GroupBlacklist,
+    PermissionGrant,
 )
 
 __all__ = [
     "ChatMessage",
+    "GroupBlacklist",
     "GroupPerm",
     "GroupSetting",
+    "PermissionGrant",
+    "UserBlacklist",
     "FeatureState",
     "AccountRoute",
     "AccountResponseState",

@@ -12,10 +12,9 @@ from arclet.entari.plugin import get_plugin
 from loguru import logger
 
 from ..context import MessageContext
-from .perm import GroupPermission, Permission, PermissionChecker
+from .perm import Permission, PermissionChecker
 from .plugins.runtime import external_plugin_for_module
 
-GROUP_LEVELS = frozenset(int(level) for level in GroupPermission)
 _FEATURE_MANAGER_NAMES = frozenset({"feature_manager", "功能开关"})
 _RATE_LIMIT_UNAVAILABLE_NOTICE = "限流状态暂不可用，请稍后再试"
 
@@ -54,6 +53,9 @@ class FeatureService:
         # 插件通过 declare(default_enabled=False) 声明的“新群默认关闭”；这是
         # 插件自身的属性而不是数据库状态，所以 configure() 不会清空它。
         self.plugin_defaults: dict[str, bool] = {}
+        # 受控插件（#234）：默认关闭，只有 BotAdmin 及以上能在群里打开、在私聊使用。
+        # 同 plugin_defaults，来自插件声明，configure() 不清空。
+        self.controlled: set[str] = set()
         self._plugins: dict[str, dict[str, Any]] = {}
         self._ready = repository is None
         self._persist_lock = asyncio.Lock()
@@ -180,8 +182,10 @@ class FeatureService:
         state = self._plugins.get(plugin)
         if not self._ready:
             return False
-        default_enabled = self.default_enabled and self.plugin_defaults.get(
-            plugin, True
+        default_enabled = (
+            self.default_enabled
+            and self.plugin_defaults.get(plugin, True)
+            and plugin not in self.controlled
         )
         if state is None:
             return default_enabled
@@ -196,6 +200,9 @@ class FeatureService:
             if enabled is not None:
                 return enabled
         return default_enabled
+
+    def is_controlled(self, plugin: str) -> bool:
+        return _key(plugin, "插件名") in self.controlled
 
     def set_enabled(self, plugin: str, group_id: str | int, enabled: bool) -> bool:
         """更新指定群的插件开关；异步调用方随后应刷新 repository。"""
@@ -283,12 +290,12 @@ def declare_feature(
     scope: str = "group",
     default_enabled: bool = True,
     rate_weight: int = 1,
-    level: int = Permission.ActiveGroup,
+    controlled: bool = False,
 ) -> None:
     """为正在加载的扩展插件登记 Tenko 专有元数据（``tenko_api.features.declare``）。
 
     写入宿主已有的 ``feature_scope`` 元数据属性，以及 ``CommandPolicy`` 使用的
-    ``rate_weight`` 和 ``group_level``（插件要求的群等级）；``default_enabled`` 记入功能服务。
+    ``rate_weight``；``default_enabled`` 和 ``controlled`` 记入功能服务。
     内置插件没有这个入口，直接在 ``plugin.get_plugin().metadata`` 上设置同名属性，
     与 ``feature_scope`` 的写法一致。不提供 ``classifier``：扩展插件不能把自己
     标记为受保护的宿主插件。
@@ -300,10 +307,8 @@ def declare_feature(
         raise TypeError("default_enabled 必须是布尔值")
     if type(rate_weight) is not int or rate_weight <= 0:
         raise ValueError("rate_weight 必须是正整数")
-    if level not in GROUP_LEVELS:
-        raise ValueError(
-            f"level 必须是 Permission.InactiveGroup 到 TestGroup: {level!r}"
-        )
+    if type(controlled) is not bool:
+        raise TypeError("controlled 必须是布尔值")
     native = get_plugin(optional=True)
     found = None if native is None else external_plugin_for_module(native.id)
     if native is None or found is None:
@@ -311,12 +316,15 @@ def declare_feature(
     metadata = native.metadata
     metadata.feature_scope = scope
     metadata.rate_weight = rate_weight
-    metadata.group_level = int(level)
     plugin_id = found
     if default_enabled:
         feature_service.plugin_defaults.pop(plugin_id, None)
     else:
         feature_service.plugin_defaults[plugin_id] = False
+    if controlled:
+        feature_service.controlled.add(plugin_id)
+    else:
+        feature_service.controlled.discard(plugin_id)
 
 
 def _plugin_name(owner: object) -> str:
@@ -342,11 +350,12 @@ _ALLOW = PolicyVerdict()
 
 
 class CommandPolicy:
-    """Entari 命令的统一策略：未登记插件、维护、功能开关和限流。
+    """Entari 命令的统一策略：未登记插件、受控插件、维护、功能开关和限流。
 
     策略挂在 Entari 的 ``CommandParse`` 事件上（``enforce``）：此时 Entari 已经
     去掉 @bot、前导空白、命令前缀和昵称，并匹配出具体的 Alconna 命令，因此
-    无论消息怎样写，命中的都是同一条命令。仅群聊消息生效，私聊保持原有行为。
+    无论消息怎样写，命中的都是同一条命令。私聊只检查受控插件，其余只对群聊生效。
+    黑名单在更早的事件入口拦截（``MessageEventHandler.should_skip``）。
     限流只记录调试日志，不回复，避免刷屏者借提示继续刷屏。
     """
 
@@ -407,10 +416,21 @@ class CommandPolicy:
             context = MessageContext.from_event(origin)
         except ValueError:
             return _ALLOW
-        if context.chat_type != "group":
+        if context.chat_type not in {"group", "private"}:
             return _ALLOW
         owner = self._owner(command)
         if owner is None:
+            return _ALLOW
+        plugin_name = _plugin_name(owner)
+        if context.chat_type == "private":
+            if self.feature_service.is_controlled(
+                plugin_name
+            ) and not await self.permission_checker.require_perm(
+                context, Permission.BotAdmin
+            ):
+                return PolicyVerdict(
+                    False, f"{_plugin_label(owner)}插件在私聊中仅 BOT 管理员可用"
+                )
             return _ALLOW
         if getattr(owner, "source", None) == "unmanaged":
             logger.warning(
@@ -420,25 +440,11 @@ class CommandPolicy:
                 command.command,
             )
             return PolicyVerdict(False, "该命令所属插件未在 Tenko 登记，已拒绝执行")
-        required_level = getattr(owner, "group_level", None)
-        if required_level is None:
-            required_level = Permission.ActiveGroup
-        if not await self.permission_checker.require_group_perm(
-            context, required_level
-        ):
-            # 群等级不足静默忽略（Graia v3 的 if_noticed=False），内置和扩展插件一视同仁。
-            logger.debug(
-                "Ignore command from group below plugin level: plugin={} group={} "
-                "level={} command={}",
-                getattr(owner, "name", owner),
-                context.channel_id,
-                required_level,
-                command.command,
-            )
-            return PolicyVerdict(False)
         if not self.feature_service.ready:
             return PolicyVerdict(False, "功能状态暂不可用，请稍后再试")
-        plugin_name = _plugin_name(owner)
+        if not self.permission_checker.store.ready:
+            # 读不到黑名单时不能放行群命令；与功能状态一样整体拒绝。
+            return PolicyVerdict(False, "权限状态暂不可用，请稍后再试")
         if (
             plugin_name not in _FEATURE_MANAGER_NAMES
             and self.feature_service.is_maintenance(plugin_name)

@@ -22,6 +22,7 @@ from satori import (
 from satori.element import At, Author, Quote
 from satori.model import Event, Member
 
+from perm_support import make_checker
 from tenko.host.actions import (
     ActionCapability,
     ActionCapabilityUnavailable,
@@ -33,7 +34,7 @@ from tenko.host.actions import (
 from tenko.host.accounts import AccountRegistry
 from tenko.host.guards import REQUIRES_ATTR
 from tenko.host.inbox import inbox
-from tenko.host.perm import Permission, PermissionChecker, PermissionRegistry
+from tenko.host.perm import Permission
 from tenko.host import notify
 from tenko.host.action_errors import action_error_message
 from tenko.host.render import RenderService
@@ -98,14 +99,12 @@ def make_query(path: str, result):
 @pytest.mark.asyncio
 @pytest.mark.parametrize("loaded_plugin", ["group_manager"], indirect=True)
 async def test_group_setting_trigger_is_read_only(loaded_plugin) -> None:
-    loaded_plugin.permission_checker = PermissionChecker(registry=PermissionRegistry())
+    loaded_plugin.permission_checker = make_checker()
     loaded_plugin.read_group_settings = AsyncMock(
         return_value={
+            "blacklisted": False,
             "frequency_limitation": True,
             "response_type": "random",
-            "permission_type": "admin",
-            "permission": 2,
-            "active": True,
         }
     )
 
@@ -115,8 +114,8 @@ async def test_group_setting_trigger_is_read_only(loaded_plugin) -> None:
         render_service=TEXT_ONLY,
     )
 
-    assert "权限类型: admin" in str(result)
-    loaded_plugin.read_group_settings.assert_awaited_once_with("40001")
+    assert "群状态: 正常" in str(result)
+    loaded_plugin.read_group_settings.assert_awaited_once_with("40001", "onebot")
     # 图片版走 list.html（StrictUndefined），数据缺键会静默退回文字。
     html = RenderService()._render_html(
         "list.html",
@@ -124,7 +123,7 @@ async def test_group_setting_trigger_is_read_only(loaded_plugin) -> None:
             "40001", await loaded_plugin.read_group_settings("40001")
         ),
     )
-    assert "新成员自动设为群管理权限" in html and "随机" in html
+    assert "正常" in html and "随机" in html
 
 
 @pytest.mark.asyncio
@@ -132,7 +131,7 @@ async def test_group_setting_trigger_is_read_only(loaded_plugin) -> None:
 async def test_group_setting_permission_filter_blocks_normal_member(
     loaded_plugin,
 ) -> None:
-    loaded_plugin.permission_checker = PermissionChecker(registry=PermissionRegistry())
+    loaded_plugin.permission_checker = make_checker()
     loaded_plugin.read_group_settings = AsyncMock()
 
     result = await loaded_plugin.group_setting.callable_target(
@@ -150,9 +149,7 @@ async def test_group_setting_permission_filter_blocks_normal_member(
 async def test_group_setting_rejects_cross_group_target_in_group(
     loaded_plugin,
 ) -> None:
-    loaded_plugin.permission_checker = PermissionChecker(
-        registry=PermissionRegistry(master_id="20001")
-    )
+    loaded_plugin.permission_checker = make_checker("20001")
     loaded_plugin.read_group_settings = AsyncMock()
 
     result = await loaded_plugin.group_setting.callable_target(
@@ -170,16 +167,12 @@ async def test_group_setting_rejects_cross_group_target_in_group(
 async def test_master_private_group_setting_can_query_requested_group(
     loaded_plugin,
 ) -> None:
-    loaded_plugin.permission_checker = PermissionChecker(
-        registry=PermissionRegistry(master_id="90001")
-    )
+    loaded_plugin.permission_checker = make_checker("90001")
     loaded_plugin.read_group_settings = AsyncMock(
         return_value={
+            "blacklisted": True,
             "frequency_limitation": True,
             "response_type": "random",
-            "permission_type": "default",
-            "permission": 1,
-            "active": True,
         }
     )
 
@@ -189,14 +182,14 @@ async def test_master_private_group_setting_can_query_requested_group(
         render_service=TEXT_ONLY,
     )
 
-    assert "群40002设置" in str(result)
-    loaded_plugin.read_group_settings.assert_awaited_once_with("40002")
+    assert "群40002设置" in str(result) and "群状态: 黑名单" in str(result)
+    loaded_plugin.read_group_settings.assert_awaited_once_with("40002", "onebot")
 
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("loaded_plugin", ["group_manager"], indirect=True)
 async def test_non_master_private_group_setting_is_denied(loaded_plugin) -> None:
-    loaded_plugin.permission_checker = PermissionChecker(registry=PermissionRegistry())
+    loaded_plugin.permission_checker = make_checker()
     loaded_plugin.read_group_settings = AsyncMock()
 
     result = await loaded_plugin.group_setting.callable_target(
@@ -215,24 +208,18 @@ async def test_group_setting_reads_real_repositories(
     loaded_plugin, tenko_database
 ) -> None:
     del tenko_database
-    from tenko.db.repositories import group_perm_repository, group_setting_repository
+    from tenko.db.repositories import group_setting_repository
 
-    await group_perm_repository.set("40001", 2, group_name="VIP 群", active=False)
     await group_setting_repository.set(
-        "40001",
-        frequency_limitation=False,
-        response_type="deterministic",
-        permission_type="admin",
+        "40001", frequency_limitation=False, response_type="deterministic"
     )
 
     settings = await loaded_plugin.read_group_settings("40001")
 
     assert settings == {
+        "blacklisted": False,
         "frequency_limitation": False,
         "response_type": "deterministic",
-        "permission_type": "admin",
-        "permission": 2,
-        "active": False,
     }
 
 
@@ -247,11 +234,9 @@ async def test_group_setting_falls_back_when_database_is_unavailable(
     settings = await loaded_plugin.read_group_settings("40001")
 
     assert settings == {
+        "blacklisted": False,
         "frequency_limitation": True,
         "response_type": "random",
-        "permission_type": "default",
-        "permission": 1,
-        "active": True,
     }
 
 
@@ -264,7 +249,7 @@ async def test_frequency_limit_command_queries_and_switches_group(
     from tenko.db.repositories import group_setting_repository
     from tenko.host.ratelimit import rate_limit_service
 
-    loaded_plugin.permission_checker = PermissionChecker(registry=PermissionRegistry())
+    loaded_plugin.permission_checker = make_checker()
     try:
         call = loaded_plugin.frequency_limit.callable_target
         admin = make_session("20001", "admin")
@@ -381,8 +366,8 @@ def install_action_service(loaded_plugin):
     account = FakeAccount(protocol)
     accounts = AccountRegistry()
     accounts.register(account, groups=["40001"])
-    permissions = PermissionRegistry()
-    checker = PermissionChecker(registry=permissions)
+    permissions = make_checker()
+    checker = permissions
     loaded_plugin.permission_checker = checker
     loaded_plugin.account_registry = accounts
     loaded_plugin.action_service = ActionService(accounts, checker)
@@ -392,7 +377,7 @@ def install_action_service(loaded_plugin):
 def install_invite_action_service(loaded_plugin, account, permissions):
     accounts = AccountRegistry()
     accounts.register(account)
-    checker = PermissionChecker(registry=permissions)
+    checker = permissions
     loaded_plugin.permission_checker = checker
     loaded_plugin.account_registry = accounts
     loaded_plugin.action_service = ActionService(accounts, checker)
@@ -452,7 +437,7 @@ async def test_group_action_error_reports_and_returns_safe_message(
     error = ActionExecutionError("平台动作失败: set_group_ban (1200)", failure=failure)
     reporter = AsyncMock()
     monkeypatch.setattr("tenko.host.action_errors.report_action_error", reporter)
-    loaded_plugin.permission_checker = PermissionChecker(registry=PermissionRegistry())
+    loaded_plugin.permission_checker = make_checker()
     loaded_plugin.action_service = SimpleNamespace(
         authorize=AsyncMock(return_value=True),
         mute_member=AsyncMock(side_effect=error),
@@ -516,7 +501,7 @@ async def test_master_can_make_a_designated_bot_leave_a_group(
     account = FakeAccount(protocol)
     accounts = AccountRegistry()
     accounts.register(account, groups=["40001", "40002"])
-    checker = PermissionChecker(registry=PermissionRegistry(master_id="20001"))
+    checker = make_checker("20001")
     loaded_plugin.permission_checker = checker
     loaded_plugin.account_registry = accounts
     loaded_plugin.action_service = ActionService(accounts, checker)
@@ -547,7 +532,7 @@ async def test_leave_group_rejects_unbound_designated_bot(loaded_plugin) -> None
     account = FakeAccount(protocol)
     accounts = AccountRegistry()
     accounts.register(account, groups=["40001"])
-    checker = PermissionChecker(registry=PermissionRegistry(master_id="20001"))
+    checker = make_checker("20001")
     loaded_plugin.permission_checker = checker
     loaded_plugin.action_service = ActionService(accounts, checker)
 
@@ -695,7 +680,7 @@ async def test_mute_rejects_legacy_minute_boundaries(loaded_plugin, minutes) -> 
 async def test_privileged_inviter_is_automatically_approved(loaded_plugin) -> None:
     protocol = InviteProtocol()
     account = InviteAccount(protocol)
-    permissions = PermissionRegistry(bot_admin_ids=["20001"])
+    permissions = make_checker(bot_admins=["20001"])
     install_invite_action_service(loaded_plugin, account, permissions)
     await clear_pending_invites(loaded_plugin)
 
@@ -714,7 +699,7 @@ async def test_unprivileged_inviter_is_recorded_for_command_and_panel_review(
 ) -> None:
     protocol = InviteProtocol()
     account = InviteAccount(protocol)
-    install_invite_action_service(loaded_plugin, account, PermissionRegistry())
+    install_invite_action_service(loaded_plugin, account, make_checker())
     await clear_pending_invites(loaded_plugin)
 
     try:
@@ -741,7 +726,7 @@ async def test_invite_notice_prefers_configured_notify_group(
 ) -> None:
     protocol = InviteProtocol()
     account = InviteAccount(protocol)
-    install_invite_action_service(loaded_plugin, account, PermissionRegistry())
+    install_invite_action_service(loaded_plugin, account, make_checker())
     monkeypatch.setattr(notify, "_defaults", notify.NotifySettings("group", "40002"))
     await clear_pending_invites(loaded_plugin)
 
@@ -765,7 +750,7 @@ async def test_invite_notice_goes_to_every_master(loaded_plugin) -> None:
     install_invite_action_service(
         loaded_plugin,
         account,
-        PermissionRegistry(bot_admin_ids=["90002"]),
+        make_checker(bot_admins=["90002"]),
     )
     original_superusers = EntariConfig.instance.basic.superusers
     EntariConfig.instance.basic.superusers = {
@@ -794,7 +779,7 @@ async def test_invite_notice_without_group_or_master_only_logs(
 ) -> None:
     protocol = InviteProtocol()
     account = InviteAccount(protocol)
-    install_invite_action_service(loaded_plugin, account, PermissionRegistry())
+    install_invite_action_service(loaded_plugin, account, make_checker())
     original_superusers = EntariConfig.instance.basic.superusers
     EntariConfig.instance.basic.superusers = {}
     warning = Mock()
@@ -824,7 +809,7 @@ async def test_invite_without_inviter_id_keeps_pending_and_reports_missing_id(
 ) -> None:
     protocol = InviteProtocol()
     account = InviteAccount(protocol)
-    install_invite_action_service(loaded_plugin, account, PermissionRegistry())
+    install_invite_action_service(loaded_plugin, account, make_checker())
     await clear_pending_invites(loaded_plugin)
 
     try:
@@ -852,7 +837,7 @@ async def test_invite_uses_raw_inviter_id_when_standard_user_is_missing(
     install_invite_action_service(
         loaded_plugin,
         account,
-        PermissionRegistry(bot_admin_ids=["20001"]),
+        make_checker(bot_admins=["20001"]),
     )
     await clear_pending_invites(loaded_plugin)
 
@@ -874,7 +859,7 @@ async def test_privileged_invite_is_kept_pending_when_auto_approval_fails(
     install_invite_action_service(
         loaded_plugin,
         account,
-        PermissionRegistry(bot_admin_ids=["20001"]),
+        make_checker(bot_admins=["20001"]),
     )
     await clear_pending_invites(loaded_plugin)
 
@@ -897,7 +882,7 @@ async def test_group_members_and_admins_cannot_approve_pending_invite(
 ) -> None:
     protocol = InviteProtocol()
     account = InviteAccount(protocol)
-    install_invite_action_service(loaded_plugin, account, PermissionRegistry())
+    install_invite_action_service(loaded_plugin, account, make_checker())
     loaded_plugin.pending_invites["request-1"] = loaded_plugin.PendingInvite(
         request_id="request-1",
         account=account,
@@ -925,7 +910,7 @@ async def test_group_admin_cannot_reject_pending_invite_with_reason(
 ) -> None:
     protocol = InviteProtocol()
     account = InviteAccount(protocol)
-    install_invite_action_service(loaded_plugin, account, PermissionRegistry())
+    install_invite_action_service(loaded_plugin, account, make_checker())
     loaded_plugin.pending_invites["request-1"] = loaded_plugin.PendingInvite(
         request_id="request-1",
         account=account,
@@ -956,7 +941,7 @@ async def test_bot_admin_can_approve_pending_invite(loaded_plugin) -> None:
     install_invite_action_service(
         loaded_plugin,
         account,
-        PermissionRegistry(bot_admin_ids=["20002"]),
+        make_checker(bot_admins=["20002"]),
     )
     loaded_plugin.pending_invites["request-1"] = loaded_plugin.PendingInvite(
         request_id="request-1",
@@ -986,7 +971,7 @@ async def test_bot_admin_can_reject_pending_invite_with_reason(loaded_plugin) ->
     install_invite_action_service(
         loaded_plugin,
         account,
-        PermissionRegistry(bot_admin_ids=["20002"]),
+        make_checker(bot_admins=["20002"]),
     )
     loaded_plugin.pending_invites["request-1"] = loaded_plugin.PendingInvite(
         request_id="request-1",
@@ -1020,7 +1005,7 @@ async def test_master_can_approve_pending_invite_from_private_chat(
     install_invite_action_service(
         loaded_plugin,
         account,
-        PermissionRegistry(master_id="90001"),
+        make_checker("90001"),
     )
     loaded_plugin.pending_invites["request-1"] = loaded_plugin.PendingInvite(
         request_id="request-1",
@@ -1045,9 +1030,7 @@ async def test_master_can_approve_pending_invite_from_private_chat(
 @pytest.mark.asyncio
 @pytest.mark.parametrize("loaded_plugin", ["group_manager"], indirect=True)
 async def test_superuser_can_list_pending_invites(loaded_plugin) -> None:
-    loaded_plugin.permission_checker = PermissionChecker(
-        registry=PermissionRegistry(master_id="90001")
-    )
+    loaded_plugin.permission_checker = make_checker("90001")
     loaded_plugin.pending_invites["request-1"] = loaded_plugin.PendingInvite(
         request_id="request-1",
         account=InviteAccount(InviteProtocol()),
@@ -1076,7 +1059,7 @@ async def test_superuser_can_reset_current_account_capability_state(
     accounts = AccountRegistry()
     account = FakeAccount(FakeProtocol())
     accounts.register(account, groups=["40001"])
-    checker = PermissionChecker(registry=PermissionRegistry(master_id="90001"))
+    checker = make_checker("90001")
     service = ActionService(accounts, checker)
     service.set_capability("10001", "member_mute", False)
     service.set_capability("10001", "group_mute", True)
@@ -1099,7 +1082,7 @@ async def test_expired_pending_invite_is_rejected_with_legacy_comment(
 ) -> None:
     protocol = InviteProtocol()
     account = InviteAccount(protocol)
-    install_invite_action_service(loaded_plugin, account, PermissionRegistry())
+    install_invite_action_service(loaded_plugin, account, make_checker())
     monkeypatch.setattr(notify, "_defaults", notify.NotifySettings("group", "40002"))
     loaded_plugin.pending_invites["request-1"] = loaded_plugin.PendingInvite(
         request_id="request-1",

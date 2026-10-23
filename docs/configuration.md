@@ -177,7 +177,7 @@ control 使用的 `local_data` 状态文件（包括全局插件/函数控制）
 | default_weight | 未单独指定命令的默认权重，默认 1 |
 | cooldown_seconds | 同一来源冷却时间，默认 5.0 秒 |
 | blacklist_seconds | 触发限制后的黑名单时间，默认 300.0 秒 |
-| override_permission | 可豁免限流的最低权限等级，默认 32 |
+| override_permission | 可豁免限流的最低权限：1 群管理、2 群主、3 BOT 管理员、4 Master，默认 1 |
 
 触发限流（冷却或临时拉黑）后 bot **不回复**，只在调试日志里记录群、用户和插件，
 避免刷屏的人借提示继续刷屏。群管理员可以用 `/频率限制 关闭` 让某个群不限流

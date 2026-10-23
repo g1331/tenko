@@ -32,6 +32,7 @@ from .host.accounts import account_registry
 from .host.account_management import AccountManagement
 from .host.actions import action_service
 from .host.features import CommandPolicy, configure_feature_service
+from .host.perm import permission_store
 from .host.plugins.manager import get_plugin_manager
 from .host.plugins.registry import configure_registry
 from .host.plugins.runtime import PluginRuntime
@@ -129,11 +130,13 @@ class TenkoRuntime:
             ManagementRepository,
             feature_state_repository,
             group_setting_repository,
+            permission_repository,
             rate_limit_repository,
             startup_time_repository,
         )
 
         self.account_management.repository = ManagementRepository()
+        permission_store.configure(permission_repository)
         self.accounts.configure(account_state_repository)
         self.feature_service.configure(
             feature_state_repository,
@@ -154,6 +157,7 @@ class TenkoRuntime:
 
         self.accounts.mark_unavailable()
         self.feature_service.mark_unavailable()
+        permission_store.mark_unavailable()
         self.rate_limiter.mark_unavailable()
         startup_history.mark_unavailable()
 
@@ -174,6 +178,7 @@ class TenkoRuntime:
             ("account routes", self.accounts.initialize),
             ("account preferences", self.account_management.initialize),
             ("feature switches", self.feature_service.initialize),
+            ("permissions", permission_store.initialize),
             ("rate limit", self.rate_limiter.initialize),
             ("startup duration history", startup_history.load),
         )
@@ -416,15 +421,10 @@ class TenkoRuntime:
         le.on(SendRequest, quote_group_reply)
         if self.config.webui.enabled:
             feature_repository = None
-            group_repository = None
             if self.database_service is not None:
-                from .db.repositories import (
-                    feature_state_repository,
-                    group_perm_repository,
-                )
+                from .db.repositories import feature_state_repository
 
                 feature_repository = feature_state_repository
-                group_repository = group_perm_repository
 
             self.webui_service = WebUIService(
                 self.connection.server,
@@ -433,7 +433,6 @@ class TenkoRuntime:
                 metrics=self.message_metrics,
                 feature_service=self.feature_service,
                 feature_repository=feature_repository,
-                group_repository=group_repository,
                 plugin_runtime=self.plugin_runtime,
                 management=self.account_management,
                 connection=self.connection,

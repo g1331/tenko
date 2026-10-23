@@ -59,7 +59,6 @@ def _service(
     metrics: MessageMetrics | None = None,
     feature_service: FeatureService | None = None,
     feature_repository=None,
-    group_repository=None,
     plugin_runtime=None,
 ) -> tuple[Server, WebUIService]:
     server = Server(host="127.0.0.1", port=0)
@@ -72,7 +71,6 @@ def _service(
             feature_service if feature_service is not None else FeatureService()
         ),
         feature_repository=feature_repository,
-        group_repository=group_repository,
         plugin_runtime=plugin_runtime,
     )
     return server, service
@@ -339,6 +337,7 @@ async def test_webui_read_only_apis_expose_safe_account_and_feature_data(
             "icon": {"url": "/webui/api/plugins/demo/icon", "glyph": True},
             "scope": "group",
             "source": "builtin",
+            "controlled": False,
             "protected": False,
             "loaded": False,
             "enabled": False,
@@ -353,6 +352,7 @@ async def test_webui_read_only_apis_expose_safe_account_and_feature_data(
             "icon": None,
             "scope": "group",
             "source": "builtin",
+            "controlled": False,
             "protected": False,
             "loaded": False,
             "enabled": False,
@@ -367,6 +367,7 @@ async def test_webui_read_only_apis_expose_safe_account_and_feature_data(
             "icon": None,
             "scope": "group",
             "source": "builtin",
+            "controlled": False,
             "protected": False,
             "loaded": False,
             "enabled": False,
@@ -379,32 +380,31 @@ async def test_webui_read_only_apis_expose_safe_account_and_feature_data(
 
 
 @pytest.mark.asyncio
-async def test_webui_features_expose_group_names_and_survive_database_errors(
-    tenko_database,
+async def test_webui_features_take_group_names_from_chat_log(
+    tenko_database, monkeypatch
 ):
-    def row(group_id, name):
-        return SimpleNamespace(group_id=group_id, group_name=name)
+    from tenko.host.chat_log import chat_log
 
-    class Groups:
-        async def list_all(self):
-            return (row(40001, "测试群"), row(40002, "40002"), row(40003, ""))
+    class Names:
+        async def group_names(self):
+            return {"40001": "测试群"}
 
-    class BrokenGroups:
-        async def list_all(self):
+    class Broken:
+        async def group_names(self):
             raise RuntimeError("database is locked")
 
-    async def fetch(group_repository):
-        server, _service_instance = _service(
-            WebUIConfig(enabled=True), group_repository=group_repository
-        )
+    async def fetch(repository, enabled=True):
+        monkeypatch.setattr(chat_log, "repository", repository)
+        monkeypatch.setattr(chat_log, "enabled", enabled)
+        server, _service_instance = _service(WebUIConfig(enabled=True))
         async with _session_client(server.app) as client:
             response = await client.get("/webui/api/features")
         assert response.status_code == 200
         return response.json()["data"]
 
-    assert (await fetch(Groups()))["group_names"] == {"40001": "测试群"}
-    assert (await fetch(BrokenGroups()))["group_names"] == {}
-    assert (await fetch(None))["group_names"] == {}
+    assert (await fetch(Names()))["group_names"] == {"40001": "测试群"}
+    assert (await fetch(Broken()))["group_names"] == {}
+    assert (await fetch(Names(), enabled=False))["group_names"] == {}
 
 
 @pytest.mark.asyncio

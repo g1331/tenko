@@ -30,6 +30,16 @@ def disabled_chat_log():
     chat_log.configure(None, enabled=False, retention_days=7, max_messages=50000)
 
 
+@pytest.fixture(autouse=True)
+def empty_permission_store():
+    """黑名单和授权是进程级单例；运行时测试会接上数据库或标记不可用，结束后清空。"""
+
+    from tenko.host.perm import permission_store
+
+    yield
+    permission_store.configure(None)
+
+
 @pytest_asyncio.fixture
 async def tenko_database():
     """为调用点测试提供独立的内存 SQLite repository。"""
@@ -67,9 +77,7 @@ async def repositories():
         AccountResponseState,
         AccountRoute,
         FeatureState,
-        GroupPerm,
         GroupSetting,
-        MemberPerm,
         RateLimitEvent,
         RateLimitSubjectState,
         StartupTime,
@@ -77,9 +85,7 @@ async def repositories():
     from tenko.db.repositories import (
         AccountStateRepository,
         FeatureStateRepository,
-        GroupPermRepository,
         GroupSettingRepository,
-        MemberPermRepository,
         RateLimitRepository,
         StartupTimeRepository,
         configure_session_factory,
@@ -96,16 +102,12 @@ async def repositories():
     configure_session_factory(async_sessionmaker(engine, expire_on_commit=False))
     try:
         yield {
-            "member": MemberPermRepository(),
-            "group": GroupPermRepository(),
             "setting": GroupSettingRepository(),
             "feature": FeatureStateRepository(),
             "account": AccountStateRepository(),
             "rate": RateLimitRepository(),
             "startup": StartupTimeRepository(),
             "models": (
-                MemberPerm,
-                GroupPerm,
                 GroupSetting,
                 FeatureState,
                 AccountRoute,

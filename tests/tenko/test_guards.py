@@ -1,4 +1,4 @@
-"""声明式权限装饰器、feature_required 和插件群等级经真实 Entari 分发的回归测试。"""
+"""声明式权限装饰器、feature_required 和受控插件经真实 Entari 分发的回归测试。"""
 
 from __future__ import annotations
 
@@ -22,9 +22,11 @@ from external_plugin_support import (
     patch_entry_points,
     write_plugin,
 )
+from perm_support import make_checker
 from tenko.host import guards
+from tenko.host import features as features_module
 from tenko.host.features import CommandPolicy, FeatureService
-from tenko.host.perm import Permission, PermissionChecker, PermissionRegistry
+from tenko.host.perm import Permission
 from tenko.host.plugins.runtime import PluginRuntime
 
 GUARD_PLUGIN = """
@@ -32,7 +34,7 @@ from arclet.alconna import Alconna
 from arclet.entari import MessageCreatedEvent, command, plugin
 
 from tenko_api.features import feature_required
-from tenko_api.perm import Permission, group_only, private_only, require, require_group
+from tenko_api.perm import Permission, group_only, private_only, require
 
 plugin.metadata("守卫插件", author=["t"], version="0.0.1")
 CALLS = []
@@ -59,11 +61,6 @@ async def only_group():
 async def only_private():
     CALLS.append("private")
 
-@command.on(Alconna("贵宾"))
-@require_group(Permission.VipGroup)
-async def vip():
-    CALLS.append("vip")
-
 @plugin.listen(MessageCreatedEvent)
 @feature_required()
 async def silent_listener():
@@ -74,18 +71,17 @@ async def silent_listener():
 async def notify_listener():
     CALLS.append("notify")
 """
-VIP_PLUGIN = """
+CONTROLLED_PLUGIN = """
 from arclet.alconna import Alconna
 from arclet.entari import command, plugin
 
 from tenko_api.features import declare
-from tenko_api.perm import Permission
 
-plugin.metadata("贵宾插件", author=["t"], version="0.0.1")
-declare(level=Permission.VipGroup)
+plugin.metadata("受控插件", author=["t"], version="0.0.1")
+declare(controlled=True)
 CALLS = []
 
-@command.on(Alconna("贵宾插件"))
+@command.on(Alconna("受控"))
 async def handler():
     CALLS.append(1)
 """
@@ -97,20 +93,21 @@ LISTENERS = {"silent", "notify"}
 async def env(entari_plugin_host, monkeypatch, tmp_path):
     monkeypatch.setattr(_EventSystem, "loop", asyncio.get_running_loop())
     write_plugin(tmp_path, monkeypatch, "tenko_t_guard", GUARD_PLUGIN)
-    write_plugin(tmp_path, monkeypatch, "tenko_t_vip", VIP_PLUGIN)
+    write_plugin(tmp_path, monkeypatch, "tenko_t_ctl", CONTROLLED_PLUGIN)
     patch_entry_points(
         monkeypatch,
         entry("guard_ext", "tenko_t_guard"),
-        entry("vip_ext", "tenko_t_vip"),
+        entry("ctl_ext", "tenko_t_ctl"),
     )
     state_file = tmp_path / "state.json"
-    state_file.write_text(json.dumps({"enabled": ["guard_ext", "vip_ext"]}))
+    state_file.write_text(json.dumps({"enabled": ["guard_ext", "ctl_ext"]}))
     runtime = PluginRuntime(tmp_path / "no_builtin", state_file=state_file)
-    registry = PermissionRegistry()
-    checker = PermissionChecker(registry=registry)
+    checker = make_checker()
     monkeypatch.setattr(guards, "permission_checker", checker)
     features = FeatureService()
     monkeypatch.setattr(guards, "feature_service", features)
+    # declare() 把受控插件登记在全局的功能服务上。
+    monkeypatch.setattr(features_module, "feature_service", features)
     policy = CommandPolicy(features, plugin_runtime=runtime, permission_checker=checker)
     with entari_command_dispatch(policy):
         await runtime.load_all()
@@ -127,28 +124,27 @@ async def env(entari_plugin_host, monkeypatch, tmp_path):
         try:
             yield SimpleNamespace(
                 features=features,
-                registry=registry,
+                store=checker.store,
                 send=send,
                 guard=guard,
                 calls=guard.module.CALLS,
-                vip_calls=runtime.loaded_plugins["vip_ext"].module.CALLS,
+                controlled_calls=runtime.loaded_plugins["ctl_ext"].module.CALLS,
             )
         finally:
-            drop_module("tenko_t_guard", "tenko_t_vip")
+            drop_module("tenko_t_guard", "tenko_t_ctl")
 
 
 def command_calls(env) -> list[str]:
     return [call for call in env.calls if call not in LISTENERS]
 
 
-# (命令, 成员权限, 群等级, 私聊, 期望执行, 期望回复)
+# (命令, 成员权限, 私聊, 期望执行, 期望回复)
 DECORATOR_CASES = {
-    "below_allowed": ("下方", Permission.GroupAdmin, 1, False, ["below"], []),
-    "above_allowed": ("上方", Permission.GroupAdmin, 1, False, ["above"], []),
+    "below_allowed": ("下方", Permission.GroupAdmin, False, ["below"], []),
+    "above_allowed": ("上方", Permission.GroupAdmin, False, ["above"], []),
     "below_denied": (
         "下方",
         Permission.User,
-        1,
         False,
         [],
         ["权限不足（当前权限：成员 / 需要权限：群管理员）"],
@@ -156,7 +152,6 @@ DECORATOR_CASES = {
     "above_denied": (
         "上方",
         Permission.User,
-        1,
         False,
         [],
         ["权限不足（当前权限：成员 / 需要权限：群管理员）"],
@@ -164,33 +159,28 @@ DECORATOR_CASES = {
     "group_only_in_private": (
         "仅群",
         Permission.User,
-        1,
         True,
         [],
         ["该指令只能在群聊中使用"],
     ),
-    "group_only_in_group": ("仅群", Permission.User, 1, False, ["group"], []),
+    "group_only_in_group": ("仅群", Permission.User, False, ["group"], []),
     "private_only_in_group": (
         "仅私",
         Permission.User,
-        1,
         False,
         [],
         ["该指令只能在私聊中使用"],
     ),
-    "private_only_in_private": ("仅私", Permission.User, 1, True, ["private"], []),
-    "group_level_low_is_silent": ("贵宾", Permission.User, 1, False, [], []),
-    "group_level_ok": ("贵宾", Permission.User, 2, False, ["vip"], []),
-    "group_level_ignored_in_private": ("贵宾", Permission.User, 1, True, ["vip"], []),
+    "private_only_in_private": ("仅私", Permission.User, True, ["private"], []),
 }
 
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("name", DECORATOR_CASES, ids=list(DECORATOR_CASES))
 async def test_decorators_allow_deny_and_stay_silent(env, name) -> None:
-    command, level, group_level, private, calls, replies = DECORATOR_CASES[name]
-    env.registry.set_user_level(GROUP, USER, level)
-    env.registry.set_group_level(GROUP, group_level)
+    command, level, private, calls, replies = DECORATOR_CASES[name]
+    if level == Permission.GroupAdmin:
+        await env.store.grant("qq-client", GROUP, USER)
 
     sent = await env.send(f"/{command}", group=None if private else GROUP)
 
@@ -205,7 +195,6 @@ async def test_requirements_are_recorded_for_help_in_either_order(env) -> None:
     assert requires["下方"] == requires["上方"] == {"user": Permission.GroupAdmin}
     assert guards.requirement_text(requires["下方"]) == "群管理员"
     assert guards.requirement_text(requires["仅群"]) == "仅群聊"
-    assert guards.requirement_text(requires["贵宾"]) == "VIP 群及以上"
 
 
 @pytest.mark.asyncio
@@ -227,13 +216,18 @@ async def test_feature_required_checks_owner_plugin_switch(env) -> None:
 
 
 @pytest.mark.asyncio
-async def test_plugin_group_level_is_enforced_for_the_plugins_commands(env) -> None:
-    env.registry.set_group_level(GROUP, Permission.ActiveGroup)
-    assert await env.send("/贵宾插件") == []
-    env.registry.set_group_level(GROUP, Permission.VipGroup)
-    await env.send("/贵宾插件")
-    # 低于默认 ActiveGroup 的群连没有声明 level 的插件命令也被静默忽略。
-    env.registry.set_group_level(GROUP, Permission.InactiveGroup)
-    assert await env.send("/下方") == []
+async def test_controlled_plugin_is_off_by_default_and_bot_admin_only_in_private(
+    env,
+) -> None:
+    sent = await env.send("/受控")
+    assert env.controlled_calls == [] and "受控插件插件已关闭" in sent[0]
 
-    assert env.vip_calls == [1] and env.calls.count("below") == 0
+    env.features.enable("ctl_ext", GROUP)
+    await env.send("/受控")
+    assert env.controlled_calls == [1]
+
+    sent = await env.send("/受控", group=None)
+    assert sent == ["受控插件插件在私聊中仅 BOT 管理员可用"]
+    await env.store.grant("qq-client", "", USER)
+    await env.send("/受控", group=None)
+    assert env.controlled_calls == [1, 1]

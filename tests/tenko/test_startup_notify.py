@@ -6,9 +6,10 @@ from unittest.mock import AsyncMock
 import pytest
 from arclet.entari.plugin import get_plugins
 
+from perm_support import make_checker
 from tenko.host.features import FeatureService
 from tenko.host.notify import NotifySettings
-from tenko.host.perm import PermissionChecker, PermissionRegistry
+from tenko.host.perm import PermissionChecker
 from tenko.host.startup import (
     StartupHistory,
     StartupNotifier,
@@ -87,9 +88,7 @@ async def test_startup_notify_plugin_ready_listener_uses_configured_notifier(
         history=StartupHistory(),
         action_service=actions,
         feature_service=FeatureService(),
-        permission_checker=PermissionChecker(
-            registry=PermissionRegistry(master_id="90001")
-        ),
+        permission_checker=make_checker("90001"),
     )
     loaded_plugin.notifier.clock = lambda: 12.5
     loaded_plugin.notifier.version_provider = lambda: "4.0.0-pre6"
@@ -205,7 +204,7 @@ async def test_startup_notifier_skips_send_when_feature_is_disabled() -> None:
 @pytest.mark.asyncio
 async def test_startup_notifier_falls_back_to_master_private_message() -> None:
     actions = NotificationActions()
-    checker = PermissionChecker(registry=PermissionRegistry(master_id="90001"))
+    checker = make_checker("90001")
     notifier = make_notifier(
         actions,
         notify_group=None,
@@ -266,9 +265,7 @@ async def test_recovery_notice_uses_master_fallback_when_group_is_unset(
         history=StartupHistory(),
         action_service=actions,
         feature_service=features,
-        permission_checker=PermissionChecker(
-            registry=PermissionRegistry(master_id="90001")
-        ),
+        permission_checker=make_checker("90001"),
         recovery_notice_path=notice_path,
         started_at=10.0,
         clock=lambda: 12.5,

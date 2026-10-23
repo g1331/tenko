@@ -20,8 +20,9 @@ from satori import (
 from satori.model import Event, Member
 
 from test_updater import make_manager
+from perm_support import make_checker
 from tenko.host.guards import REQUIRES_ATTR
-from tenko.host.perm import Permission, PermissionChecker, PermissionRegistry
+from tenko.host.perm import Permission
 from tenko.host.updater import (
     CheckResult,
     CompatibilityResult,
@@ -137,9 +138,7 @@ class FakeAudit:
 
 
 def authorize_master(loaded_plugin) -> None:
-    registry = PermissionRegistry()
-    registry.set_user_level(None, "90001", Permission.Master)
-    loaded_plugin.permission_checker = PermissionChecker(registry=registry)
+    loaded_plugin.permission_checker = make_checker("90001")
 
 
 @pytest.mark.parametrize(

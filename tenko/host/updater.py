@@ -40,7 +40,7 @@ from loguru import logger
 from packaging.version import InvalidVersion as PackagingInvalidVersion
 from packaging.version import Version
 
-from .perm import Permission, PermissionChecker, PermissionRegistry
+from .perm import PermissionChecker
 
 try:
     import tomllib
@@ -3818,7 +3818,7 @@ def _default_manager() -> UpgradeManager:
 
 
 _configured_manager = _default_manager()
-_configured_permission_checker = PermissionChecker(registry=PermissionRegistry())
+_configured_permission_checker = PermissionChecker(masters=())
 
 
 def configure_updater(
@@ -3830,12 +3830,9 @@ def configure_updater(
     """运行时在加载插件前注入管理器、权限和生命周期回调。"""
 
     global _configured_manager, _configured_permission_checker
-    registry = PermissionRegistry()
-    for user_id in superuser_ids:
-        registry.set_user_level(None, user_id, Permission.Master)
     manager.configure_shutdown(shutdown_callback)
     _configured_manager = manager
-    _configured_permission_checker = PermissionChecker(registry=registry)
+    _configured_permission_checker = PermissionChecker(masters=superuser_ids)
 
 
 def get_upgrade_manager() -> UpgradeManager:

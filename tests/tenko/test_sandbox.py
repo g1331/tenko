@@ -7,12 +7,13 @@ from types import SimpleNamespace
 import pytest
 from satori.element import Image, Quote, Text
 
+from perm_support import make_checker
 from tenko.config import DebugConfig
 from tenko.context import MessageContext
 from tenko.events import MessageEventHandler
 from tenko.host.accounts import AccountRegistry
 from tenko.host.metrics import MessageMetrics
-from tenko.host.perm import Permission, PermissionChecker, PermissionRegistry
+from tenko.host.perm import Permission
 from tenko.host.sandbox import SANDBOX_BOT_ID, SANDBOX_GROUP_ID, SandboxAdapter
 
 
@@ -41,7 +42,7 @@ async def reply(sandbox: SandboxAdapter, channel: str, content: str) -> str:
 @pytest.mark.asyncio
 async def test_sandbox_message_becomes_an_event_with_the_chosen_identity():
     sandbox, server = adapter()
-    checker = PermissionChecker(PermissionRegistry())
+    checker = make_checker()
 
     await sandbox.send("group", "admin", [Text("/状态")])
     await sandbox.send("private", "master", [Text("/面板账号")])

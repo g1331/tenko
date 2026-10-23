@@ -16,9 +16,7 @@ from sqlalchemy import delete, func, select, update
 
 from .errors import (
     DatabaseUnavailableError,
-    InvalidGroupPermissionError,
     InvalidGroupSettingError,
-    InvalidPermissionError,
     is_database_unavailable,
 )
 from .ids import to_database_id
@@ -27,22 +25,20 @@ from .models import (
     ChatMessage,
     AccountRoute,
     FeatureState,
-    GroupPerm,
+    GroupBlacklist,
     GroupSetting,
-    MemberPerm,
+    PermissionGrant,
     RateLimitEvent,
     RateLimitSubjectState,
     StartupTime,
+    UserBlacklist,
     WebUIAccount,
     WebUISession,
 )
 
 _SessionFactory = Callable[[], Any]
 _session_factory: _SessionFactory | None = None
-_MEMBER_PERMISSIONS = frozenset({-1, 0, 16, 32, 64, 128, 256})
-_GROUP_PERMISSIONS = frozenset({0, 1, 2, 3})
 _RESPONSE_TYPES = frozenset({"random", "deterministic"})
-_PERMISSION_TYPES = frozenset({"default", "admin"})
 
 
 def configure_session_factory(factory: _SessionFactory | None) -> None:
@@ -66,26 +62,6 @@ def configure_database_service(service: Any | None) -> None:
             "官方 database service 尚未提供 get_session 工厂"
         )
     configure_session_factory(factory)
-
-
-def _permission(value: int) -> int:
-    if isinstance(value, bool) or not isinstance(value, int):
-        raise InvalidPermissionError(f"成员权限必须是整数，收到 {value!r}")
-    normalized = int(value)
-    if normalized not in _MEMBER_PERMISSIONS:
-        raise InvalidPermissionError(
-            f"成员权限必须是 -1、0、16、32、64、128 或 256，收到 {value!r}"
-        )
-    return normalized
-
-
-def _group_permission(value: int) -> int:
-    if isinstance(value, bool) or not isinstance(value, int):
-        raise InvalidGroupPermissionError(f"群等级必须是整数，收到 {value!r}")
-    normalized = int(value)
-    if normalized not in _GROUP_PERMISSIONS:
-        raise InvalidGroupPermissionError(f"群等级必须是 0、1、2 或 3，收到 {value!r}")
-    return normalized
 
 
 class _Repository:
@@ -120,206 +96,8 @@ class _Repository:
             ) from error
 
 
-class MemberPermRepository(_Repository):
-    """MemberPerm 的读写 repository。"""
-
-    async def get_permission(
-        self, group_id: str | int, user_id: str | int
-    ) -> int | None:
-        group = to_database_id(group_id, "群 ID")
-        user = to_database_id(user_id, "用户 ID")
-        async with self._session() as session:
-            return await session.scalar(
-                select(MemberPerm.perm).where(
-                    MemberPerm.group_id == group,
-                    MemberPerm.qq == user,
-                )
-            )
-
-    async def set_permission(
-        self, group_id: str | int, user_id: str | int, permission: int
-    ) -> None:
-        group = to_database_id(group_id, "群 ID")
-        user = to_database_id(user_id, "用户 ID")
-        normalized_permission = _permission(permission)
-        async with self._session() as session:
-            row = await session.get(MemberPerm, (group, user))
-            if row is None:
-                session.add(
-                    MemberPerm(
-                        group_id=group,
-                        qq=user,
-                        perm=normalized_permission,
-                    )
-                )
-            else:
-                row.perm = normalized_permission
-            await session.commit()
-
-    async def delete_permission(self, group_id: str | int, user_id: str | int) -> bool:
-        group = to_database_id(group_id, "群 ID")
-        user = to_database_id(user_id, "用户 ID")
-        async with self._session() as session:
-            result = await session.execute(
-                delete(MemberPerm).where(
-                    MemberPerm.group_id == group,
-                    MemberPerm.qq == user,
-                )
-            )
-            await session.commit()
-            return bool(result.rowcount)
-
-    async def list_group_permissions(
-        self, group_id: str | int
-    ) -> tuple[MemberPerm, ...]:
-        group = to_database_id(group_id, "群 ID")
-        async with self._session() as session:
-            result = await session.scalars(
-                select(MemberPerm)
-                .where(MemberPerm.group_id == group)
-                .order_by(MemberPerm.perm.desc(), MemberPerm.qq)
-            )
-            return tuple(result.all())
-
-    async def delete_bot_admin(self, user_id: str | int) -> bool:
-        """删除用户所有 128 权限行，包括旧版本写入的群内 BotAdmin 行。"""
-
-        user = to_database_id(user_id, "用户 ID")
-        async with self._session() as session:
-            result = await session.execute(
-                delete(MemberPerm).where(MemberPerm.qq == user, MemberPerm.perm == 128)
-            )
-            await session.commit()
-            return bool(result.rowcount)
-
-    async def list_bot_admins(self) -> tuple[int, ...]:
-        async with self._session() as session:
-            result = await session.scalars(
-                select(MemberPerm.qq)
-                .where(MemberPerm.group_id == 0, MemberPerm.perm == 128)
-                .order_by(MemberPerm.qq)
-            )
-            return tuple(result.all())
-
-    async def list_global_blacklist(self) -> tuple[int, ...]:
-        async with self._session() as session:
-            result = await session.scalars(
-                select(MemberPerm.qq)
-                .where(
-                    MemberPerm.group_id == 0,
-                    MemberPerm.perm == -1,
-                )
-                .order_by(MemberPerm.qq)
-            )
-            return tuple(result.all())
-
-    async def list_group_blacklist(self, group_id: str | int) -> tuple[int, ...]:
-        group = to_database_id(group_id, "群 ID")
-        async with self._session() as session:
-            result = await session.scalars(
-                select(MemberPerm.qq)
-                .where(
-                    MemberPerm.group_id == group,
-                    MemberPerm.perm == 0,
-                )
-                .order_by(MemberPerm.qq)
-            )
-            return tuple(result.all())
-
-    # 常用的短别名保持调用方语义清晰，同时不复制实现。
-
-
-class GroupPermRepository(_Repository):
-    """GroupPerm 的群等级、名称和 active 状态 repository。"""
-
-    async def get(self, group_id: str | int) -> GroupPerm | None:
-        group = to_database_id(group_id, "群 ID")
-        async with self._session() as session:
-            return await session.get(GroupPerm, group)
-
-    async def get_permission(self, group_id: str | int) -> int | None:
-        row = await self.get(group_id)
-        return None if row is None else row.perm
-
-    async def set(
-        self,
-        group_id: str | int,
-        permission: int,
-        *,
-        group_name: str | None = None,
-        active: bool | None = None,
-    ) -> None:
-        group = to_database_id(group_id, "群 ID")
-        normalized_permission = _group_permission(permission)
-        if group_name is not None and not isinstance(group_name, str):
-            raise TypeError("群名称必须是字符串或 None")
-        if active is not None and type(active) is not bool:
-            raise TypeError("active 必须是布尔值或 None")
-        async with self._session() as session:
-            row = await session.get(GroupPerm, group)
-            if row is None:
-                row = GroupPerm(
-                    group_id=group,
-                    group_name=group_name or str(group),
-                    perm=normalized_permission,
-                    active=True if active is None else active,
-                )
-                session.add(row)
-            else:
-                row.perm = normalized_permission
-                if group_name is not None:
-                    row.group_name = group_name
-                if active is not None:
-                    row.active = active
-            await session.commit()
-
-    async def set_active(self, group_id: str | int, active: bool) -> None:
-        if type(active) is not bool:
-            raise TypeError("active 必须是布尔值")
-        row = await self.get(group_id)
-        if row is None:
-            await self.set(group_id, 1, active=active)
-            return
-        await self.set(
-            group_id,
-            row.perm,
-            group_name=row.group_name,
-            active=active,
-        )
-
-    async def set_group_name(self, group_id: str | int, group_name: str) -> None:
-        if not isinstance(group_name, str) or not group_name:
-            raise ValueError("群名称必须是非空字符串")
-        row = await self.get(group_id)
-        if row is None:
-            await self.set(group_id, 1, group_name=group_name)
-            return
-        await self.set(
-            group_id,
-            row.perm,
-            group_name=group_name,
-            active=row.active,
-        )
-
-    async def list_all(self) -> tuple[GroupPerm, ...]:
-        async with self._session() as session:
-            result = await session.scalars(
-                select(GroupPerm).order_by(GroupPerm.group_id)
-            )
-            return tuple(result.all())
-
-    async def list_vip(self) -> tuple[GroupPerm, ...]:
-        async with self._session() as session:
-            result = await session.scalars(
-                select(GroupPerm)
-                .where(GroupPerm.perm == 2)
-                .order_by(GroupPerm.group_id)
-            )
-            return tuple(result.all())
-
-
 class GroupSettingRepository(_Repository):
-    """GroupSetting 的频控、响应策略和权限类型 repository。"""
+    """GroupSetting 的频控和响应策略 repository。"""
 
     async def get(self, group_id: str | int) -> GroupSetting | None:
         group = to_database_id(group_id, "群 ID")
@@ -343,7 +121,6 @@ class GroupSettingRepository(_Repository):
         *,
         frequency_limitation: bool | None = None,
         response_type: str | None = None,
-        permission_type: str | None = None,
     ) -> None:
         group = to_database_id(group_id, "群 ID")
         if frequency_limitation is not None and type(frequency_limitation) is not bool:
@@ -352,8 +129,6 @@ class GroupSettingRepository(_Repository):
             raise InvalidGroupSettingError(
                 "response_type 必须是 random 或 deterministic"
             )
-        if permission_type is not None and permission_type not in _PERMISSION_TYPES:
-            raise InvalidGroupSettingError("permission_type 必须是 default 或 admin")
         async with self._session() as session:
             row = await session.get(GroupSetting, group)
             if row is None:
@@ -363,7 +138,6 @@ class GroupSettingRepository(_Repository):
                         True if frequency_limitation is None else frequency_limitation
                     ),
                     response_type=response_type or "random",
-                    permission_type=permission_type or "default",
                 )
                 session.add(row)
             else:
@@ -371,8 +145,6 @@ class GroupSettingRepository(_Repository):
                     row.frequency_limitation = frequency_limitation
                 if response_type is not None:
                     row.response_type = response_type
-                if permission_type is not None:
-                    row.permission_type = permission_type
             await session.commit()
 
     async def set_frequency_limitation(
@@ -383,10 +155,105 @@ class GroupSettingRepository(_Repository):
     async def set_response_type(self, group_id: str | int, response_type: str) -> None:
         await self.set(group_id, response_type=response_type)
 
-    async def set_permission_type(
-        self, group_id: str | int, permission_type: str
-    ) -> None:
-        await self.set(group_id, permission_type=permission_type)
+
+@dataclass(frozen=True, slots=True)
+class BlacklistRecord:
+    """一条人或群的黑名单记录；``target_id`` 是用户 ID 或群 ID。"""
+
+    platform: str
+    target_id: str
+    reason: str = ""
+    operator_id: str = ""
+    created_at: datetime | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class PermissionSnapshot:
+    users: tuple[BlacklistRecord, ...]
+    groups: tuple[BlacklistRecord, ...]
+    # (platform, scope, user_id)；scope 为空串表示全局 BotAdmin。
+    grants: tuple[tuple[str, str, str], ...]
+
+
+_BLACKLIST_MODELS: dict[str, Any] = {
+    "user": (UserBlacklist, "user_id"),
+    "group": (GroupBlacklist, "group_id"),
+}
+
+
+class PermissionRepository(_Repository):
+    """黑名单与手动授权；宿主启动时整表读入内存，之后逐条写入。"""
+
+    async def load_state(self) -> PermissionSnapshot:
+        async with self._session() as session:
+            users = (await session.scalars(select(UserBlacklist))).all()
+            groups = (await session.scalars(select(GroupBlacklist))).all()
+            grants = (await session.scalars(select(PermissionGrant))).all()
+        return PermissionSnapshot(
+            users=tuple(
+                BlacklistRecord(
+                    row.platform,
+                    row.user_id,
+                    row.reason,
+                    row.operator_id,
+                    _utc(row.created_at),
+                )
+                for row in users
+            ),
+            groups=tuple(
+                BlacklistRecord(
+                    row.platform,
+                    row.group_id,
+                    row.reason,
+                    row.operator_id,
+                    _utc(row.created_at),
+                )
+                for row in groups
+            ),
+            grants=tuple((row.platform, row.scope, row.user_id) for row in grants),
+        )
+
+    async def add_blacklist(self, kind: str, record: BlacklistRecord) -> None:
+        model, key = _BLACKLIST_MODELS[kind]
+        async with self._session() as session:
+            await session.merge(
+                model(
+                    platform=record.platform,
+                    **{key: record.target_id},
+                    reason=record.reason,
+                    operator_id=record.operator_id,
+                    created_at=record.created_at or datetime.now(UTC),
+                )
+            )
+            await session.commit()
+
+    async def remove_blacklist(self, kind: str, platform: str, target_id: str) -> None:
+        model, key = _BLACKLIST_MODELS[kind]
+        async with self._session() as session:
+            await session.execute(
+                delete(model).where(
+                    model.platform == platform, getattr(model, key) == target_id
+                )
+            )
+            await session.commit()
+
+    async def add_grant(self, platform: str, scope: str, user_id: str) -> None:
+        async with self._session() as session:
+            await session.merge(
+                PermissionGrant(platform=platform, scope=scope, user_id=user_id)
+            )
+            await session.commit()
+
+    async def remove_grant(self, platform: str, scope: str, user_id: str) -> None:
+        async with self._session() as session:
+            await session.execute(
+                delete(PermissionGrant).where(
+                    PermissionGrant.platform == platform,
+                    PermissionGrant.scope == scope,
+                    PermissionGrant.user_id == user_id,
+                )
+            )
+            await session.commit()
 
 
 @dataclass(frozen=True, slots=True)
@@ -907,6 +774,22 @@ class ChatMessageRepository(_Repository):
             for record in records
         )
 
+    async def group_names(self) -> dict[str, str]:
+        """每个群最近一次记下的非空群名，按群 ID 索引。"""
+
+        named = (
+            select(func.max(ChatMessage.id))
+            .where(ChatMessage.chat_type == "group", ChatMessage.channel_name != "")
+            .group_by(ChatMessage.channel_id)
+        )
+        async with self._session() as session:
+            rows = await session.execute(
+                select(ChatMessage.channel_id, ChatMessage.channel_name).where(
+                    ChatMessage.id.in_(named)
+                )
+            )
+            return dict(rows.all())
+
     async def messages(
         self,
         platform: str,
@@ -982,8 +865,7 @@ class ChatMessageRepository(_Repository):
             return deleted
 
 
-member_perm_repository = MemberPermRepository()
-group_perm_repository = GroupPermRepository()
+permission_repository = PermissionRepository()
 group_setting_repository = GroupSettingRepository()
 feature_state_repository = FeatureStateRepository()
 account_state_repository = AccountStateRepository()
@@ -993,18 +875,11 @@ webui_auth_repository = WebUIAuthRepository()
 chat_message_repository = ChatMessageRepository()
 
 
-async def get_member_permission(group_id: str | int, user_id: str | int) -> int | None:
-    return await member_perm_repository.get_permission(group_id, user_id)
-
-
-async def get_group_permission(group_id: str | int) -> int | None:
-    return await group_perm_repository.get_permission(group_id)
-
-
 __all__ = [
-    "GroupPermRepository",
+    "BlacklistRecord",
     "GroupSettingRepository",
-    "MemberPermRepository",
+    "PermissionRepository",
+    "PermissionSnapshot",
     "AccountResponseRecord",
     "AccountRouteRecord",
     "AccountStateRepository",
@@ -1026,11 +901,8 @@ __all__ = [
     "configure_database_service",
     "configure_session_factory",
     "feature_state_repository",
-    "get_group_permission",
-    "get_member_permission",
-    "group_perm_repository",
     "group_setting_repository",
-    "member_perm_repository",
+    "permission_repository",
     "rate_limit_repository",
     "startup_time_repository",
     "webui_auth_repository",

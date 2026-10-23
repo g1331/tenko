@@ -9,11 +9,12 @@ from satori import Channel, ChannelType, EventType, Login, MessageObject, User
 from satori.model import Event
 
 from test_perm_manager import make_private_session
+from perm_support import make_checker
 from tenko.host.accounts import AccountRegistry
 from tenko.host.actions import ActionService
 from tenko.host.guards import REQUIRES_ATTR
 from tenko.host.inbox import inbox
-from tenko.host.perm import Permission, PermissionChecker, PermissionRegistry
+from tenko.host.perm import Permission
 
 MASTER, ADMIN, STRANGER = "90001", "90002", "20001"
 
@@ -43,8 +44,8 @@ def install(plugin):
     account = FriendAccount()
     accounts = AccountRegistry()
     accounts.register(account)
-    registry = PermissionRegistry(master_id=MASTER, bot_admin_ids=[ADMIN])
-    checker = PermissionChecker(registry=registry)
+    registry = make_checker(MASTER, bot_admins=[ADMIN])
+    checker = registry
     plugin.permission_checker = checker
     plugin.action_service = ActionService(accounts, checker)
     return account
