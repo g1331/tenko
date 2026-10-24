@@ -121,7 +121,14 @@ async function install() {
           :disabled="!!item.problem || !!plugin.installed_version"
         >
           <span class="v">{{ item.version }}</span>
-          <span :class="item.problem ? 'problem' : 'ok'">{{ item.problem ?? '可安装' }}</span>
+          <span :class="item.problem ? 'problem' : 'ok'">{{
+            item.problem ??
+            (item.version === plugin.installed_version
+              ? '已安装'
+              : plugin.installed_version
+                ? '兼容'
+                : '可安装')
+          }}</span>
           <span
             v-if="!item.problem && item.tested_on"
             class="tested"
