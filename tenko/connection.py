@@ -18,6 +18,7 @@ from satori.adapters.onebot11.reverse import (
 )
 from satori.adapters.onebot11.utils import USER_AVATAR_URL, onebot11_event_type
 from satori.client import Account, ApiInfo, App
+from satori.exception import ActionFailed
 from satori.model import Event, Login, User
 from satori.server import Server
 from starlette.websockets import WebSocket, WebSocketState
@@ -165,6 +166,14 @@ class _ManagedConnection(_Connection):
         if parser := _EVENT_PARSERS.get(event_type):
             try:
                 event = await parser(login, self, data)
+            except ActionFailed as error:
+                # 解析器补查信息失败（如撤回已退群成员的消息），按内部事件转发即可，不必打堆栈。
+                payload = error.args[-1] if isinstance(error.args[-1], dict) else {}
+                logger.warning(
+                    "事件 {} 补查信息失败，按内部事件转发: {}",
+                    event_type,
+                    payload.get("wording") or error,
+                )
             except Exception as error:
                 logger.exception("failed to handle event {}: {!r}", event_type, error)
         if not event:
