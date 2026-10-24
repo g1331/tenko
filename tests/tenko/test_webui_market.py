@@ -49,6 +49,15 @@ class FakeManager:
             raise self.fail
         return PluginChange("install", "example", "tenko-plugin-example", None, "0.1.0")
 
+    async def update(self, plugin_id=None, *, sources, actor):
+        self.sources.append(sources)
+        return [
+            PluginChange("update", "example", "tenko-plugin-example", "0.3.0", "0.1.0")
+        ]
+
+    async def go_live(self, runtime, changes):
+        return {}
+
 
 CONFIG = """# 手工维护的说明
 [webui]
@@ -147,6 +156,23 @@ async def test_market_installs_only_listed_plugins_and_reports_failures(market) 
     failed = await wait_task(client, started.json()["data"]["id"])
     assert failed["state"] == "failed" and failed["restored"] is True
     assert "入口不符" in failed["message"]
+
+
+@pytest.mark.asyncio
+async def test_market_switches_an_installed_plugin_to_a_chosen_version(market) -> None:
+    client, manager = market.client, market.service.market._manager
+    url = "/webui/api/manage/plugin-tasks"
+    body = {"action": "update", "plugin_id": "example", "confirm": True}
+
+    started = await client.post(url, json={**body, "version": "0.1.0"})
+    done = await wait_task(client, started.json()["data"]["id"])
+    assert done["state"] == "succeeded"
+    source = manager.sources[0]["example"]
+    assert source.requirement.endswith("==0.1.0") and source.pins
+
+    # 撤回的版本不能装，错误原因来自目录
+    refused = await client.post(url, json={**body, "version": "0.2.0"})
+    assert refused.status_code == 400 and "撤回" in refused.json()["error"]["message"]
 
 
 @pytest.mark.asyncio

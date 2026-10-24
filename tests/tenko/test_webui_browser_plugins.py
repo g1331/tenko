@@ -323,3 +323,59 @@ def test_plugin_card_opens_detail_with_commands_links_and_update(open_panel):
     call = panel.calls("POST", "/api/manage/plugin-tasks")[0]
     assert call[3] == {"action": "update", "plugin_id": "ext_demo", "confirm": True}
     assert not page.errors
+
+
+def _market_version(version):
+    return {"version": version, "problem": None, "tested_on": None, "tested_at": None}
+
+
+def test_market_drawer_switches_installed_plugin_and_warns_on_downgrade(open_panel):
+    panel = PluginsPanel()
+    panel.data["/api/market"] = {
+        "available": True,
+        "categories": [],
+        "plugins": [
+            {
+                "id": "ext_demo",
+                "name": "演示插件",
+                "description": "演示用",
+                "authors": [],
+                "homepage": "",
+                "license": "MIT",
+                "category": None,
+                "tags": [],
+                "tier": "listed",
+                "icon_url": None,
+                "source": "tenko-plugin-ext-demo",
+                "source_type": "pypi",
+                "latest": "0.2.0",
+                "problem": None,
+                "versions": [_market_version("0.2.0"), _market_version("0.1.0")],
+                "installed_version": "0.2.0",
+                "blocked": None,
+            }
+        ],
+    }
+    page = open_plugins(open_panel, panel)
+    page.get_by_role("tab", name="插件市场").click()
+    page.locator(".market-card").first.click()
+    drawer = page.locator(".el-drawer")
+    assert "已安装" in drawer.locator(".versions").inner_text()
+    assert drawer.get_by_role("button", name="选择要切换的版本").is_disabled()
+
+    drawer.get_by_text("0.1.0", exact=True).click()
+    drawer.get_by_role("button", name="降级到 0.1.0").click()
+    assert "读不了新版本留下的数据" in page.locator(".el-message-box").inner_text()
+    confirm(page, "降级插件", "降级")
+    for _ in range(40):
+        if panel.calls("POST", "/api/manage/plugin-tasks"):
+            break
+        page.wait_for_timeout(50)
+    call = panel.calls("POST", "/api/manage/plugin-tasks")[0]
+    assert call[3] == {
+        "action": "update",
+        "plugin_id": "ext_demo",
+        "version": "0.1.0",
+        "confirm": True,
+    }
+    assert not page.errors

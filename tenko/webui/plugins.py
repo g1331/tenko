@@ -506,7 +506,20 @@ class PluginMarket:
                 raise ValueError(error.detail) from error
             return lambda: manager.resume(plugin_id, source, actor=actor)
         if action == "update":
-            sources = await registry_updates(manager, plugin_id)
+            version = body.get("version")
+            if version is None:
+                sources = await registry_updates(manager, plugin_id)
+            else:
+                # 指定版本（可低于当前版本）只走目录，固定到目录登记的哈希。
+                if not plugin_id or not isinstance(version, str):
+                    raise ValueError("指定版本时必须给出插件 ID，版本必须是字符串")
+                try:
+                    found = await self.registry.resolve(f"{plugin_id}@{version}")
+                except PluginManagerError as error:
+                    raise ValueError(error.detail) from error
+                if found is None:
+                    raise ValueError(f"{plugin_id} 不在插件目录里")
+                sources = {plugin_id: source_for(*found)}
             return lambda: manager.update(plugin_id, sources=sources, actor=actor)
         if action == "uninstall":
             clear = body.get("clear_data", False)

@@ -8,7 +8,7 @@ import PluginIcon from './PluginIcon.vue'
 import CategoryTag from './CategoryTag.vue'
 import TierTag from './TierTag.vue'
 
-// 市场插件详情：版本清单与安装。面板只能安装目录里的插件。
+// 市场插件详情：版本清单、安装和切换已装插件的版本。面板只能安装目录里的插件。
 const props = defineProps<{ plugin: MarketPlugin | null }>()
 const visible = defineModel<boolean>({ required: true })
 const ops = usePluginOps()
@@ -16,7 +16,11 @@ const ops = usePluginOps()
 const version = ref('')
 watch(
   () => props.plugin?.id,
-  () => (version.value = props.plugin?.latest ?? ''),
+  () => {
+    const plugin = props.plugin
+    const latest = plugin?.latest ?? ''
+    version.value = latest === plugin?.installed_version ? '' : latest
+  },
   { immediate: true },
 )
 
@@ -26,9 +30,17 @@ const homepage = computed(() =>
 )
 const canInstall = computed(() => !!version.value && !props.plugin?.blocked && !ops.busy.value)
 
+// 目录的版本按新到旧排列；已装版本不在清单里时无法判断方向，按升级处理。
+const downgrade = computed(() => {
+  const list = props.plugin?.versions.map((v) => v.version) ?? []
+  const current = list.indexOf(props.plugin?.installed_version ?? '')
+  return current >= 0 && list.indexOf(version.value) > current
+})
+
 async function install() {
   const plugin = props.plugin
   if (!plugin || !version.value) return
+  if (plugin.installed_version) return switchVersion(plugin.id, plugin.installed_version)
   const ok = await confirmAction(
     `将安装 ${plugin.name}（${plugin.id}）${version.value}。安装在后台进行，完成后启用即可使用。`,
     '安装插件',
@@ -38,6 +50,27 @@ async function install() {
   visible.value = false
   await ops.run({ action: 'install', plugin_id: plugin.id, version: version.value })
 }
+
+async function switchVersion(id: string, current: string) {
+  const warn = downgrade.value
+    ? '降级后旧版本可能读不了新版本留下的数据，数据库结构也不会退回；出问题可在“扩展插件”页撤销。'
+    : ''
+  const ok = await confirmAction(
+    `将把 ${props.plugin?.name}（${id}）从 ${current} ${downgrade.value ? '降级' : '切换'}到 ${version.value}，在后台进行。${warn}`,
+    downgrade.value ? '降级插件' : '切换版本',
+    downgrade.value ? '降级' : '切换',
+  )
+  if (!ok) return
+  visible.value = false
+  await ops.run({ action: 'update', plugin_id: id, version: version.value })
+}
+
+const actionLabel = computed(() => {
+  if (ops.busy.value) return '有任务进行中'
+  if (!version.value) return props.plugin?.installed_version ? '选择要切换的版本' : '无可安装版本'
+  if (!props.plugin?.installed_version) return `安装 ${version.value}`
+  return `${downgrade.value ? '降级' : '切换'}到 ${version.value}`
+})
 </script>
 
 <template>
@@ -118,7 +151,7 @@ async function install() {
           v-for="item in plugin.versions"
           :key="item.version"
           :value="item.version"
-          :disabled="!!item.problem || !!plugin.installed_version"
+          :disabled="!!item.problem || item.version === plugin.installed_version"
         >
           <span class="v">{{ item.version }}</span>
           <span :class="item.problem ? 'problem' : 'ok'">{{
@@ -143,19 +176,15 @@ async function install() {
       <p v-else class="note">目录里还没有版本。</p>
 
       <p v-if="plugin.installed_version" class="note">
-        已安装 {{ plugin.installed_version }}。更新、停用或卸载请到“扩展插件”标签页。
+        已安装
+        {{ plugin.installed_version }}，选择其他版本可以切换。停用或卸载请到“扩展插件”标签页。
       </p>
       <p class="note">目录之外的来源不能在面板安装，需要 Master 在聊天里使用 /安装插件。</p>
     </template>
     <template #footer>
       <el-button @click="visible = false">关闭</el-button>
-      <el-button
-        v-if="!plugin?.installed_version"
-        type="primary"
-        :disabled="!canInstall"
-        @click="install"
-      >
-        {{ ops.busy.value ? '有任务进行中' : version ? `安装 ${version}` : '无可安装版本' }}
+      <el-button :type="downgrade ? 'warning' : 'primary'" :disabled="!canInstall" @click="install">
+        {{ actionLabel }}
       </el-button>
     </template>
   </el-drawer>
