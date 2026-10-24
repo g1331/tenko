@@ -19,11 +19,12 @@
    python3 scripts/rename.py weather --name 天气 --author 你的名字
    ```
 
-   插件 ID（这里的 `weather`）匹配 `[a-z][a-z0-9_]*`，全局唯一，不能和内置插件同名；它是
+   插件 ID（这里的 `weather`）匹配 `[a-z][a-z0-9_]*`，全局唯一，不能和内置插件或插件目录里已收录的插件同名；它是
    功能开关、配置节和数据目录的键。仓库地址默认取 `git remote origin`，没有时用
    `--repo 你/仓库` 指定。脚本会重写 README 并删除自己。
-3. `uv sync && uv run pytest -q` 确认通过，然后把示例命令改成你自己的功能，补上
-   `plugin.metadata` 的 `description`。
+3. `uv sync && uv run pytest -q` 确认通过，然后把示例命令改成你自己的功能，改写
+   `plugin.metadata` 的 `description`。脚本只改名字，模块说明、命令名“示例”、函数名和测试里的
+   示例文字要自己改。
 
 另外注意：
 
@@ -57,15 +58,18 @@ uv run ruff check .
 - 命令权限用 `tenko_api.perm` 的装饰器声明，不要在函数体里重复检查；装饰器在
   `@command.on(...)` 之上或之下都生效。因为装饰器由 Entari 调度，测试里直接调用
   `callable_target` 不会经过它们，应检查登记的要求（见 `tests/test_plugin.py`），
-  或像 `tests/tenko` 里那样走真实分发。
+  或像 Tenko 主仓库的 `tests/tenko` 里那样走真实分发。
 - Entari 对标准 dataclass 配置模型不做类型校验，需要时在 `__post_init__` 里检查。
 
 ## 在 Tenko 里启用
 
-1. 在运行 Tenko 的环境里安装插件：`uv pip install tenko-plugin-xxx`（本地调试用
-   `uv pip install -e /path/to/plugin`）。
-2. 如有配置，在 `config/tenko.toml` 里添加 `[plugin_config.<插件 ID>]`，见仓库中
-   `config/tenko.toml.example` 末尾的说明。运行中的 Tenko 只认启动时读到的配置，改了配置
+1. 发布后由 Master 在聊天里 `/安装插件 tenko-plugin-xxx`（或
+   `/安装插件 https://github.com/<你>/<仓库>@<标签>`）；未收录的来源需要两次确认，收录后可在
+   WebUI 的插件市场安装。不要直接 `uv pip install`：绕过插件管理器的包不进插件锁，启动时会告警。
+   本地调试见 Tenko 的[本地插件](https://github.com/g1331/tenko/blob/main/docs/plugins.md#本地插件)。
+2. 如有配置，在 `config/tenko.toml` 里添加 `[plugin_config.<插件 ID>]`，见 Tenko 仓库
+   [`config/tenko.toml.example`](https://github.com/g1331/tenko/blob/main/config/tenko.toml.example)
+   末尾的说明。在 WebUI 插件页改配置立即生效；直接改文件
    要重启。
 3. 打开 WebUI 的插件页，启用该插件（带“扩展”标记）。扩展插件默认关闭，启用后写入
    `.tenko/plugins/state.json` 并直接加载，数据库表随即建好。
@@ -98,7 +102,9 @@ uv run ruff check .
 ## 收录到插件目录
 
 发布到 PyPI（或打好 Git 标签）后，在 [tenko-registry](https://github.com/g1331/tenko-registry)
-用投稿表单填写来源即可。插件 ID、名称、简介、作者、许可证和兼容范围都由目录的 CI 从
+用投稿表单填写来源（PyPI 包名，或 `https://github.com/<你>/<仓库>@v0.1.0`）并选一个分类即可。
+提交者要是仓库所有者或有推送权限的协作者，PyPI 包的项目链接里要有这个仓库；简介不超过 80 个字符，
+许可证要在目录允许的列表里，插件不加配置也要能加载。插件 ID、名称、简介、作者、许可证和兼容范围都由目录的 CI 从
 `pyproject.toml` 和 `plugin.metadata(...)` 读取，之后的新版本也会自动追加。
 
 图标可选：在 `plugin.metadata(icon="https://…")` 里给出图片地址，或在投稿表单里上传。要求

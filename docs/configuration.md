@@ -226,3 +226,10 @@ bot 回复“请求太频繁，已进入限流 5 分钟”，限流期间的命�
 
 `current_version`、`config_version`、`asset_name`、`install_root`、`config_path`、`data_dir`、
 `health_command`、`health_timeout`、`restart_watch_timeout` 是高级项，用于测试或特殊部署，一般保持默认。
+
+## [plugin_config.<插件 ID>]
+
+扩展插件的配置，加载该插件时传给它在 `plugin.metadata(config=...)` 里声明的模型，字段见各插件的
+文档。只有已启用的扩展插件会读取自己的配置。在 WebUI 插件页修改会写回本文件并立即生效；直接改文件
+要重启。不要写成 Entari 原生的 `[plugins.<名称>]`，那会绕过 Tenko 的启用状态自动加载插件。
+密钥用环境变量引用：`token = "${{ env.EXAMPLE_TOKEN }}"`。

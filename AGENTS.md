@@ -145,7 +145,7 @@ config/tenko.toml.example    # 配置模板
 - 扩展插件的命令与内置插件走同一套维护模式、功能开关和限流，功能开关以插件 ID 为键。
   这套策略（`CommandPolicy`）挂在 Entari 的 `CommandParse` 事件上：Entari 去掉 @bot、前导
   空白、前缀和昵称并匹配出命令后，按 `get_plugin_commands` 把命令映射到所属插件，返回
-  `False` 即阻断；不要再按消息原文判断命令归属。限流（冷却或临时拉黑）静默，只记调试日志；
+  `False` 即阻断；不要再按消息原文判断命令归属。刚越线的那次回复一次“已进入限流 N 分钟”，之后的冷却或临时拉黑静默，只记调试日志；
   `GroupSetting.frequency_limitation` 为假的群不限流（`/频率限制` 修改）。
   私聊只检查受控插件。不经过命令的监听器（例如响应 @bot 的消息）用
   `tenko_api.features.feature_required` 装饰，检查所属插件的开关和维护模式。
@@ -157,11 +157,13 @@ config/tenko.toml.example    # 配置模板
   的接口清单。宿主启动时（`tenko/__init__.py`）把 `packages/tenko-api/src` 放到
   `sys.path` 最前，保证门面与当前宿主代码同版本；`tenko/` 内部不得依赖已安装的
   `tenko-api` 发行版。版本号在 `tenko_api/__init__.py` 的 `__version__`，1.0 之前接口可
-  调整；发布推送标签 `tenko-api-v<版本>`（`.github/workflows/publish-api.yml`，Trusted Publishing）。
-- 元数据：插件模块导入期间调用 `tenko_api.features.declare(scope, default_enabled,
-  rate_weight, level)`，宿主据此设置 `feature_scope`、限流权重
-  （`CommandPolicy` 传给限流器）和 `group_level`（群等级要求），`default_enabled=False`
-  表示没有显式开启的群默认关闭。
+  调整；发布推送标签 `tenko-api-v<版本>`（`.github/workflows/publish-api.yml`，Trusted Publishing）。示例插件推送
+  `tenko-plugin-example-v<版本>` 标签发布到 PyPI（`.github/workflows/publish-example.yml`）。
+- 元数据：插件模块导入期间调用 `tenko_api.features.declare(*, scope, default_enabled,
+  rate_weight, controlled)`，宿主据此设置 `feature_scope`、限流权重（`CommandPolicy` 传给
+  限流器，`0` 为整个插件不限流）和是否受控，`default_enabled=False` 表示没有显式开启的群默认关闭。
+  单条命令用 `@rate_limit(weight)` 覆盖权重（记在 `__tenko_requires__`，与 `/帮助` 的要求同一机制），
+  `0` 为不计数、限流期间照常响应。
 - 配置：`config/tenko.toml` 的 `[plugin_config.<id>]` 在加载该插件时传给
   `load_plugin(config=...)`（`PluginRuntime.load_all(external_configs=...)`）。不要用
   Entari 的 `[plugins.*]`，它会绕过启用状态自动加载。Entari 对标准 dataclass 配置模型

@@ -3,8 +3,11 @@
 ## 编写插件
 
 扩展插件是普通的 Python 包，通过 `pyproject.toml` 的 `tenko.plugins` 入口点向 Tenko 注册。
-从 [examples/tenko-plugin-example](../examples/tenko-plugin-example) 开始：它只依赖
-[tenko-api](../packages/tenko-api)，演示了命令、功能声明、插件配置和独立数据库，可以直接作为模板。
+从模板仓库 [tenko-plugin-template](https://github.com/g1331/tenko-plugin-template) 开始（“Use this
+template” 后运行 `scripts/rename.py` 改名），它与 [examples/tenko-plugin-example](../examples/tenko-plugin-example)
+内容相同：只依赖 [tenko-api](../packages/tenko-api)，演示了命令、权限、功能声明、插件配置、`Store`
+和独立数据库。接口和限流权重（`@rate_limit`）见 tenko-api 的 README；官方插件（AI群友、复读机）在
+[tenko-plugins](https://github.com/g1331/tenko-plugins)，可作为更完整的参考。
 开发约定见 [AGENTS.md](../AGENTS.md)「扩展插件（外部包）」一节。
 
 ## 安装与管理

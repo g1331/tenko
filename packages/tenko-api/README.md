@@ -43,7 +43,7 @@ async def hello(session: Session):
     return "你好！"
 ```
 
-宿主按“用户 × 群”限流：默认 15 秒内命令权重累计到 10 就进入限流 5 分钟。开销大的命令可以
+宿主按“用户 × 群”限流：默认 15 秒内命令权重累计达到 10 就进入限流 5 分钟（群管理及以上不受限）。开销大的命令可以
 调高权重，查询帮助这类很轻的命令可以不限流：
 
 ```python
@@ -89,7 +89,7 @@ async def progress(): ...
 - `declare(controlled=True)` 把插件标为受控插件（例如消耗 token 的 AI 插件）：所有群默认关闭，
   只有 BotAdmin 及以上能在群里打开；私聊里只有 BotAdmin 及以上能用。
 - 不走命令的监听器（例如响应 @bot 的消息监听）没有宿主的命令策略保护，用
-  `@feature_required()` 检查所属插件的功能开关和维护模式（只在群聊生效，默认静默，
+  `@feature_required()` 检查所属插件的功能开关和维护模式（群聊里检查；私聊只拦受控插件的非 BotAdmin，与命令规则一致；默认静默，
   `notify=True` 时回复提示）。所属插件按被装饰函数的模块确定，规则与 `data_dir()` 相同。
 
 ```python
@@ -108,12 +108,12 @@ async def on_message(event: MessageCreatedEvent): ...
 | 模块 | 内容 |
 |---|---|
 | `tenko_api.perm` | `Permission`；装饰器 `require`、`group_only`、`private_only`；函数体内的 `require_perm`、`get_user_perm` |
-| `tenko_api.actions` | 发消息、禁言、踢人、撤回、查询群成员等宿主动作，以及 `ActionServiceError` 系列异常 |
-| `tenko_api.accounts` | 只读账号信息：在线账号、某群可响应的账号（群在黑名单时为空；非 QQ 群传 `platform=`） |
+| `tenko_api.actions` | `send_group_message`、`send_private_message`、`mute_member`、`unmute_member`、`kick_member`、`delete_message`、`get_group_member`、`list_group_members`、`list_groups`，回执 `ActionReceipt` 和 `ActionServiceError` 系列异常 |
+| `tenko_api.accounts` | 只读账号信息 `Account`：在线账号、某群可响应的账号（群在黑名单时为空；非 QQ 群传 `platform=`） |
 | `tenko_api.features` | `feature_enabled` 只读查询（非 QQ 群传 `platform=`）；`declare` 声明范围、默认开关、限流权重和是否受控；`@rate_limit(weight)` 单独设置某条命令的限流权重，`0` 为不限流（0.4.2 起）；`feature_required` 装饰非命令监听器 |
 | `tenko_api.render` | `RenderService`、`try_render`（浏览器不可用时得到 `None`，回退文本；`render_or_none` 是按方法名分发的旧写法） |
-| `tenko_api.messages` | `report_error` |
-| `tenko_api.storage` | 插件独立数据目录 `data_dir()`、带版本号并自动备份迁移的 JSON `Store`、插件自己的 SQLite 库 `Model` 与 `get_session()` |
+| `tenko_api.messages` | `report_error`；`action_error_message` 把动作异常转成给用户看的文字 |
+| `tenko_api.storage` | 插件独立数据目录 `data_dir()`、带版本号并自动备份迁移的 JSON `Store`、插件自己的 SQLite 库 `Model` 与 `get_session()`；异常 `PluginStorageError`、`StoreVersionError` |
 | `tenko_api.sandbox` | `in_sandbox()`：当前处理链是否来自面板的命令沙盒（0.4.1 起） |
 
 ## 命令沙盒
@@ -157,11 +157,11 @@ async def latest() -> str | None:
         return await db.scalar(select(Note.text).order_by(Note.id.desc()).limit(1))
 ```
 
-- 模型要在插件模块里定义（导入期间），并在 Tenko 启动时随插件加载；已经在运行的 Tenko 里不能新增模型，
-  所以用了模型的插件首次启用后需要重启，没有模型的插件启用即可加载。
-- 启动时自动建表，并自动执行新增表、新增可空列和新增索引。删除表、删除列、修改列类型会被拒绝
+- 模型要在插件模块里定义（导入期间）。运行中 `/启用插件` 或热更新时，宿主重开这个插件的库并只迁移它的表，
+  不需要重启。
+- 加载时自动建表，并自动执行新增表、新增可空列和新增索引。删除表、删除列、修改列类型会被拒绝
   （日志报错、数据保持原样）；确需这类变更时用官方的 `register_custom_migration` 写显式迁移脚本。
-- 插件版本变化后的第一次启动，宿主先备份插件库（`backups/`，保留最近 3 份）再迁移。
+- 插件版本变化后第一次打开插件库时，宿主先备份插件库（`backups/`，保留最近 3 份）再迁移。
 - 插件之间、插件与宿主之间不能跨库查询；原生 `execute(text(...))` 走宿主主库，不要使用。
 - 表名默认带插件 ID 前缀；显式写 `__tablename__` 时要自己保证不与其他插件冲突。
 - 直接继承 `BaseOrm` 等会绑定到宿主主库的基类，插件会在加载时报错。
@@ -176,7 +176,7 @@ async def latest() -> str | None:
 例如 0.3.0 移除了 `tenko_api.context` 和 `text_message`，权限函数改为接收 `Session`；
 0.4.0 重做权限（#234）：`Permission` 改为 0–4 的五级、删除群等级（`require_group`、
 `get_group_perm`、`declare(level=...)`），新增 `declare(controlled=...)`；`feature_enabled`、
-`accounts_for_group` 新增仅限关键字的 `platform` 参数（默认 `"qq-client"`），用于区分不同平台的同号群。
+`accounts_for_group` 新增仅限关键字的 `platform` 参数（默认 `"qq-client"`），用于区分不同平台的同号群；0.4.1 新增 `in_sandbox()`；0.4.2 新增 `@rate_limit`，`declare(rate_weight=0)` 可整个插件不限流。
 
 | 变更 | 版本号 |
 |---|---|

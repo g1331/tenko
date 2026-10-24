@@ -24,11 +24,8 @@ README = """# {dist}
 
 ## 安装
 
-```text
-uv pip install {dist}
-```
-
-在 Tenko 的 WebUI 插件页启用“{name}”，或在聊天里发送 `/启用插件 {id}`。
+由 Tenko 的 Master 在聊天里发送 `/安装插件 {dist}`（收录到插件目录后也可在 WebUI 的插件市场安装），
+装好后在 WebUI 插件页启用“{name}”，或发送 `/启用插件 {id}`。
 如有配置，写在 `config/tenko.toml` 的 `[plugin_config.{id}]`。
 
 ## 开发
