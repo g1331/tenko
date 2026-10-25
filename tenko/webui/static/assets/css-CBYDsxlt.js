@@ -1,0 +1,1 @@
+import{Fr as e,Rr as t,_r as n,dr as r,fr as i,qn as a}from"./css-iXvTnWyY.js";var o={class:`page-container`},s={key:0,class:`page-actions`},c=a(n({__name:`PageContainer`,setup(n){return(n,a)=>(e(),i(`div`,o,[n.$slots.actions?(e(),i(`div`,s,[t(n.$slots,`actions`,{},void 0,!0)])):r(``,!0),t(n.$slots,`default`,{},void 0,!0)]))}}),[[`__scopeId`,`data-v-a21689dd`]]);export{c as t};

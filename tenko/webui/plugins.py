@@ -648,12 +648,25 @@ class PluginMarket:
             if request.method == "POST":
                 body = await read_json(request)
                 values = body.get("values")
-                if set(body) != {"values", "confirm"} or body["confirm"] is not True:
+                # reset：从配置文件删掉这些项，回到插件声明的默认值（默认值以后变了也跟着变）。
+                reset = body.get("reset", [])
+                if (
+                    set(body) - {"reset"} != {"values", "confirm"}
+                    or body["confirm"] is not True
+                ):
                     raise ValueError("请确认保存插件配置")
                 if env_backed:
                     raise RuntimeError("该插件配置引用了环境变量，请在配置文件里修改")
                 if not isinstance(values, dict) or set(values) - set(properties):
                     raise ValueError("包含未知的配置项")
+                if not isinstance(reset, list) or any(
+                    key not in properties
+                    or key in values
+                    or properties[key].get("type") not in _EDITABLE
+                    or "default" not in properties[key]
+                    for key in reset
+                ):
+                    raise ValueError("只能把有默认值、可在面板修改的配置项恢复默认")
                 for key, value in values.items():
                     spec = properties[key]
                     if spec.get("type") not in _EDITABLE:
@@ -662,14 +675,18 @@ class PluginMarket:
                     elif not _field_ok(spec, value):
                         raise ValueError(f"{key} 的值类型不正确")
                 request.state.webui_action = "plugin-config"
-                merged = {**raw, **values}
+                merged = {
+                    **{k: v for k, v in raw.items() if k not in reset},
+                    **values,
+                }
+                touched = [*values, *reset]
 
                 def write(changes: dict[str, Any]):
                     def mutate(data) -> None:
                         section = data.setdefault("plugin_config", {}).setdefault(
                             plugin_id, {}
                         )
-                        for key in values:
+                        for key in touched:
                             if key in changes:
                                 section[key] = changes[key]
                             else:
@@ -686,7 +703,10 @@ class PluginMarket:
                     raise RuntimeError(
                         f"新配置未能生效，已恢复原配置：{error}"
                     ) from error
-                current = {key: merged.get(key, current[key]) for key in properties}
+                current = {
+                    key: merged.get(key, properties[key].get("default"))
+                    for key in properties
+                }
             return {
                 "plugin_id": plugin_id,
                 "available": True,

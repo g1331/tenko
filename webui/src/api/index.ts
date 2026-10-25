@@ -96,9 +96,9 @@ export const api = {
     pluginTaskState: (id: string) => request<PluginTask>(`/manage/plugin-tasks/${segment(id)}`),
     pluginConfig: (plugin: string) =>
       request<PluginConfigData>(`/manage/plugin-config/${segment(plugin)}`),
-    savePluginConfig: (plugin: string, values: Record<string, unknown>) =>
+    savePluginConfig: (plugin: string, values: Record<string, unknown>, reset: string[] = []) =>
       request<PluginConfigData>(`/manage/plugin-config/${segment(plugin)}`, {
-        body: { values, confirm: true },
+        body: { values, reset, confirm: true },
       }),
     restart: () => request<{ restarting: boolean }>('/manage/restart', { body: { confirm: true } }),
     upgrade: () => request<UpgradeStatus>('/manage/upgrade'),

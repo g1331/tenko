@@ -206,6 +206,23 @@ async def test_plugin_config_form_validates_and_writes_toml(market) -> None:
 
 
 @pytest.mark.asyncio
+async def test_plugin_config_reset_removes_keys_so_defaults_apply(market) -> None:
+    client, url = market.client, "/webui/api/manage/plugin-config/example"
+    # 不是列表、未知项、同时又在 values 里
+    for bad in ({"unknown": 1}, ["unknown"], ["limit"]):
+        body = {"values": {"limit": 4}, "reset": bad, "confirm": True}
+        assert (await client.post(url, json=body)).status_code == 400
+
+    body = {"values": {}, "reset": ["greeting"], "confirm": True}
+    saved = (await client.post(url, json=body)).json()["data"]
+
+    assert saved["values"] == {"greeting": "你好", "limit": 3}
+    market.service.plugin_runtime.apply_config.assert_awaited_once_with("example", {})
+    assert "greeting" not in market.path.read_text()
+    assert "# 问候语" in market.path.read_text()
+
+
+@pytest.mark.asyncio
 async def test_core_config_validates_and_keeps_legacy_layout(market) -> None:
     client, url = market.client, "/webui/api/manage/config"
     fields = {f["key"]: f for f in (await client.get(url)).json()["data"]["fields"]}

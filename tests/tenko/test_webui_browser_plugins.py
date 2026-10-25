@@ -379,3 +379,71 @@ def test_market_drawer_switches_installed_plugin_and_warns_on_downgrade(open_pan
         "confirm": True,
     }
     assert not page.errors
+
+
+def test_plugin_config_resets_one_field_or_all_to_defaults(open_panel):
+    panel = PluginsPanel()
+    detail = {
+        "plugin": "ext_demo",
+        "name": "演示插件",
+        "source": "external",
+        "description": "",
+        "version": "0.1.0",
+        "authors": [],
+        "license": "MIT",
+        "tier": "listed",
+        "tags": [],
+        "icon": {"url": "/webui/api/plugins/ext_demo/icon", "glyph": True},
+        "links": [],
+        "commands": [],
+        "installed": None,
+        "has_config": True,
+        "update": None,
+        "yanked": None,
+        "blocked": None,
+    }
+    panel.data["/api/plugins/ext_demo/detail"] = detail
+    panel.data["/api/manage/plugin-config/ext_demo"] = {
+        "plugin_id": "ext_demo",
+        "available": True,
+        "schema": {
+            "properties": {
+                "greeting": {"type": "string", "title": "问候", "default": "你好"},
+                "limit": {"type": "integer", "title": "上限", "default": 3},
+                "api_key": {"type": "string", "title": "密钥"},
+            }
+        },
+        "values": {"greeting": "嗨", "limit": 5, "api_key": "k"},
+        "editable": ["greeting", "limit", "api_key"],
+        "read_only_reason": None,
+    }
+    page = open_plugins(open_panel, panel)
+    card(page, "ext_demo").get_by_role("link", name="详情").click()
+    page.get_by_role("button", name="配置").click()
+    drawer = page.locator(".el-drawer")
+    drawer.get_by_role("button", name="恢复默认（你好）").click()
+    assert drawer.get_by_label("问候").input_value() == "你好"
+    drawer.get_by_role("button", name="保存配置").click()
+    confirm(page, "保存插件配置", "保存")
+    for _ in range(40):
+        if panel.calls("POST", "/api/manage/plugin-config/ext_demo"):
+            break
+        page.wait_for_timeout(50)
+    body = panel.calls("POST", "/api/manage/plugin-config/ext_demo")[0][3]
+    assert body["reset"] == ["greeting"]
+    assert body["values"] == {"limit": 5, "api_key": "k"}
+
+    # 全部恢复默认只动有默认值的项，没有默认值的密钥保留
+    drawer.wait_for(state="hidden")
+    page.get_by_role("button", name="配置", exact=True).click()
+    drawer.get_by_role("button", name="全部恢复默认").click()
+    drawer.get_by_role("button", name="保存配置").click()
+    confirm(page, "保存插件配置", "保存")
+    for _ in range(40):
+        if len(panel.calls("POST", "/api/manage/plugin-config/ext_demo")) > 1:
+            break
+        page.wait_for_timeout(50)
+    body = panel.calls("POST", "/api/manage/plugin-config/ext_demo")[1][3]
+    assert sorted(body["reset"]) == ["greeting", "limit"]
+    assert body["values"] == {"api_key": "k"}
+    assert not page.errors

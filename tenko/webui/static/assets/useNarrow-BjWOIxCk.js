@@ -1,1 +1,0 @@
-import{ei as e,ri as t}from"./css-BBTAtUIN.js";function n(n=700){let r=window.matchMedia(`(max-width: ${n}px)`),i=t(r.matches),a=()=>{i.value=r.matches};return r.addEventListener(`change`,a),e(()=>r.removeEventListener(`change`,a)),i}export{n as t};
