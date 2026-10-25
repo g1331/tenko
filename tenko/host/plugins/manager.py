@@ -373,7 +373,8 @@ class PluginManager:
                 command,
                 check=False,
                 capture_output=True,
-                text=True,
+                encoding="utf-8",
+                errors="replace",
                 timeout=_UV_TIMEOUT,
                 cwd=self.cwd,
             )
@@ -524,7 +525,8 @@ class PluginManager:
                 [self.python, "-I", "-c", _ENTRIES_SCRIPT],
                 check=False,
                 capture_output=True,
-                text=True,
+                encoding="utf-8",
+                errors="replace",
                 timeout=60,
                 cwd=self.cwd,
             )

@@ -582,7 +582,8 @@ def _run_git(
             cwd=cwd,
             check=True,
             capture_output=True,
-            text=True,
+            encoding="utf-8",
+            errors="replace",
             timeout=timeout,
             # 挂起的凭据/ssh 提示会一直占用升级操作锁，所以禁止交互。
             stdin=subprocess.DEVNULL,
@@ -1467,7 +1468,8 @@ class DefaultHealthChecker:
                     self._command(candidate),
                     check=False,
                     capture_output=True,
-                    text=True,
+                    encoding="utf-8",
+                    errors="replace",
                     timeout=self.timeout,
                     env=self._environment(candidate),
                     cwd=self._working_directory(candidate),
@@ -1487,7 +1489,8 @@ class DefaultHealthChecker:
                 cwd=self._working_directory(candidate),
                 check=False,
                 capture_output=True,
-                text=True,
+                encoding="utf-8",
+                errors="replace",
                 timeout=self.timeout,
                 env=self._environment(candidate),
             )
@@ -1515,7 +1518,8 @@ class DefaultHealthChecker:
                 ],
                 check=False,
                 capture_output=True,
-                text=True,
+                encoding="utf-8",
+                errors="replace",
                 timeout=max(self.timeout, _IMPORT_CHECK_MIN_TIMEOUT),
                 env=self._environment(candidate),
                 cwd=self._working_directory(candidate),
@@ -1643,7 +1647,8 @@ class UvDependencySync:
                 command,
                 check=False,
                 capture_output=True,
-                text=True,
+                encoding="utf-8",
+                errors="replace",
                 timeout=self.timeout,
                 env=environment,
             )
@@ -3581,7 +3586,8 @@ def spawn_restart_watcher(
                 cwd=stable_root,
                 env=helper_environment,
                 capture_output=True,
-                text=True,
+                encoding="utf-8",
+                errors="replace",
             )
             if completed.returncode != 0:
                 detail = (completed.stderr or completed.stdout or "").strip()

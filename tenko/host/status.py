@@ -105,7 +105,8 @@ def _git_output(*arguments: str) -> str | None:
             cwd=_PROJECT_ROOT,
             capture_output=True,
             check=True,
-            text=True,
+            encoding="utf-8",
+            errors="replace",
             timeout=1.0,
         )
     except (OSError, subprocess.SubprocessError):
