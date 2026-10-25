@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import os
+import subprocess
 import sys
 from collections.abc import Sequence
 from pathlib import Path
@@ -70,11 +71,17 @@ def _exec_release_root(
         value for value in (str(release_root), existing_pythonpath) if value
     )
     os.chdir(stable_root)
-    os.execve(
-        sys.executable,
-        [sys.executable, "-c", bootstrap, str(release_root), *arguments],
-        environment,
-    )
+    command = [sys.executable, "-c", bootstrap, str(release_root), *arguments]
+    if os.name == "nt":
+        # Windows 的 exec 会新开进程并让当前进程立即退出：终端提前返回、Ctrl-C 也
+        # 到不了新进程。改为等子进程结束，Ctrl-C 由它自己收尾。
+        process = subprocess.Popen(command, env=environment)
+        while True:
+            try:
+                raise SystemExit(process.wait())
+            except KeyboardInterrupt:
+                continue
+    os.execve(sys.executable, command, environment)
 
 
 def _run_startup_bootstrap(config: TenkoConfig, arguments: Sequence[str]) -> bool:
