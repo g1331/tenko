@@ -835,7 +835,7 @@ class WebUIService(Service):
 
         if self._config_path is None:
             raise RuntimeError("没有可写回的配置文件")
-        return tomllib.loads(self._config_path.read_text())
+        return tomllib.loads(self._config_path.read_text(encoding="utf-8"))
 
     def _rotate_token(self) -> str:
         value = self.raw_config().get("onebot", {}).get("access_token", "")
