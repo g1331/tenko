@@ -62,6 +62,35 @@ function edit(field: CoreConfigField, value: unknown) {
   else draft.value[field.key] = value
 }
 
+// 恢复默认：先把默认值填进表单，保存时这些项从配置文件删除，以后跟随默认值。
+const resetKeys = ref(new Set<string>())
+const defaultForm = (field: CoreConfigField) => toForm({ ...field, value: field.default })
+const atDefault = (field: CoreConfigField) =>
+  JSON.stringify(toBody(field, current(field))) ===
+  JSON.stringify(toBody(field, defaultForm(field)))
+function showDefault(field: CoreConfigField) {
+  const value = field.default
+  if (field.kind === 'boolean') return value ? '开' : '关'
+  if (field.kind === 'enum') return field.options.find((o) => o.value === value)?.label ?? value
+  if (field.kind === 'urls') return '官方目录地址'
+  if (field.kind === 'identifier') return value || '不设置'
+  return value
+}
+function resetField(field: CoreConfigField) {
+  edit(field, defaultForm(field))
+  resetKeys.value.add(field.key)
+}
+const changedFromDefault = computed(() =>
+  (config.data.value?.fields ?? []).filter((field) => !field.read_only && !atDefault(field)),
+)
+function resetAll() {
+  for (const field of changedFromDefault.value) resetField(field)
+}
+function discard() {
+  draft.value = {}
+  resetKeys.value = new Set()
+}
+
 const writable = computed(() => !!config.data.value?.writable)
 const dirty = computed(() => Object.keys(draft.value).length > 0)
 const fieldText = (field: CoreConfigField) =>
@@ -114,14 +143,20 @@ onMounted(load)
 
 async function save() {
   const fields = config.data.value?.fields ?? []
+  // 点过恢复默认、之后没再改的项走 reset，其余改动照常保存。
+  const reset = fields
+    .filter((f) => f.key in draft.value && resetKeys.value.has(f.key) && atDefault(f))
+    .map((f) => f.key)
   const values = Object.fromEntries(
-    fields.filter((f) => f.key in draft.value).map((f) => [f.key, toBody(f, draft.value[f.key])]),
+    fields
+      .filter((f) => f.key in draft.value && !reset.includes(f.key))
+      .map((f) => [f.key, toBody(f, draft.value[f.key])]),
   )
   saving.value = true
   try {
-    const saved = await api.manage.saveConfig(values)
+    const saved = await api.manage.saveConfig(values, reset)
     config.data.value = saved
-    draft.value = {}
+    discard()
     if (saved.restart_required) ElMessage.warning(restartTitle(saved))
     else ElMessage.success('宿主配置已保存并生效')
   } catch (error) {
@@ -256,6 +291,16 @@ async function restart() {
                 />
                 <p v-if="field.read_only" class="hint">引用了环境变量，请在配置文件里修改</p>
                 <p v-if="field.help" class="hint">{{ field.help }}</p>
+                <el-button
+                  v-if="writable && !field.read_only && !atDefault(field)"
+                  class="reset"
+                  link
+                  type="primary"
+                  size="small"
+                  @click="resetField(field)"
+                >
+                  恢复默认（{{ showDefault(field) }}）
+                </el-button>
               </el-form-item>
             </div>
           </section>
@@ -270,7 +315,14 @@ async function restart() {
             >
               保存宿主配置
             </el-button>
-            <el-button :disabled="!dirty || saving" @click="draft = {}">放弃修改</el-button>
+            <el-button :disabled="!dirty || saving" @click="discard">放弃修改</el-button>
+            <el-button
+              v-if="writable && changedFromDefault.length"
+              :disabled="saving"
+              @click="resetAll"
+            >
+              全部恢复默认
+            </el-button>
           </div>
         </el-form>
       </template>
@@ -298,6 +350,9 @@ async function restart() {
   width: 100%;
   margin-top: 4px;
   line-height: 1.5;
+}
+.reset {
+  margin-top: 2px;
 }
 .group {
   margin-top: 18px;

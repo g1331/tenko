@@ -106,8 +106,8 @@ export const api = {
     upgradeNotes: () => request<{ note: ReleaseNote | null }>('/manage/upgrade/notes'),
     startUpgrade: (body: UpgradeStartBody) => request<UpgradeJob>('/manage/upgrade', { body }),
     config: () => request<CoreConfigData>('/manage/config'),
-    saveConfig: (values: Record<string, unknown>) =>
-      request<CoreConfigData>('/manage/config', { body: { values } }),
+    saveConfig: (values: Record<string, unknown>, reset: string[] = []) =>
+      request<CoreConfigData>('/manage/config', { body: { values, reset } }),
     settings: () => request<SettingsData>('/manage/settings'),
     saveSettings: (body: SettingsBody) => request<SettingsData>('/manage/settings', { body }),
     inbox: () => request<InboxData>('/manage/inbox'),

@@ -249,3 +249,54 @@ def test_section_query_scrolls_to_account_security(open_panel):
     _panel, page = open_settings(open_panel, viewport=(1280, 400))
     page.wait_for_timeout(300)
     assert page.evaluate("window.scrollY") == 0
+
+
+def _core_field(key, group, label, kind, value, default):
+    return {
+        "key": key,
+        "group": group,
+        "label": label,
+        "kind": kind,
+        "value": value,
+        "default": default,
+        "help": "",
+        "options": [],
+        "min": None,
+        "max": None,
+        "read_only": False,
+    }
+
+
+def test_core_config_resets_one_field_or_all_to_defaults(open_panel):
+    panel = SettingsPanel()
+    data = {
+        "fields": [
+            _core_field("render.quality", "render", "图片质量", "integer", 70, 85),
+            _core_field(
+                "ratelimit.enabled", "ratelimit", "启用限流", "boolean", False, True
+            ),
+            _core_field(
+                "upgrade.enabled", "upgrade", "启用检查更新", "boolean", True, True
+            ),
+        ],
+        "writable": True,
+        "restart_required": False,
+        "restart_fields": [],
+        "can_restart": True,
+    }
+    panel.data["/api/manage/config"] = data
+    panel.write_results["/api/manage/config"] = data
+    _panel, page = open_settings(open_panel, panel)
+
+    page.get_by_role("button", name="恢复默认（85）").click()
+    assert page.get_by_role("button", name="恢复默认（85）").count() == 0
+    # 已经是默认值的项不显示按钮。
+    assert page.get_by_role("button", name="恢复默认（开）").count() == 1
+    page.get_by_role("button", name="全部恢复默认").click()
+    page.get_by_role("button", name="保存宿主配置").click()
+    page.get_by_text("宿主配置已保存并生效").wait_for()
+    assert panel.calls("POST", "/api/manage/config")[0][3] == {
+        "values": {},
+        "reset": ["render.quality", "ratelimit.enabled"],
+    }
+    assert not page.errors

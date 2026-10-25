@@ -314,20 +314,27 @@ def validate(field: ConfigField, value: Any) -> Any:
     return value
 
 
-def plan(raw: Mapping[str, Any], values: Any) -> list[tuple[tuple[str, ...], Any]]:
-    """校验请求，返回 (路径, 新值) 列表。"""
+def plan(
+    raw: Mapping[str, Any], values: Any, reset: Any = ()
+) -> list[tuple[tuple[str, ...], Any]]:
+    """校验请求，返回 (路径, 新值) 列表；``reset`` 里的键从文件删除，回到默认值。"""
 
-    if not isinstance(values, Mapping) or not values:
+    values = {} if values is None else values
+    if (
+        not isinstance(values, Mapping)
+        or not isinstance(reset, list | tuple)
+        or not (values or reset)
+    ):
         raise ValueError("没有要保存的配置")
     changes = []
-    for key, value in values.items():
-        field = FIELD_MAP.get(key)
+    for key, value in [*values.items(), *((key, None) for key in reset)]:
+        field = FIELD_MAP.get(key) if isinstance(key, str) else None
         if field is None:
             raise ValueError(f"不支持在面板修改 {key}")
         path = _path(field, raw)
         if _has_placeholder(_lookup(raw, path)):
             raise ValueError(f"{field.label}引用了环境变量，请在配置文件里修改")
-        changes.append((path, validate(field, value)))
+        changes.append((path, None if key in reset else validate(field, value)))
     return changes
 
 

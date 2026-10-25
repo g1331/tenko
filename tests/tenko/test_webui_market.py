@@ -262,6 +262,21 @@ async def test_core_config_save_applies_live(market) -> None:
 
 
 @pytest.mark.asyncio
+async def test_core_config_reset_removes_key_so_default_applies(market) -> None:
+    applied = []
+    market.service._apply_config = lambda config: applied.append(config) or []
+    url = "/webui/api/manage/config"
+    await market.client.post(url, json={"values": {"render.quality": 70}})
+    saved = await market.client.post(url, json={"reset": ["render.quality"]})
+    fields = {f["key"]: f for f in saved.json()["data"]["fields"]}
+    assert fields["render.quality"]["value"] == 85
+    assert "quality" not in market.path.read_text()
+    assert [config.render.quality for config in applied] == [70, 85]
+    bad = await market.client.post(url, json={"reset": ["onebot.access_token"]})
+    assert bad.status_code == 400
+
+
+@pytest.mark.asyncio
 async def test_restart_needs_upgrade_system(market) -> None:
     url = "/webui/api/manage/restart"
     calls = []

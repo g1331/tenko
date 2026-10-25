@@ -1139,7 +1139,9 @@ class WebUIService(Service):
             raw = self.raw_config() if writable else {}
             if request.method == "POST":
                 body = await read_json(request)
-                changes = core_config.plan(raw, body.get("values"))
+                changes = core_config.plan(
+                    raw, body.get("values"), body.get("reset", [])
+                )
                 self.update_config(lambda data: core_config.apply(data, changes))
                 request.state.webui_action = "config"
                 raw = self.raw_config()
