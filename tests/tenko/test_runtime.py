@@ -480,3 +480,30 @@ save = { rotation = "00:00", compression = "gz", colorize = false }
     finally:
         EntariConfig.instance = original_config
         EntariConfig._inited = True
+
+
+def test_apply_config_updates_running_services_without_dropping_state() -> None:
+    runtime = TenkoRuntime(TenkoConfig())
+    runtime.render_service = RenderService()
+    runtime.rate_limiter._cooldowns["k"] = 99.0
+    changed = TenkoConfig.from_mapping(
+        {
+            "render": {"quality": 70, "device_scale_factor": 1},
+            "ratelimit": {"max_weight": 3},
+            "upgrade": {
+                "channel": "prerelease",
+                "enabled": not runtime.updater.enabled,
+            },
+        }
+    )
+    try:
+        assert runtime.apply_config(changed) == ["upgrade.enabled"]
+        assert runtime.render_service.quality == 70
+        assert runtime.render_service.device_scale_factor == 1
+        assert runtime.rate_limiter.max_weight == 3
+        # 冷却和黑名单是运行中的状态，改阈值不能把它们清掉。
+        assert runtime.rate_limiter._cooldowns == {"k": 99.0}
+        assert runtime.updater.channel.value == "prerelease"
+    finally:
+        runtime.rate_limiter._cooldowns.clear()
+        assert runtime.apply_config(TenkoConfig()) == []

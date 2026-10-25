@@ -119,9 +119,11 @@ async function save() {
   )
   saving.value = true
   try {
-    config.data.value = await api.manage.saveConfig(values)
+    const saved = await api.manage.saveConfig(values)
+    config.data.value = saved
     draft.value = {}
-    ElMessage.success('宿主配置已保存，重启后生效')
+    if (saved.restart_required) ElMessage.warning(restartTitle(saved))
+    else ElMessage.success('宿主配置已保存并生效')
   } catch (error) {
     ElMessage.error(
       `保存宿主配置失败：${error instanceof ApiError ? error.message : String(error)}`,
@@ -129,6 +131,14 @@ async function save() {
   } finally {
     saving.value = false
   }
+}
+
+// 大部分项保存即生效；只有返回的这些项要重启，"*" 表示整份配置都要重启。
+function restartTitle(data: CoreConfigData) {
+  const fields = data.restart_fields ?? []
+  if (!fields.length || fields.includes('*')) return '配置已保存，重启后生效'
+  const names = fields.map((key) => data.fields.find((f) => f.key === key)?.label ?? key)
+  return `已保存；${names.map((name) => `“${name}”`).join('、')}重启后生效，其余已生效`
 }
 
 async function restart() {
@@ -161,7 +171,7 @@ async function restart() {
           type="warning"
           show-icon
           :closable="false"
-          :title="restarting ? '正在重启…' : '配置已保存，重启后生效'"
+          :title="restarting ? '正在重启…' : restartTitle(data)"
           class="note"
           role="status"
         >
@@ -182,7 +192,7 @@ async function restart() {
           title="配置文件不可写，宿主配置只能查看，请直接编辑配置文件。"
           class="note"
         />
-        <p class="desc">写入配置文件，所有修改在重启后生效。</p>
+        <p class="desc">写入配置文件，保存后立即生效；“启用检查更新”需要重启。</p>
 
         <el-form label-position="top" :disabled="!writable" @submit.prevent="save">
           <section
@@ -251,7 +261,7 @@ async function restart() {
           </section>
 
           <div class="actions" :class="{ floating: dirty }">
-            <span v-if="dirty" class="pending">已修改 {{ dirtyCount }} 项，保存后重启生效</span>
+            <span v-if="dirty" class="pending">已修改 {{ dirtyCount }} 项，保存后生效</span>
             <el-button
               type="primary"
               :disabled="!dirty || !writable"

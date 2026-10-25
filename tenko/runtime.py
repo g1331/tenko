@@ -9,6 +9,7 @@ from pathlib import Path
 
 import arclet.letoderea as le
 from arclet.entari import Entari, SendRequest
+from arclet.entari.logger import log as elog
 from arclet.entari.event.command import CommandParse
 from arclet.letoderea.utils import set_event_loop
 from creart import it
@@ -34,13 +35,18 @@ from .host.actions import action_service
 from .host.features import CommandPolicy, configure_feature_service
 from .host.perm import permission_store
 from .host.plugins.manager import get_plugin_manager
-from .host.plugins.registry import configure_registry
+from .host.plugins.registry import configure_registry, get_registry
 from .host.plugins.runtime import PluginRuntime
 from .host.quote import quote_group_reply
 from .host.ratelimit import configure_rate_limiter
 from .host.startup import startup_history
 from .host.stats import install as install_call_stats
-from .host.updater import UpgradeManager, configure_updater
+from .host.updater import (
+    UpdateChannel,
+    UpdatePolicy,
+    UpgradeManager,
+    configure_updater,
+)
 from .host.render import RenderService
 from .host.sandbox import (
     GuardedProtocol,
@@ -105,6 +111,8 @@ class TenkoRuntime:
             action_service=self.actions,
             chat_log=chat_log,
         )
+        self.render_service: RenderService | None = None
+        self.command_policy: CommandPolicy | None = None
         self.app: Entari | None = None
         self.manager: Launart | None = None
         self.plugin_runtime: PluginRuntime | None = None
@@ -115,6 +123,46 @@ class TenkoRuntime:
             self._initialize_runtime_state,
             self._flush_runtime_state,
         )
+
+    def apply_config(self, config: TenkoConfig) -> list[str]:
+        """面板保存宿主配置后调用：把能实时生效的项应用到运行中的服务，返回仍需重启的项。"""
+
+        self.config = config
+        limit = config.ratelimit
+        # 直接改属性：configure() 会清空正在生效的冷却和黑名单。
+        self.rate_limiter.enabled = limit.enabled
+        self.rate_limiter.window_seconds = float(limit.window_seconds)
+        self.rate_limiter.max_weight = limit.max_weight
+        self.rate_limiter.default_weight = limit.default_weight
+        self.rate_limiter.cooldown_seconds = float(limit.cooldown_seconds)
+        self.rate_limiter.blacklist_seconds = float(limit.blacklist_seconds)
+        if self.command_policy is not None:
+            self.command_policy.rate_limit_override_permission = int(
+                limit.override_permission
+            )
+        if self.render_service is not None:
+            self.render_service.timeout = float(config.render.timeout)
+            self.render_service.width = config.render.width
+            self.render_service.quality = config.render.quality
+            self.render_service.device_scale_factor = config.render.device_scale_factor
+        # 不重新 configure：那会清掉还没写进数据库的消息。
+        chat_log.enabled = config.chat_log.enabled and chat_log.repository is not None
+        chat_log.retention_days = config.chat_log.retention_days
+        chat_log.max_messages = config.chat_log.max_messages
+        self.message_metrics.configure_buffer(config.exception.message_buffer_size)
+        self.message_handler.debug_config = config.debug
+        notify.configure(config.notify_group)
+        registry = get_registry()
+        if registry.urls != tuple(config.registry.urls):
+            registry.urls = tuple(config.registry.urls)
+            registry._loaded_at = 0.0  # 下次读取时按新地址重新拉取
+        elog.set_level(config.basic.log.level)
+        upgrade = config.upgrade
+        self.updater.channel = UpdateChannel.parse(upgrade.channel)
+        self.updater.policy = UpdatePolicy.parse(upgrade.policy)
+        self.updater.check_interval_hours = upgrade.check_interval_hours
+        # 开启检查更新要解析升级源，升级进行中切换也不安全，留到重启。
+        return ["upgrade.enabled"] if upgrade.enabled != self.updater.enabled else []
 
     async def _check_plugin_environment(self) -> None:
         """加载插件前核对插件环境：删除已卸载插件的包；不一致时只告警，不自动联网安装。"""
@@ -390,14 +438,13 @@ class TenkoRuntime:
             self.database_service = None
             self._mark_runtime_state_unavailable()
             logger.error("Tenko database is unavailable: {}", error)
-        manager.add_component(
-            RenderService(
-                timeout=self.config.render.timeout,
-                width=self.config.render.width,
-                quality=self.config.render.quality,
-                device_scale_factor=self.config.render.device_scale_factor,
-            )
+        self.render_service = RenderService(
+            timeout=self.config.render.timeout,
+            width=self.config.render.width,
+            quality=self.config.render.quality,
+            device_scale_factor=self.config.render.device_scale_factor,
         )
+        manager.add_component(self.render_service)
 
         # PluginRuntime.load_all() 只通过 Entari 的 load_plugin API 导入 Tenko
         # 插件，因此不需要注册 Launart 组件。将其放在数据库模型和
@@ -422,7 +469,7 @@ class TenkoRuntime:
         )
         # 策略挂在 Entari 已解析出命令的 CommandParse 事件上，返回 False 即阻断；
         # 订阅在根作用域，随 Entari 清理一起释放。
-        policy = CommandPolicy(
+        self.command_policy = policy = CommandPolicy(
             self.feature_service,
             self.rate_limiter,
             plugin_runtime=self.plugin_runtime,
@@ -449,6 +496,7 @@ class TenkoRuntime:
                 management=self.account_management,
                 connection=self.connection,
                 tenko_config=self.config,
+                apply_config=self.apply_config,
             )
             manager.add_component(self.webui_service)
         # 注意（pre8 生产事故根因）：RuntimeStateService 与官方

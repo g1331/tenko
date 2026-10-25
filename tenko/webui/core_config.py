@@ -2,7 +2,8 @@
 
 连接监听、数据库、WebUI 安全和 superusers 只能在配置文件里改，不在这里暴露。
 单项先在这里校验，整份配置再由 ``WebUIService.update_config`` 用 ``TenkoConfig``
-校验后写回；所有改动重启后生效。
+校验后写回，并由 ``TenkoRuntime.apply_config`` 应用到运行中的服务；只有
+``upgrade.enabled`` 要重启才生效。
 """
 
 from __future__ import annotations

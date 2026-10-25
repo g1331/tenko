@@ -357,6 +357,8 @@ export interface CoreConfigData {
   fields: CoreConfigField[]
   writable: boolean
   restart_required: boolean
+  /** 已保存但要重启才生效的字段 key；"*" 表示整份配置。 */
+  restart_fields?: string[]
   can_restart: boolean
 }
 

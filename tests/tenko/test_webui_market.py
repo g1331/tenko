@@ -250,6 +250,18 @@ async def test_core_config_validates_and_keeps_legacy_layout(market) -> None:
 
 
 @pytest.mark.asyncio
+async def test_core_config_save_applies_live(market) -> None:
+    applied = []
+    market.service._apply_config = lambda config: applied.append(config) or []
+    saved = await market.client.post(
+        "/webui/api/manage/config", json={"values": {"render.quality": 70}}
+    )
+    data = saved.json()["data"]
+    assert data["restart_required"] is False and data["restart_fields"] == []
+    assert [config.render.quality for config in applied] == [70]
+
+
+@pytest.mark.asyncio
 async def test_restart_needs_upgrade_system(market) -> None:
     url = "/webui/api/manage/restart"
     calls = []

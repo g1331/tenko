@@ -202,6 +202,7 @@ class WebUIService(Service):
         connection: Any | None = None,
         tenko_config: TenkoConfig | None = None,
         inbox: Inbox = default_inbox,
+        apply_config: Callable[[TenkoConfig], list[str]] | None = None,
     ) -> None:
         super().__init__()
         self.server = server
@@ -222,7 +223,9 @@ class WebUIService(Service):
         self._retired_tokens: list[str] = []
         native = tenko_config.entari_config if tenko_config else None
         self._config_path = Path(native.path) if native is not None else None
-        self._core_config_changed = False
+        self._apply_config = apply_config
+        # 已保存但要重启才生效的宿主配置项；没有实时应用入口时为 ["*"]。
+        self._restart_fields: list[str] = []
         self.live = LiveStreams(
             overview=self._overview_data,
             logs=self.logs,
@@ -1138,13 +1141,19 @@ class WebUIService(Service):
                 body = await read_json(request)
                 changes = core_config.plan(raw, body.get("values"))
                 self.update_config(lambda data: core_config.apply(data, changes))
-                self._core_config_changed = True
                 request.state.webui_action = "config"
                 raw = self.raw_config()
+                self._restart_fields = ["*"]
+                if self._apply_config is not None:
+                    native = self.tenko_config.entari_config
+                    config = TenkoConfig.from_mapping(native.data, entari_config=native)
+                    self._restart_fields = self._apply_config(config)
+                    self.tenko_config = config
             return {
                 "fields": core_config.read(raw),
                 "writable": writable,
-                "restart_required": self._core_config_changed,
+                "restart_required": bool(self._restart_fields),
+                "restart_fields": self._restart_fields,
                 "can_restart": bool(getattr(self.market.updater, "enabled", False)),
             }
 
