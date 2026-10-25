@@ -204,9 +204,9 @@ bot 回复“请求太频繁，已进入限流 5 分钟”，限流期间的命�
 | 字段 | 说明 |
 | --- | --- |
 | enabled | 是否启用升级功能，默认开启 |
-| source | 版本源：git_tag、github_release 或 manifest |
+| source | 版本源：github_release（模板默认，不需要 Git）、git_tag 或 manifest；未写时为 git_tag |
 | repository | `git_tag` 源使用的 Git 仓库地址；默认值 `.` 只适合本地 refs，远端部署必须填写完整 URL，例如 `https://github.com/g1331/tenko.git` |
-| github_repository | GitHub 版本源的仓库标识 |
+| github_repository | github_release 源的仓库，格式 owner/repo，模板为 `g1331/tenko` |
 | manifest_url | manifest 版本源的地址 |
 | github_token | 可选的 GitHub 访问 token |
 | asset_name | 可选的发布制品名称 |

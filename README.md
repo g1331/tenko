@@ -114,6 +114,9 @@ uv sync
 cp config/tenko.toml.example config/tenko.toml
 ```
 
+没有 Git 时，从 [Releases](https://github.com/g1331/tenko/releases) 下载 `tenko-<版本>.tar.gz`
+解压后执行同样的 `uv sync` 和复制配置；之后用 `/升级` 或面板更新，不需要 Git。
+
 编辑 `config/tenko.toml`：至少把 `[basic].superusers` 改成你的 QQ 号，并给 `[onebot].access_token`
 设一个随机值（完整字段见[配置参考](docs/configuration.md)）。然后在 NapCat 的 OneBot 11
 反向 WebSocket 中填写下面的地址和同一个 token：

@@ -30,8 +30,23 @@ watcher 会等待当前进程退出，再调用这个启动器；升级切换时
 
 ## 版本源与更新通道
 
-当 `source = "git_tag"` 时，`repository` 是用于 `git ls-remote --tags` 和
-`git clone` 的仓库地址。需要从远端发现新版本的部署必须填写完整 Git URL，例如：
+配置模板默认使用 `github_release`：从 GitHub Release 读取版本，下载发布流程附上的
+源码包 `tenko-<tag>.tar.gz`，按 GitHub 为附件提供的 SHA-256 校验后安装，不需要 Git，
+git clone 和下载压缩包两种部署都能用：
+
+    [upgrade]
+    source = "github_release"
+    github_repository = "g1331/tenko"
+    channel = "stable"
+
+源码包由 `.github/workflows/release-asset.yml` 在 Release 发布后上传；还没有附件的
+Release 不算候选版本，上传完成后才会出现在检查结果里。附件上传失败时，可在 Actions
+页手动运行该 workflow 并填写 tag 补传。GitHub API 未登录时每小时限 60 次请求，
+频繁检查或共享出口 IP 时可填写只读的 `github_token`。
+
+也可以改用 `git_tag`，这需要安装 Git。当 `source = "git_tag"` 时，`repository` 是用于
+`git ls-remote --tags` 和 `git clone` 的仓库地址。需要从远端发现新版本的部署必须
+填写完整 Git URL，例如：
 
     [upgrade]
     source = "git_tag"
@@ -62,7 +77,8 @@ remote（例如 `origin`），会在加载配置时用 `git remote get-url` 将�
 `/升级` 不会在当前进程中热替换代码，完整流程如下：
 
 1. 检查当前通道并选择候选版本。
-2. 获取候选制品；`git_tag` 源会按 tag 做浅克隆，并校验 commit SHA。随后升级器
+2. 获取候选制品；`github_release` 源下载源码包并校验 SHA-256，`git_tag` 源会按 tag
+   做浅克隆并校验 commit SHA。随后升级器
    检查配置兼容性和切换前健康状态，并用候选版本的宿主锁重新解析插件锁（环境不动）：
    有插件不兼容时停止升级并列出原因，可改发 `/升级 停用不兼容插件`，先停用它们再升级。
    停用会把包移出环境，安装记录、启用状态、数据和配置都保留；之后用
@@ -111,8 +127,9 @@ watcher 停止尝试、隔离失败 handoff 并保留审计记录，等待人工
 回滚也不会在当前进程中立即替换代码。回滚时的依赖同步或健康检查失败会恢复原 active
 指针和原版本的依赖，并隔离失败的 handoff；如果不存在上一可用版本，命令会返回“没有可回滚的上一可用版本”。
 
-`[upgrade]` 配置在 Tenko 启动时读取并构造升级管理器，运行期间不会自动重新读取配置。
-因此修改 `channel`、`repository`、`source`、`policy` 或其他升级配置后，必须重启
+`[upgrade]` 配置在 Tenko 启动时读取并构造升级管理器，运行期间不会自动重新读取配置文件。
+在 WebUI 宿主配置里修改 `channel`、`policy` 和 `check_interval_hours` 会立即生效；
+修改 `enabled`、`source`、`repository` 等其他升级配置，或直接编辑配置文件后，必须重启
 Tenko 才会生效；若配置修改本身需要先停止服务，应按部署方式退出当前进程，再使用
 标准启动器（或原有的 `uv run python -m tenko` 启动命令）启动。
 

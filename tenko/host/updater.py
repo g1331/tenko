@@ -925,6 +925,9 @@ class GitHubReleaseSource(_ArchiveSource):
             if selected_channel is UpdateChannel.STABLE and is_prerelease:
                 continue
             asset = self._asset(item)
+            if asset is None:
+                # 发布后附件由 CI 上传，上传完成前和早期没有附件的版本都不算可安装。
+                continue
             commit = item.get("target_commitish")
             commit_sha = (
                 commit
@@ -942,11 +945,9 @@ class GitHubReleaseSource(_ArchiveSource):
                     tag=tag,
                     source=self.name,
                     commit_sha=commit_sha,
-                    artifact_url=(
-                        asset.get("browser_download_url") if asset is not None else None
-                    ),
+                    artifact_url=asset.get("browser_download_url"),
                     artifact_sha256=self._digest(asset),
-                    artifact_name=(asset.get("name") if asset is not None else None),
+                    artifact_name=asset.get("name"),
                     prerelease=is_prerelease,
                     required_config_version=required,
                     notes=str(item.get("body", "") or ""),

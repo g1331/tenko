@@ -546,8 +546,16 @@ async def test_github_release_source_uses_official_release_endpoint_and_asset_di
             {
                 "tag_name": "v1.5.0",
                 "prerelease": False,
-                "assets": [],
+                "assets": [
+                    {
+                        "name": "tenko.zip",
+                        "browser_download_url": "https://download/old.zip",
+                        "digest": "sha256:" + "1" * 64,
+                    }
+                ],
             },
+            # 附件还没上传完的发布不算候选版本。
+            {"tag_name": "v3.0.0", "prerelease": False, "assets": []},
         ],
         download_content=archive,
     )
@@ -577,6 +585,45 @@ async def test_github_release_source_uses_official_release_endpoint_and_asset_di
         }
     ]
     assert (acquired / "tenko" / "__init__.py").is_file()
+
+
+@pytest.mark.asyncio
+async def test_github_release_installs_the_ci_source_archive(tmp_path: Path) -> None:
+    """release-asset.yml 上传的 git archive 包要能直接作为升级制品安装。"""
+
+    root = Path(__file__).resolve().parents[2]
+    if not (root / ".git").exists():
+        pytest.skip("需要 Git 工作树来打包")
+    archive = subprocess.run(
+        ["git", "archive", "--format=tar.gz", "--prefix=tenko-v9.0.0/", "HEAD"],
+        cwd=root,
+        check=True,
+        capture_output=True,
+    ).stdout
+    client = FakeHttpClient(
+        [
+            {
+                "tag_name": "v9.0.0",
+                "assets": [
+                    {
+                        "name": "tenko-v9.0.0.tar.gz",
+                        "browser_download_url": "https://download/tenko-v9.0.0.tar.gz",
+                        "digest": f"sha256:{hashlib.sha256(archive).hexdigest()}",
+                    }
+                ],
+            }
+        ],
+        download_content=archive,
+    )
+    source = GitHubReleaseSource("g1331/tenko", client=client)
+    release = (await source.discover(UpdateChannel.STABLE))[0]
+
+    acquired = await source.acquire(release, tmp_path / "release")
+
+    for name in ("pyproject.toml", "uv.lock", "tenko/webui/static/index.html"):
+        assert (acquired / name).is_file(), name
+    result = ConfigCompatibilityChecker().check_candidate(acquired, "1.0.0", release)
+    assert result.compatible and not result.legacy
 
 
 @pytest.mark.asyncio

@@ -132,13 +132,14 @@ group = ""
 # 宿主升级默认只检查，不自动下载或安装。不要把旧 config/config_demo.yaml 的
 # auto_upgrade=true 直接迁移过来；新系统不会执行 git pull 式原地更新。
 enabled = true
-# 可选：git_tag、github_release 或 manifest。
-source = "git_tag"
-# git_tag 源填写 git remote 名（如 origin）或 URL；"." 只查本地 refs。
-# 下载压缩包部署时 origin 不存在，改填完整地址 https://github.com/g1331/tenko.git（仍需装 git）；
-# 解析失败只会让检查更新报错，不影响启动。
+# 版本源：github_release（默认）、git_tag 或 manifest。
+# github_release 从 GitHub Release 下载源码包并按 GitHub 提供的 SHA-256 校验，不需要 Git，
+# git clone 和下载压缩包两种部署都能用。
+source = "github_release"
+github_repository = "g1331/tenko"
+# git_tag 源才用：Git remote 名（如 origin）、仓库 URL 或本地路径，需要装 Git。
+# 版本源解析失败只会让检查更新报错，不影响启动。
 repository = "origin"
-github_repository = ""
 manifest_url = ""
 github_token = ""
 asset_name = ""

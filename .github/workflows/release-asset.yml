@@ -1,0 +1,45 @@
+name: Release asset
+
+# 给 v* 版本的 GitHub Release 附上源码包 tenko-<tag>.tar.gz，供不用 Git 的部署通过
+# github_release 版本源升级；GitHub 为附件生成的 sha256 digest 就是宿主安装前的校验值。
+# 在 Release 发布后触发（发版先推 tag 再建 Release）；也可手动为已有 Release 补传。
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "要补传附件的版本 tag，例如 v4.0.0-rc46"
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  upload:
+    name: Upload source archive
+    if: startsWith(github.event.release.tag_name || inputs.tag, 'v')
+    runs-on: ubuntu-latest
+    env:
+      TAG: ${{ github.event.release.tag_name || inputs.tag }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Checkout tag
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ env.TAG }}
+
+      - name: Verify the tag matches the project version
+        run: |
+          version=$(sed -n 's/^version = "\(.*\)"$/\1/p' pyproject.toml)
+          if [ "v${version}" != "${TAG}" ]; then
+            echo "::error::标签 ${TAG} 与 pyproject.toml 的版本 ${version:-未找到} 不一致"
+            exit 1
+          fi
+
+      # 与 tests/tenko/test_updater.py 的制品安装测试使用同样的打包方式。
+      - name: Build source archive
+        run: git archive --format=tar.gz --prefix="tenko-${TAG}/" -o "tenko-${TAG}.tar.gz" "${TAG}"
+
+      - name: Upload to the release
+        run: gh release upload "${TAG}" "tenko-${TAG}.tar.gz" --clobber

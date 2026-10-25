@@ -150,6 +150,13 @@ def test_config_example_is_loadable_with_official_basic_section(tmp_path) -> Non
     assert config.basic.log.save is None
     assert config.basic.superusers == {"qq-client": ["YOUR_QQ_ID"]}
     assert config.notify_group is None
+    # 模板默认的版本源不依赖 Git，压缩包部署也能检查和安装更新。
+    from tenko.host.updater import UpgradeManager
+
+    project = Path(__file__).parents[2]
+    manager = UpgradeManager.from_config(config.upgrade, project_root=project)
+    assert [source.name for source in manager.sources] == ["github_release"]
+    assert manager.source_error is None
 
 
 @pytest.mark.parametrize(
