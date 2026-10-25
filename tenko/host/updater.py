@@ -2302,6 +2302,8 @@ class UpgradeManager:
             else self.project_root / ".tenko" / "tenko.db"
         )
         self.database_backup_enabled = bool(database_backup_enabled)
+        # from_config 构造版本源失败的原因，检查更新时原样报给用户。
+        self.source_error: str | None = None
         self.compatibility_checker = (
             compatibility_checker or ConfigCompatibilityChecker()
         )
@@ -2330,7 +2332,7 @@ class UpgradeManager:
 
         arguments = tuple(sys.argv[1:])
         launcher = self.project_root / "scripts" / "launcher.sh"
-        if launcher.is_file():
+        if os.name == "posix" and launcher.is_file():
             return (str(launcher), *arguments)
         return (sys.executable, "-m", "tenko", *arguments)
 
@@ -2390,7 +2392,7 @@ class UpgradeManager:
             )
             return result
         if not self.sources:
-            error = "未配置升级版本源"
+            error = self.source_error or "未配置升级版本源"
             self.audit.record(
                 "check",
                 current_version=self.current_version,
@@ -3331,34 +3333,42 @@ class UpgradeManager:
             current = (
                 config.current_version or stable_version or read_project_version(root)
             )
-        # 停用时不构造版本源，避免源配置错误（如非 Git 部署的 origin）阻断启动。
+        # 停用时不构造版本源；版本源配置错误（如 zip 解压而非 git clone、没装 git）
+        # 只让检查更新不可用，不阻断启动。
         source: VersionSource | None = None
+        source_error = None
         if config.enabled:
-            source_name = config.source.strip().lower().replace("-", "_")
-            if source_name in {"git", "git_tag", "tag"}:
-                source = GitTagSource(
-                    _normalize_git_repository(config.repository, root),
-                    tag_prefix=config.tag_prefix,
-                )
-            elif source_name in {"github", "github_release", "release"}:
-                repository = config.github_repository or config.repository
-                if repository in {"", "."}:
-                    raise UpgradeConfigError("github_release 需要 github_repository")
-                source = GitHubReleaseSource(
-                    repository,
-                    token=config.github_token,
-                    asset_name=config.asset_name,
-                    tag_prefix=config.tag_prefix,
-                )
-            elif source_name in {"manifest", "url_manifest", "url"}:
-                if not config.manifest_url:
-                    raise UpgradeConfigError("manifest 源需要 manifest_url")
-                source = UrlManifestSource(
-                    config.manifest_url,
-                    tag_prefix=config.tag_prefix,
-                )
-            else:
-                raise UpgradeConfigError(f"未知升级 source: {config.source!r}")
+            try:
+                source_name = config.source.strip().lower().replace("-", "_")
+                if source_name in {"git", "git_tag", "tag"}:
+                    source = GitTagSource(
+                        _normalize_git_repository(config.repository, root),
+                        tag_prefix=config.tag_prefix,
+                    )
+                elif source_name in {"github", "github_release", "release"}:
+                    repository = config.github_repository or config.repository
+                    if repository in {"", "."}:
+                        raise UpgradeConfigError(
+                            "github_release 需要 github_repository"
+                        )
+                    source = GitHubReleaseSource(
+                        repository,
+                        token=config.github_token,
+                        asset_name=config.asset_name,
+                        tag_prefix=config.tag_prefix,
+                    )
+                elif source_name in {"manifest", "url_manifest", "url"}:
+                    if not config.manifest_url:
+                        raise UpgradeConfigError("manifest 源需要 manifest_url")
+                    source = UrlManifestSource(
+                        config.manifest_url,
+                        tag_prefix=config.tag_prefix,
+                    )
+                else:
+                    raise UpgradeConfigError(f"未知升级 source: {config.source!r}")
+            except UpgradeConfigError as error:
+                logger.warning("升级版本源不可用，检查更新已停用: {}", error)
+                source, source_error = None, f"升级版本源不可用：{error}"
 
         configured_config_path = (
             os.environ.get("TENKO_CONFIG_PATH") or config.config_path
@@ -3383,7 +3393,7 @@ class UpgradeManager:
             stable_root=root,
             import_check=True,
         )
-        return cls(
+        manager = cls(
             current,
             source,
             layout=layout,
@@ -3403,6 +3413,8 @@ class UpgradeManager:
             plugin_sync=plugins.reconcile,
             plugin_check=plugins.incompatible,
         )
+        manager.source_error = source_error
+        return manager
 
 
 def spawn_restart_watcher(
@@ -3501,6 +3513,11 @@ def spawn_restart_watcher(
         deadline = time.monotonic() + {timeout_literal}
 
         def _pid_exists(value):
+            if os.name == "nt":
+                # Windows 的 os.kill(pid, 0) 是发 Ctrl-C，不能用来探测进程。
+                import psutil
+
+                return psutil.pid_exists(value)
             try:
                 os.kill(value, 0)
             except ProcessLookupError:

@@ -388,10 +388,9 @@ def test_from_config_reports_named_remote_resolution_context(tmp_path: Path) -> 
         install_root=str(tmp_path / "upgrades"),
     )
 
-    with pytest.raises(UpgradeConfigError) as error:
-        UpgradeManager.from_config(config, project_root=stable)
+    manager = UpgradeManager.from_config(config, project_root=stable)
 
-    message = str(error.value)
+    message = manager.source_error or ""
     assert "missing" in message
     assert str(stable.resolve()) in message
     assert "git remote get-url" in message
@@ -399,7 +398,11 @@ def test_from_config_reports_named_remote_resolution_context(tmp_path: Path) -> 
     assert "完整 URL/本地路径" in message
 
 
-def test_from_config_reports_non_worktree_named_remote(tmp_path: Path) -> None:
+@pytest.mark.asyncio
+async def test_non_worktree_named_remote_does_not_block_startup(
+    tmp_path: Path,
+) -> None:
+    # zip 解压或没装 git 的部署：启动照常，检查更新时报出原因。
     stable = tmp_path / "not-a-worktree"
     stable.mkdir()
     config = UpgradeConfig(
@@ -408,9 +411,11 @@ def test_from_config_reports_non_worktree_named_remote(tmp_path: Path) -> None:
         install_root=str(tmp_path / "upgrades"),
     )
 
-    with pytest.raises(UpgradeConfigError, match="Git 工作树") as error:
-        UpgradeManager.from_config(config, project_root=stable)
+    manager = UpgradeManager.from_config(config, project_root=stable)
 
+    assert manager.sources == ()
+    with pytest.raises(UpgradeConfigError, match="Git 工作树") as error:
+        await manager.check()
     assert "not a git repository" in str(error.value)
 
 
