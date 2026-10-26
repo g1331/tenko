@@ -16,6 +16,8 @@ from pathlib import Path
 from types import MappingProxyType
 from typing import Any, Literal
 
+from arclet.alconna import command_manager
+from arclet.entari.command.provider import AlconnaSuppiler
 from arclet.entari.exceptions import RegisterNotInPluginError as PluginInterfaceError
 from arclet.entari.plugin import (
     Plugin,
@@ -228,6 +230,26 @@ def _purge_bytecode(package: str) -> None:
     for root in (spec and spec.submodule_search_locations) or ():
         for cache in Path(root).rglob("__pycache__"):
             shutil.rmtree(cache, ignore_errors=True)
+
+
+def _relink_command_names() -> None:
+    """补登记原子重载后丢了名字的命令，按名字查命令的帮助和文档才找得到它。
+
+    改了定义的命令重载时，新命令注册时名字仍归旧命令，旧插件卸载又把这个名字删掉；
+    新命令照常解析，只是 ``command_manager.get_command`` 找不到它。
+    """
+
+    # shortcut: 读 Entari 插件的私有 _scope，Entari 修好原子重载后删掉这个函数。
+    for plug in list(plugin_service.plugins.values()):
+        for slot in plug._scope.subscribers:
+            try:
+                command = slot.subscriber.get_propagator(AlconnaSuppiler).cmd
+            except ValueError:
+                continue
+            try:
+                command_manager.get_command(command.path)
+            except ValueError:
+                command_manager.register(command)
 
 
 def _failure_text(error: BaseException) -> str:
@@ -615,6 +637,7 @@ class PluginRuntime:
             )
             if not result:
                 raise result.error
+        _relink_command_names()
         self.load_failures.pop(info.name, None)
 
     async def apply_config(
@@ -641,6 +664,7 @@ class PluginRuntime:
                     result = await reload_plugin(info.qualified_name, dict(new))
                     if not result:
                         raise result.error
+                _relink_command_names()
         _external_configs = {**_external_configs, info.name: new}
 
     def unload(self, plugin: str | PluginInfo) -> bool:

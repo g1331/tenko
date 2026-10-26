@@ -501,8 +501,11 @@ async def test_rollback_undoes_suspend(env) -> None:
     assert manager.startup_check() == [] and "tenko-plugin-foo" in env.freeze()
 
 
+# 命令说明随版本变化：改了定义的命令热更新后仍要能按名字查到（帮助、文档靠它）。
 SWAP_PLUGIN = (
-    "from arclet.entari import plugin\nplugin.metadata('swap')\nVERSION = {!r}\n"
+    "from arclet.alconna import Alconna, CommandMeta\n"
+    "from arclet.entari import command, plugin\nplugin.metadata('swap')\nVERSION = {0!r}\n"
+    "@command.on(Alconna('换版', meta=CommandMeta({0!r})))\nasync def _():\n    return VERSION\n"
 )
 
 
@@ -512,6 +515,7 @@ async def test_update_swaps_running_plugin_and_rolls_back_a_broken_one(
 ) -> None:
     import asyncio
 
+    from arclet.alconna import command_manager
     from arclet.letoderea.utils import _EventSystem
     from external_plugin_support import drop_module
 
@@ -536,6 +540,7 @@ async def test_update_swaps_running_plugin_and_rolls_back_a_broken_one(
         changes = await manager.update("swap")
         assert await manager.go_live(runtime, changes) == {"swap": None}
         assert version() == "1.1.0" and not manager.status()[0].restart_required
+        assert command_manager.get_command("换版").meta.description == "1.1.0"
 
         # 新版本加载失败：旧版本继续运行，环境也回滚，磁盘与运行中的代码一致。
         broken = SWAP_PLUGIN.format("1.2.0") + "raise RuntimeError('boom')\n"
