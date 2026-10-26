@@ -310,6 +310,36 @@ async def test_guild_invite_event_bypasses_account_group_selection() -> None:
 
 
 @pytest.mark.asyncio
+async def test_member_join_request_bypasses_account_group_selection() -> None:
+    first = RoutedFakeAccount("10001")
+    second = RoutedFakeAccount("10002")
+    registry = AccountRegistry()
+    registry.register(first, groups=[40001])
+    registry.register(second, groups=[40001])
+    registry.set_response_type(40001, "deterministic")
+    registry.set_deterministic_account(40001, second)
+    handler = MessageEventHandler(account_registry=registry)
+
+    def request(account: RoutedFakeAccount) -> Event:
+        return Event(
+            type=EventType.GUILD_MEMBER_ADDED,
+            timestamp=datetime.now(),
+            login=Login(platform="onebot", user=User(account.self_id)),
+            channel=Channel("40001", ChannelType.TEXT),
+            guild=Guild("40001", "Tenko"),
+            user=User("20001"),
+            message=MessageObject("flag-1", "答案：abc"),
+            _type="request.group.add",
+            _data={"group_id": "40001", "user_id": "20001", "sub_type": "add"},
+        )
+
+    assert not handler.should_skip(first, request(first))
+    assert not handler.should_skip(second, request(second))
+    registry.set_muted(first, 40001, True)
+    assert handler.should_skip(first, request(first))
+
+
+@pytest.mark.asyncio
 async def test_group_event_guard_randomly_selects_one_online_account(
     monkeypatch,
 ) -> None:

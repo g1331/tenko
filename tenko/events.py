@@ -112,6 +112,8 @@ _MEMBER_REMOVAL_PROTOCOL_TYPES = {
 }
 _GUILD_INVITE_EVENT_TYPES = {EventType.GUILD_REQUEST.value}
 _GUILD_INVITE_PROTOCOL_TYPES = {"request.group.invite"}
+# satori 的 onebot11 适配器把加群申请报成 GUILD_MEMBER_ADDED，只能按协议类型认。
+_MEMBER_JOIN_REQUEST_PROTOCOL_TYPES = {"request.group.add"}
 _RECEIVED_EVENT_CACHE_SIZE = 8192
 
 
@@ -126,6 +128,13 @@ def _is_guild_invite_request_event(event: Event) -> bool:
     return (
         _event_type_value(event) in _GUILD_INVITE_EVENT_TYPES
         or str(getattr(event, "_type", "") or "") in _GUILD_INVITE_PROTOCOL_TYPES
+    )
+
+
+def _is_member_join_request_event(event: Event) -> bool:
+    return (
+        _event_type_value(event) == EventType.GUILD_MEMBER_REQUEST.value
+        or str(getattr(event, "_type", "") or "") in _MEMBER_JOIN_REQUEST_PROTOCOL_TYPES
     )
 
 
@@ -230,6 +239,11 @@ class MessageEventHandler:
         if self.account_registry.get(account) is None:
             self.account_registry.register(account, available=True)
         self.account_registry.bind_group(group, account)
+
+        # QQ 只把加群申请推给群主和管理员，选路选中的号可能不是管理员、根本收不到，
+        # 所以收到的号都放行；几个管理员号都收到时由处理申请的插件去重。
+        if _is_member_join_request_event(event):
+            return self.account_registry.is_muted(account, group)
 
         if not self.account_registry.is_muted(account, group):
             selected = self.account_registry.select_for_event(
