@@ -117,8 +117,8 @@ class _ManagedConnection(_Connection):
     async def message_handle(self) -> None:
         """替换 satori-python-adapter-onebot11 的同名方法。
 
-        上游实现登录完成前收到事件会结束整个接收循环；这里只丢弃登录前的事件，
-        登录走带断线保护的 ``_login_add``，并把每条事件的数据作为参数交给任务。
+        与上游相比：遇到 lifecycle enable/disable 时断开连接，登录走带断线保护的
+        ``_login_add``，并把每条事件的数据作为参数交给任务。
         """
 
         async for _connection, data in self.message_receive():
@@ -137,7 +137,6 @@ class _ManagedConnection(_Connection):
                 logger.warning("反向 WebSocket 不支持 {} 事件，断开连接", event_type)
                 return
             elif (login := self.adapter.logins.get(self.account_id)) is None:
-                # 原实现在这里结束整个接收循环；登录完成前的事件丢弃即可。
                 logger.warning("账号 {} 登录完成前收到事件，已丢弃", self.account_id)
             else:
                 asyncio.create_task(self._post_event(login, event_type, data))
