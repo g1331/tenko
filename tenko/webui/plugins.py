@@ -12,6 +12,7 @@ import re
 import time
 import uuid
 from collections.abc import Awaitable, Callable
+import dataclasses
 from dataclasses import asdict, dataclass, field
 from typing import TYPE_CHECKING, Any
 
@@ -132,8 +133,47 @@ def _versions(entry: RegistryPlugin) -> list[dict[str, Any]]:
     ]
 
 
+def _editable(schema: dict[str, Any]) -> bool:
+    """面板能改的项：标量，以及一行一个的字符串列表（违禁词、唤醒词这类）。"""
+
+    kind = schema.get("type")
+    if kind == "array":
+        return (schema.get("items") or {}).get("type") == "string"
+    return kind in _EDITABLE
+
+
+def _with_defaults(model: Any, properties: dict[str, Any]) -> dict[str, Any]:
+    """``default_factory`` 声明的默认值不进 JSON Schema，从模型的字段上补回来。
+
+    不补的话没写进配置文件的列表项读出来是 ``null``，也没法恢复默认。
+    """
+
+    factories: dict[str, Callable[[], Any]] = {}
+    if dataclasses.is_dataclass(model):
+        factories = {
+            f.name: f.default_factory
+            for f in dataclasses.fields(model)
+            if f.default_factory is not dataclasses.MISSING
+        }
+    else:
+        for name, info in (getattr(model, "model_fields", None) or {}).items():
+            if getattr(info, "default_factory", None) is not None:
+                factories[name] = info.default_factory
+    filled = {}
+    for key, spec in properties.items():
+        if "default" not in spec and key in factories:
+            try:
+                spec = {**spec, "default": factories[key]()}
+            except Exception:  # noqa: BLE001 - 需要参数之类的工厂就当没有默认值
+                pass
+        filled[key] = spec
+    return filled
+
+
 def _field_ok(schema: dict[str, Any], value: Any) -> bool:
     kind = schema.get("type")
+    if kind == "array":
+        return isinstance(value, list) and all(isinstance(v, str) for v in value)
     if "enum" in schema and value not in schema["enum"]:
         return False
     if kind == "boolean":
@@ -638,7 +678,8 @@ class PluginMarket:
             if native is None or model is None:
                 return {"plugin_id": plugin_id, "available": False}
             schema = config_model_schema(model)
-            properties = schema.get("properties", {})
+            properties = _with_defaults(model, schema.get("properties", {}))
+            schema = {**schema, "properties": properties}
             raw = self.service.raw_config().get("plugin_config", {}).get(plugin_id, {})
             env_backed = any(isinstance(v, str) and "${" in v for v in raw.values())
             current = {
@@ -662,14 +703,14 @@ class PluginMarket:
                 if not isinstance(reset, list) or any(
                     key not in properties
                     or key in values
-                    or properties[key].get("type") not in _EDITABLE
+                    or not _editable(properties[key])
                     or "default" not in properties[key]
                     for key in reset
                 ):
                     raise ValueError("只能把有默认值、可在面板修改的配置项恢复默认")
                 for key, value in values.items():
                     spec = properties[key]
-                    if spec.get("type") not in _EDITABLE:
+                    if not _editable(spec):
                         if value != current[key]:
                             raise ValueError(f"{key} 不能在面板里修改，请编辑配置文件")
                     elif not _field_ok(spec, value):
@@ -712,9 +753,7 @@ class PluginMarket:
                 "available": True,
                 "schema": schema,
                 "values": current,
-                "editable": [
-                    k for k, v in properties.items() if v.get("type") in _EDITABLE
-                ],
+                "editable": [k for k, v in properties.items() if _editable(v)],
                 "read_only_reason": "该插件配置引用了环境变量，请在配置文件里修改"
                 if env_backed
                 else None,

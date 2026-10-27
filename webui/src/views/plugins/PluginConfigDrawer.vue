@@ -21,18 +21,30 @@ const readOnly = computed(() => config.value?.read_only_reason ?? null)
 const show = (value: unknown) => (typeof value === 'string' ? value : JSON.stringify(value))
 const label = (key: string, field: ConfigField) => field.title || key
 
-// 恢复默认：先在表单里填回默认值，保存时这些项从配置文件删除，以后跟随插件的默认值。
 const defaults = computed(() => config.value?.schema?.properties ?? {})
+// 字符串列表（违禁词、唤醒词）在表单里是一行一个的文本，保存时再拆回列表、去掉空行。
+const isList = (key: string) =>
+  defaults.value[key]?.type === 'array' && defaults.value[key]?.items?.type === 'string'
+const toForm = (key: string, value: unknown) =>
+  isList(key) ? ((value as string[] | null) ?? []).join('\n') : value
+const toValue = (key: string, value: unknown) =>
+  isList(key)
+    ? String(value ?? '')
+        .split('\n')
+        .map((line) => line.trim())
+        .filter(Boolean)
+    : value
+// 恢复默认：先在表单里填回默认值，保存时这些项从配置文件删除，以后跟随插件的默认值。
 const canReset = (key: string) => isEditable(key) && 'default' in (defaults.value[key] ?? {})
 const atDefault = (key: string) =>
-  JSON.stringify(form.value[key]) === JSON.stringify(defaults.value[key]?.default)
+  JSON.stringify(toValue(key, form.value[key])) === JSON.stringify(defaults.value[key]?.default)
 const resetKeys = ref(new Set<string>())
 const changedFromDefault = computed(() =>
   fields.value.map(([key]) => key).filter((key) => canReset(key) && !atDefault(key)),
 )
 
 function resetField(key: string) {
-  form.value[key] = structuredClone(defaults.value[key]?.default)
+  form.value[key] = toForm(key, structuredClone(defaults.value[key]?.default))
   resetKeys.value.add(key)
 }
 function resetAll() {
@@ -46,7 +58,9 @@ async function load() {
   config.value = null
   try {
     config.value = await api.manage.pluginConfig(props.pluginId)
-    form.value = { ...config.value.values }
+    form.value = Object.fromEntries(
+      Object.entries(config.value.values ?? {}).map(([key, value]) => [key, toForm(key, value)]),
+    )
     resetKeys.value = new Set()
   } catch (reason) {
     error.value = (reason as Error).message
@@ -67,7 +81,9 @@ async function save() {
   // 点过恢复默认、之后没再改的项走 reset，其余可编辑项照常保存。
   const reset = [...resetKeys.value].filter((key) => canReset(key) && atDefault(key))
   const values = Object.fromEntries(
-    Object.entries(form.value).filter(([key]) => isEditable(key) && !reset.includes(key)),
+    Object.entries(form.value)
+      .filter(([key]) => isEditable(key) && !reset.includes(key))
+      .map(([key, value]) => [key, toValue(key, value)]),
   )
   saving.value = true
   try {
@@ -128,6 +144,15 @@ async function save() {
               v-else-if="field.type === 'integer' || field.type === 'number'"
               v-model="form[key]"
               :precision="field.type === 'integer' ? 0 : undefined"
+              :disabled="!!readOnly"
+              :aria-label="label(key, field)"
+            />
+            <el-input
+              v-else-if="isList(key)"
+              v-model="form[key]"
+              type="textarea"
+              :autosize="{ minRows: 3, maxRows: 12 }"
+              placeholder="一行一个"
               :disabled="!!readOnly"
               :aria-label="label(key, field)"
             />

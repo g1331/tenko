@@ -531,6 +531,8 @@ export interface InstalledData {
 /** 插件配置表单；schema 是 pydantic 生成的 JSON Schema（只用到 properties）。 */
 export interface ConfigField {
   type?: string
+  /** type 为 array 时元素的类型；面板只编辑字符串列表。 */
+  items?: { type?: string }
   title?: string
   description?: string
   default?: unknown

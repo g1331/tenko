@@ -447,3 +447,61 @@ def test_plugin_config_resets_one_field_or_all_to_defaults(open_panel):
     assert sorted(body["reset"]) == ["greeting", "limit"]
     assert body["values"] == {"api_key": "k"}
     assert not page.errors
+
+
+def test_plugin_config_edits_a_string_list_one_per_line(open_panel):
+    panel = PluginsPanel()
+    panel.data["/api/plugins/ext_demo/detail"] = {
+        "plugin": "ext_demo",
+        "name": "演示插件",
+        "source": "external",
+        "description": "",
+        "version": "0.1.0",
+        "authors": [],
+        "license": "MIT",
+        "tier": "listed",
+        "tags": [],
+        "icon": {"url": "/webui/api/plugins/ext_demo/icon", "glyph": True},
+        "links": [],
+        "commands": [],
+        "installed": None,
+        "has_config": True,
+        "update": None,
+        "yanked": None,
+        "blocked": None,
+    }
+    panel.data["/api/manage/plugin-config/ext_demo"] = {
+        "plugin_id": "ext_demo",
+        "available": True,
+        "schema": {
+            "properties": {
+                "banned_words": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "title": "违禁词",
+                    "default": [],
+                },
+            }
+        },
+        "values": {"banned_words": ["蓝银"]},
+        "editable": ["banned_words"],
+        "read_only_reason": None,
+    }
+    page = open_plugins(open_panel, panel)
+    card(page, "ext_demo").get_by_role("link", name="详情").click()
+    page.get_by_role("button", name="配置").click()
+    drawer = page.locator(".el-drawer")
+    words = drawer.get_by_label("违禁词")
+    assert words.input_value() == "蓝银"
+    # 一行一个；首尾空格和空行保存时去掉
+    words.fill("蓝银\n  lanyinzhenshen \n\n")
+    drawer.get_by_role("button", name="保存配置").click()
+    confirm(page, "保存插件配置", "保存")
+    for _ in range(40):
+        if panel.calls("POST", "/api/manage/plugin-config/ext_demo"):
+            break
+        page.wait_for_timeout(50)
+    body = panel.calls("POST", "/api/manage/plugin-config/ext_demo")[0][3]
+    assert body["values"] == {"banned_words": ["蓝银", "lanyinzhenshen"]}
+    assert body["reset"] == []
+    assert not page.errors

@@ -11,6 +11,7 @@ import httpx
 import pytest
 import pytest_asyncio
 from arclet.entari import BasicConfModel
+from arclet.entari.config import model_field
 from test_registry import index_data
 from test_webui import _login
 
@@ -72,6 +73,8 @@ greeting = "嗨"
 class ExampleConfig(BasicConfModel):
     greeting: str = "你好"
     limit: int = 3
+    words: list[str] = model_field(default_factory=list)
+    pairs: dict[str, int] = model_field(default_factory=dict)
 
 
 @pytest_asyncio.fixture
@@ -179,13 +182,17 @@ async def test_market_switches_an_installed_plugin_to_a_chosen_version(market) -
 async def test_plugin_config_form_validates_and_writes_toml(market) -> None:
     client, url = market.client, "/webui/api/manage/plugin-config/example"
     form = (await client.get(url)).json()["data"]
-    assert form["values"] == {"greeting": "嗨", "limit": 3}
-    assert form["editable"] == ["greeting", "limit"]
+    assert form["values"] == {"greeting": "嗨", "limit": 3, "words": [], "pairs": {}}
+    # 字符串列表一行一个能在面板改；别的复合类型只读
+    assert form["editable"] == ["greeting", "limit", "words"]
 
     for bad in (
         {"values": {"limit": "many"}, "confirm": True},
         {"values": {"unknown": 1}, "confirm": True},
         {"values": {"limit": 5}},
+        {"values": {"words": "词"}, "confirm": True},
+        {"values": {"words": ["词", 1]}, "confirm": True},
+        {"values": {"pairs": {"a": 1}}, "confirm": True},
     ):
         assert (await client.post(url, json=bad)).status_code == 400
     saved = await client.post(url, json={"values": {"limit": 5}, "confirm": True})
@@ -216,10 +223,32 @@ async def test_plugin_config_reset_removes_keys_so_defaults_apply(market) -> Non
     body = {"values": {}, "reset": ["greeting"], "confirm": True}
     saved = (await client.post(url, json=body)).json()["data"]
 
-    assert saved["values"] == {"greeting": "你好", "limit": 3}
+    assert saved["values"] == {"greeting": "你好", "limit": 3, "words": [], "pairs": {}}
     market.service.plugin_runtime.apply_config.assert_awaited_once_with("example", {})
     assert "greeting" not in market.path.read_text()
     assert "# 问候语" in market.path.read_text()
+
+
+@pytest.mark.asyncio
+async def test_plugin_config_edits_string_lists_and_resets_them(market) -> None:
+    client, url = market.client, "/webui/api/manage/plugin-config/example"
+    form = (await client.get(url)).json()["data"]
+    # default_factory 的默认值也给前端，才能“恢复默认”
+    assert form["schema"]["properties"]["words"]["default"] == []
+
+    body = {"values": {"words": ["蓝银", "lanyinzhenshen"]}, "confirm": True}
+    saved = (await client.post(url, json=body)).json()["data"]
+    assert saved["values"]["words"] == ["蓝银", "lanyinzhenshen"]
+    apply = market.service.plugin_runtime.apply_config
+    apply.assert_awaited_with(
+        "example", {"greeting": "嗨", "words": ["蓝银", "lanyinzhenshen"]}
+    )
+    assert 'words = ["蓝银", "lanyinzhenshen"]' in market.path.read_text()
+
+    body = {"values": {}, "reset": ["words"], "confirm": True}
+    saved = (await client.post(url, json=body)).json()["data"]
+    assert saved["values"]["words"] == []
+    assert "words" not in market.path.read_text()
 
 
 @pytest.mark.asyncio
