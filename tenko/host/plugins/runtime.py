@@ -239,7 +239,7 @@ def _relink_command_names() -> None:
     新命令照常解析，只是 ``command_manager.get_command`` 找不到它。
     """
 
-    # shortcut: 读 Entari 插件的私有 _scope，Entari 修好原子重载后删掉这个函数。
+    # shortcut: 读 Entari 插件的私有 _scope，ArcletProject/Entari#33 修好后删掉这个函数。
     for plug in list(plugin_service.plugins.values()):
         for slot in plug._scope.subscribers:
             try:
