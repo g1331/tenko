@@ -130,6 +130,30 @@ def test_overview_event_updates_numbers_without_a_rest_poll(open_panel):
     assert not page.errors
 
 
+def test_host_upgrade_asks_to_reload_the_page(open_panel):
+    panel = Panel(authenticated=True)
+    page = open_panel(panel, "overview")
+    page.locator(".sidebar .version", has_text="v4.0.0-test").wait_for()
+    pill = page.get_by_role("button", name="面板已更新，点此刷新")
+    assert not pill.count()
+
+    # 宿主升级重启后，这个页面跑的还是旧前端；读到新版本就提示刷新。
+    panel.data["/api/overview"] = {
+        **panel.data["/api/overview"],
+        "version": "4.0.0-next",
+    }
+    page.get_by_role("button", name="立即刷新").click()
+    pill.wait_for()
+    assert "4.0.0-next" in pill.get_attribute("title")
+
+    # 点击后重新载入页面，新前端以当前版本为准，不再提示。
+    pill.click()
+    page.locator(".sidebar .version", has_text="v4.0.0-next").wait_for()
+    page.get_by_text("消息活动").wait_for()
+    assert not pill.count()
+    assert not page.errors
+
+
 def test_overview_ignores_installed_but_disabled_external_plugins(open_panel):
     panel = Panel(authenticated=True)
     data = copy.deepcopy(panel.data["/api/features"])  # 默认数据集是模块级共享的

@@ -1,4 +1,4 @@
-import { computed, onScopeDispose, readonly, ref, shallowRef, type Ref } from 'vue'
+import { computed, onScopeDispose, readonly, ref, shallowRef, watch, type Ref } from 'vue'
 import {
   api,
   ApiError,
@@ -150,6 +150,22 @@ function reset(): void {
   }
 }
 
+/**
+ * 本页第一次读到的宿主版本。之后读到别的版本，说明宿主已升级重启，
+ * 而这个页面跑的还是升级前的前端，要提示刷新。登出重置数据时它不清空，因为页面代码没变。
+ */
+let pageVersion: string | null = null
+/** 宿主当前的新版本；为 null 表示页面与宿主一致。 */
+const newVersion = ref<string | null>(null)
+watch(
+  () => overview.data.value?.version,
+  (version) => {
+    if (!version || version === 'unknown') return
+    pageVersion ??= version
+    newVersion.value = version === pageVersion ? null : version
+  },
+)
+
 export type SyncState = 'syncing' | 'ok' | 'partial' | 'offline'
 
 /** 同步概况：state 用于状态点和文案，ready / total 表示有数据的数据源个数。 */
@@ -209,6 +225,7 @@ export function usePanelData() {
     chatSignal: readonly(chatSignal),
     sandboxSignal: readonly(sandboxSignal),
     lastSynced: readonly(lastSynced),
+    newVersion: readonly(newVersion),
     sync,
     live,
     /** 立即重连实时通道并整体刷新。 */

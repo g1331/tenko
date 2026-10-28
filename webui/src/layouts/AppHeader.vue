@@ -9,7 +9,7 @@ import { clockText, timeText } from '@/composables/format'
 const route = useRoute()
 const router = useRouter()
 const auth = useAuth()
-const { sync, live, lastSynced, refreshing, refresh, retryLive } = usePanelData()
+const { sync, live, lastSynced, newVersion, refreshing, refresh, retryLive } = usePanelData()
 
 const meta = computed(() => route.meta)
 const username = computed(() => auth.state.username || '—')
@@ -25,6 +25,10 @@ const warning = computed(() => {
 const refreshTip = computed(() =>
   lastSynced.value ? `上次同步 ${clockText(lastSynced.value)}` : '立即刷新',
 )
+
+function reloadPage() {
+  window.location.reload()
+}
 
 function goSecurity() {
   void router.push({ name: 'settings', query: { section: 'account-security' } })
@@ -52,7 +56,16 @@ async function logout() {
     <div class="tools">
       <div class="sync-status" role="status" aria-live="polite">
         <button
-          v-if="live === 'down'"
+          v-if="newVersion"
+          class="warn-pill"
+          type="button"
+          :title="`宿主已升级到 v${newVersion}，点击刷新页面载入新版面板`"
+          @click="reloadPage"
+        >
+          <span class="dot" aria-hidden="true" />面板已更新，点此刷新
+        </button>
+        <button
+          v-else-if="live === 'down'"
           class="warn-pill"
           type="button"
           :title="warning"
