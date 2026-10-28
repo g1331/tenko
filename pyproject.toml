@@ -5,7 +5,7 @@ description = "Chat group management bot built on Entari and Satori protocol abs
 readme = "README.md"
 requires-python = ">=3.11,<3.14"
 dependencies = [
-    "arclet-entari[cron]==0.19.3",
+    "arclet-entari[cron]==0.19.4",
     "arclet-alconna==1.8.44",
     "arclet-alconna-tools==0.7.12",
     "arclet-letoderea==0.22.1",
@@ -227,7 +227,7 @@ dev = [
     "ruff>=0.11.13",
 ]
 entari = [
-    "arclet-entari[cron]==0.19.3",
+    "arclet-entari[cron]==0.19.4",
     "aiosqlite>=0.21.0",
     "entari-plugin-database==0.4.2",
     "satori-python-adapter-onebot11==0.6.0",

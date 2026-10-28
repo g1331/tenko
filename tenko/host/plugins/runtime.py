@@ -655,8 +655,7 @@ class PluginRuntime:
         new = dict(config)
         if info.native_plugin is not None:
             old = dict(_external_configs.get(info.name, {}))
-            # 只发给这个插件自己的作用域，别的插件不必等各自的依赖就绪。传对象而非
-            # ID：重载过的插件作用域 ID 仍是 ``<id>@staging``，按 ID 找不到会退化为广播。
+            # 只发给这个插件自己的作用域，别的插件不必等各自的依赖就绪。
             event = ConfigReload("plugin", info.qualified_name, new, old)
             handled = await post(event, scope=info.native_plugin._scope)
             if not (handled and handled.value):

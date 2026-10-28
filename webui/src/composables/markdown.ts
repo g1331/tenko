@@ -17,7 +17,7 @@ function inline(text: string): string {
       '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>',
     )
   // 占位符特意用 NUL 包住，不会出现在正文里。
-   
+  // oxlint-disable-next-line no-control-regex
   return html.replace(/\u0000(\d+)\u0000/g, (_, index: string) => codes[Number(index)] ?? '')
 }
 
