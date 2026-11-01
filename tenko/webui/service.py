@@ -34,7 +34,7 @@ from .auth import (
     success_response as _success_response,
 )
 from .accounts import AccountPanel
-from .contracts import OverviewData
+from .contracts import OverviewData, PairingInfo
 from .blacklist import BlacklistPanel
 from .chat import ChatPanel
 from .features import FeaturePanel
@@ -338,7 +338,7 @@ class WebUIService(Service):
             raise RuntimeError("管理数据库尚未就绪")
         return self.management
 
-    def _pairing_data(self) -> dict[str, Any]:
+    def _pairing_data(self) -> PairingInfo:
         if self.connection is None or self.tenko_config is None:
             raise RuntimeError("协议连接未配置")
         config = self.tenko_config.onebot
@@ -432,15 +432,18 @@ class WebUIService(Service):
         self.connection.adapter.access_token = token
         return token
 
-    async def pairing(self, request: Request) -> JSONResponse:
-        async def action():
+    async def pairing(self, request: Request) -> ApiResponse[PairingInfo]:
+        async def action() -> PairingInfo:
+            connection = self.connection
+            if connection is None:  # _pairing_data 会抛同样的错，这里只为收窄类型
+                raise RuntimeError("协议连接未配置")
             data = self._pairing_data()
             if request.method == "GET":
                 return data
             body = await read_json(request)
             if body == {"action": "reveal"}:
                 request.state.webui_action = "reveal"
-                data["access_token"] = self.connection.adapter.access_token or ""
+                data["access_token"] = connection.adapter.access_token or ""
             elif (
                 set(body) == {"action", "confirm"}
                 and body["action"] == "rotate"

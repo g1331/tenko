@@ -17,9 +17,9 @@
 
 from __future__ import annotations
 
-from typing import NotRequired
+from typing import Literal, NotRequired
 
-from typing_extensions import TypedDict
+from typing_extensions import TypeAliasType, TypedDict
 
 # ---------------------------------------------------------------- 通用
 
@@ -117,3 +117,150 @@ class OverviewData(TypedDict):
     plugin_attention: NotRequired[int]
     """需要处理的插件：停用待恢复的和本次启动加载失败的。"""
     messages: MessageCounts
+
+
+# ---------------------------------------------------------------- 账号与群
+
+# 账号在某群的状态，优先级：停用 > 离线 > 禁言。
+GroupAccountState = TypeAliasType(
+    "GroupAccountState", Literal["available", "muted", "offline", "disabled"]
+)
+# 群当前不会响应的原因：群在黑名单、没有可用账号，或定向账号不可用。
+SilentReason = TypeAliasType(
+    "SilentReason", Literal["blacklisted", "no_account", "target_unavailable"]
+)
+
+
+class AccountSummary(TypedDict):
+    id: str
+    ref: str
+    """写接口里引用该账号的键；OneBot 下等于 id。"""
+    platform: str
+    name: str | None
+    """协议端昵称；尚未取到时为 null。"""
+    online: bool
+    group_count: int
+
+
+class GroupAccount(TypedDict):
+    ref: str
+    id: str
+    platform: str
+    name: str | None
+    state: GroupAccountState
+    role: Literal["owner", "admin", "member"] | None
+    """只在执行过管理动作后才知道。"""
+    muted_until: str | None
+    """禁言到期时间；永久禁言或未禁言为 null。"""
+
+
+class GroupStatus(TypedDict):
+    group_id: str
+    strategy: str
+    """已知策略为 random / deterministic，其余值按“其他”展示。"""
+    deterministic_account: str | None
+    """定向模式下负责应答的账号（ref）。"""
+    silent_reason: SilentReason | None
+    accounts: list[GroupAccount]
+    """按绑定顺序排列，包含本次运行尚未连接的账号。"""
+
+
+class AccountsData(TypedDict):
+    accounts: list[AccountSummary]
+    groups: list[GroupStatus]
+
+
+# ---------------------------------------------------------------- 管理接口 /manage/*
+
+# 能力覆盖：true 强制允许，false 强制禁用，缺省表示自动探测。
+CapabilityOverrides = TypeAliasType("CapabilityOverrides", dict[str, bool])
+
+
+class ManagedAccount(TypedDict):
+    platform: str
+    id: str
+    alias: str
+    enabled: bool
+    capabilities: CapabilityOverrides
+    online: bool
+    available: bool
+    group_count: int
+    groups: list[str]
+    connected: bool
+    """协议端当前是否持有连接。"""
+    name: str
+    """展示名（协议端用户名，缺省为账号 ID）。"""
+    manageable: bool
+    """仅 QQ（qq-client）账号可管理。"""
+
+
+class ManagedAccountsData(TypedDict):
+    accounts: list[ManagedAccount]
+    capabilities: list[str]
+    """可覆盖的能力名，如 send_group_message、member_mute……"""
+
+
+AccountAction = TypeAliasType(
+    "AccountAction", Literal["preferences", "enable", "disable", "kick", "forget"]
+)
+
+
+class AccountPreferencesBody(TypedDict):
+    """``preferences`` 动作的请求体：别名和能力覆盖。"""
+
+    alias: NotRequired[str]
+    capabilities: NotRequired[CapabilityOverrides]
+
+
+class AccountConfirmBody(TypedDict):
+    """``enable`` / ``disable`` / ``kick`` / ``forget`` 动作的请求体。"""
+
+    confirm: Literal[True]
+
+
+AccountActionBody = TypeAliasType(
+    "AccountActionBody", AccountPreferencesBody | AccountConfirmBody
+)
+
+
+class AccountActionResult(TypedDict):
+    action: AccountAction
+    platform: str
+    id: str
+
+
+class PairingInfo(TypedDict):
+    url: str
+    path: str
+    requires_host: bool
+    """监听 0.0.0.0 / :: 时为 true，需要用户自己填写协议端可达的主机。"""
+    token_configured: bool
+    can_rotate: bool
+    access_token: NotRequired[str]
+    """仅在 reveal / rotate 的响应中出现。"""
+
+
+class PairingRevealBody(TypedDict):
+    action: Literal["reveal"]
+
+
+class PairingRotateBody(TypedDict):
+    action: Literal["rotate"]
+    confirm: Literal[True]
+
+
+PairingActionBody = TypeAliasType(
+    "PairingActionBody", PairingRevealBody | PairingRotateBody
+)
+
+
+class GroupResponseBody(TypedDict):
+    strategy: Literal["random", "deterministic"]
+    account: str | None
+    """仅定向可非空；null 表示默认（第一个绑定的）账号。"""
+
+
+class GroupResponseResult(TypedDict):
+    group_id: str
+    strategy: Literal["random", "deterministic"]
+    deterministic_account: str | None

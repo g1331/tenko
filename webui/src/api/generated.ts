@@ -3,11 +3,51 @@
  * 修改契约后在 webui/ 运行 npm run gen:types 并提交本文件。
  */
 
+export type AccountAction = 'preferences' | 'enable' | 'disable' | 'kick' | 'forget'
+export type AccountActionBody = AccountPreferencesBody | AccountConfirmBody
+export type SilentReason = 'blacklisted' | 'no_account' | 'target_unavailable'
+export type GroupAccountState = 'available' | 'muted' | 'offline' | 'disabled'
 /**
  * 没有内容的成功响应。
  */
 export type Empty = Record<string, never>
+export type PairingActionBody = PairingRevealBody | PairingRotateBody
 
+/**
+ * ``preferences`` 动作的请求体：别名和能力覆盖。
+ */
+export interface AccountPreferencesBody {
+  alias?: string
+  capabilities?: CapabilityOverrides
+}
+export interface CapabilityOverrides {
+  [k: string]: boolean
+}
+/**
+ * ``enable`` / ``disable`` / ``kick`` / ``forget`` 动作的请求体。
+ */
+export interface AccountConfirmBody {
+  confirm: true
+}
+export interface AccountActionResult {
+  action: AccountAction
+  platform: string
+  id: string
+}
+export interface AccountSummary {
+  id: string
+  /**
+   * 写接口里引用该账号的键；OneBot 下等于 id。
+   */
+  ref: string
+  platform: string
+  /**
+   * 协议端昵称；尚未取到时为 null。
+   */
+  name: string | null
+  online: boolean
+  group_count: number
+}
 /**
  * 修改用户名和/或密码；二者都不传时后端只校验当前密码。
  */
@@ -19,11 +59,58 @@ export interface AccountUpdateBody {
 export interface AccountUpdateResult {
   username: string
 }
+export interface AccountsData {
+  accounts: AccountSummary[]
+  groups: GroupStatus[]
+}
+export interface GroupStatus {
+  group_id: string
+  /**
+   * 已知策略为 random / deterministic，其余值按“其他”展示。
+   */
+  strategy: string
+  /**
+   * 定向模式下负责应答的账号（ref）。
+   */
+  deterministic_account: string | null
+  silent_reason: SilentReason | null
+  /**
+   * 按绑定顺序排列，包含本次运行尚未连接的账号。
+   */
+  accounts: GroupAccount[]
+}
+export interface GroupAccount {
+  ref: string
+  id: string
+  platform: string
+  name: string | null
+  state: GroupAccountState
+  /**
+   * 只在执行过管理动作后才知道。
+   */
+  role: ('owner' | 'admin' | 'member') | null
+  /**
+   * 禁言到期时间；永久禁言或未禁言为 null。
+   */
+  muted_until: string | null
+}
 export interface AuthState {
   authenticated: boolean
   username: string | null
   password_set: boolean
   expires_at: string | null
+}
+export interface GroupResponseBody {
+  strategy: 'random' | 'deterministic'
+  /**
+   * 仅定向可非空；null 表示默认（第一个绑定的）账号。
+   */
+  account: string | null
+}
+export interface GroupResponseResult {
+  group_id: string
+  strategy: 'random' | 'deterministic'
+  deterministic_account: string | null
 }
 export interface HostResources {
   cpu_percent: number
@@ -43,6 +130,36 @@ export interface LoginBody {
 export interface LoginResult {
   username: string
   expires_at: string
+}
+export interface ManagedAccount {
+  platform: string
+  id: string
+  alias: string
+  enabled: boolean
+  capabilities: CapabilityOverrides
+  online: boolean
+  available: boolean
+  group_count: number
+  groups: string[]
+  /**
+   * 协议端当前是否持有连接。
+   */
+  connected: boolean
+  /**
+   * 展示名（协议端用户名，缺省为账号 ID）。
+   */
+  name: string
+  /**
+   * 仅 QQ（qq-client）账号可管理。
+   */
+  manageable: boolean
+}
+export interface ManagedAccountsData {
+  accounts: ManagedAccount[]
+  /**
+   * 可覆盖的能力名，如 send_group_message、member_mute……
+   */
+  capabilities: string[]
 }
 export interface MessageCounts {
   received_count: number
@@ -79,6 +196,27 @@ export interface OverviewData {
    */
   plugin_attention?: number
   messages: MessageCounts
+}
+export interface PairingRevealBody {
+  action: 'reveal'
+}
+export interface PairingRotateBody {
+  action: 'rotate'
+  confirm: true
+}
+export interface PairingInfo {
+  url: string
+  path: string
+  /**
+   * 监听 0.0.0.0 / :: 时为 true，需要用户自己填写协议端可达的主机。
+   */
+  requires_host: boolean
+  token_configured: boolean
+  can_rotate: boolean
+  /**
+   * 仅在 reveal / rotate 的响应中出现。
+   */
+  access_token?: string
 }
 export interface RevokeOthersResult {
   revoked: number

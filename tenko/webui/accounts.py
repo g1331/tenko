@@ -3,15 +3,25 @@
 from __future__ import annotations
 
 from datetime import UTC
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Literal
 
 from starlette.requests import Request
-from starlette.responses import JSONResponse
 
 from ..context import QQ_PLATFORM, group_key
 from ..host.accounts import account_reference
 from ..host.perm import Permission, permission_store
-from .auth import read_json
+from .auth import ApiResponse, read_json
+from .contracts import (
+    AccountActionResult,
+    AccountsData,
+    AccountSummary,
+    GroupAccount,
+    GroupAccountState,
+    GroupResponseResult,
+    GroupStatus,
+    ManagedAccount,
+    ManagedAccountsData,
+)
 
 if TYPE_CHECKING:
     from .service import WebUIService
@@ -37,7 +47,7 @@ class AccountPanel:
         user = getattr(getattr(account, "self_info", None), "user", None)
         return str(user.name) if user is not None and user.name else None
 
-    def _account_state(self, key: tuple[str, str], group_id: str) -> str:
+    def _account_state(self, key: tuple[str, str], group_id: str) -> GroupAccountState:
         """账号在群内的状态，优先级与选路一致：停用 > 离线 > 禁言。"""
 
         accounts = self.service.accounts
@@ -49,7 +59,9 @@ class AccountPanel:
             return "muted"
         return "available"
 
-    def _group_role(self, key: tuple[str, str], group_id: str) -> str | None:
+    def _group_role(
+        self, key: tuple[str, str], group_id: str
+    ) -> Literal["owner", "admin", "member"] | None:
         # 身份只在执行管理动作时查询过才知道。
         level = self.service.accounts.group_permission(key, group_id)
         if level is None:
@@ -58,13 +70,14 @@ class AccountPanel:
             return "owner"
         return "admin" if level >= Permission.GroupAdmin else "member"
 
-    def data(self) -> dict[str, Any]:
+    def data(self) -> AccountsData:
         registry = self.service.accounts
-        groups = []
+        groups: list[GroupStatus] = []
         for group_id in registry.group_ids:
-            strategy = registry.response_type_for_group(group_id)
+            # group_ids 都已建立路由，response_type_for_group 不会返回 None。
+            strategy = registry.response_type_for_group(group_id) or "random"
             target = registry.deterministic_account_for_group(group_id)
-            members = []
+            members: list[GroupAccount] = []
             for key in registry.group_members(group_id):
                 ref = account_reference(key)
                 until = registry.mute_until(key, group_id)
@@ -92,7 +105,7 @@ class AccountPanel:
                     "accounts": members,
                 }
             )
-        accounts = []
+        accounts: list[AccountSummary] = []
         for account_id, account in registry.accounts.items():
             platform = getattr(account, "platform", None)
             if not platform:
@@ -111,36 +124,41 @@ class AccountPanel:
             )
         return {"accounts": accounts, "groups": groups}
 
-    async def accounts_view(self, request: Request) -> JSONResponse:
+    async def accounts_view(self, request: Request) -> ApiResponse[AccountsData]:
         del request
         return await self.service.read("accounts", self.data)
 
-    async def managed_accounts(self, request: Request) -> JSONResponse:
+    async def managed_accounts(
+        self, request: Request
+    ) -> ApiResponse[ManagedAccountsData]:
         service = self.service
 
-        async def read():
+        async def read() -> ManagedAccountsData:
             management = service.require_management()
-            rows = management.list_accounts()
-            for row in rows:
+            rows: list[ManagedAccount] = []
+            for row in management.list_accounts():
                 key = (row["platform"], row["id"])
                 account = service.accounts.get(key)
-                row.update(
-                    online=service.accounts.is_online(key),
-                    available=service.accounts.is_available(key),
-                    group_count=len(service.accounts.groups_for_account(key)),
-                    groups=list(service.accounts.groups_for_account(key)),
-                    connected=bool(
-                        service.connection
-                        and key[0] == QQ_PLATFORM
-                        and key[1] in service.connection.adapter.connections
-                    ),
-                    name=str(
-                        getattr(getattr(account, "self_info", None), "user", None).name
-                        or row["id"]
-                    )
-                    if getattr(getattr(account, "self_info", None), "user", None)
-                    else row["id"],
-                    manageable=key[0] == QQ_PLATFORM,
+                user = getattr(getattr(account, "self_info", None), "user", None)
+                rows.append(
+                    {
+                        "platform": row["platform"],
+                        "id": row["id"],
+                        "alias": row["alias"],
+                        "enabled": row["enabled"],
+                        "capabilities": row["capabilities"],
+                        "online": service.accounts.is_online(key),
+                        "available": service.accounts.is_available(key),
+                        "group_count": len(service.accounts.groups_for_account(key)),
+                        "groups": list(service.accounts.groups_for_account(key)),
+                        "connected": bool(
+                            service.connection
+                            and key[0] == QQ_PLATFORM
+                            and key[1] in service.connection.adapter.connections
+                        ),
+                        "name": str(user.name or row["id"]) if user else row["id"],
+                        "manageable": key[0] == QQ_PLATFORM,
+                    }
                 )
             from ..host.actions import ActionCapability
 
@@ -151,10 +169,12 @@ class AccountPanel:
 
         return await service.manage(request, read)
 
-    async def manage_account(self, request: Request) -> JSONResponse:
+    async def manage_account(
+        self, request: Request
+    ) -> ApiResponse[AccountActionResult]:
         service = self.service
 
-        async def change():
+        async def change() -> AccountActionResult:
             management = service.require_management()
             platform, identifier, action = (
                 request.path_params[name]
@@ -201,12 +221,14 @@ class AccountPanel:
 
         return await service.manage(request, change)
 
-    async def manage_response(self, request: Request) -> JSONResponse:
+    async def manage_response(
+        self, request: Request
+    ) -> ApiResponse[GroupResponseResult]:
         """设置群响应策略；定向时 account 为 null 表示按绑定顺序的默认账号。"""
 
         accounts = self.service.accounts
 
-        async def change():
+        async def change() -> GroupResponseResult:
             group_id = request.path_params["group_id"]
             if group_id not in accounts.group_ids:
                 raise ValueError("群 ID 不在已知路由中")

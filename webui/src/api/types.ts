@@ -18,45 +18,6 @@ export type ApiEnvelope<T> = { ok: true; data: T } | { ok: false; error: ApiErro
 
 /** 已知策略为 random / deterministic，其余值按“其他”展示。 */
 export type ResponseStrategyName = 'random' | 'deterministic' | (string & {})
-export interface AccountSummary {
-  id: string
-  /** 写接口里引用该账号的键；OneBot 下等于 id。 */
-  ref: string
-  platform: string
-  /** 协议端昵称；尚未取到时为 null。 */
-  name: string | null
-  online: boolean
-  group_count: number
-}
-/** 账号在某群的状态，优先级：停用 > 离线 > 禁言。 */
-export type GroupAccountState = 'available' | 'muted' | 'offline' | 'disabled'
-export interface GroupAccount {
-  ref: string
-  id: string
-  platform: string
-  name: string | null
-  state: GroupAccountState
-  /** 只在执行过管理动作后才知道。 */
-  role: 'owner' | 'admin' | 'member' | null
-  /** 禁言到期时间；永久禁言或未禁言为 null。 */
-  muted_until: string | null
-}
-/** 群当前不会响应的原因：群在黑名单、没有可用账号，或定向账号不可用。 */
-export type SilentReason = 'blacklisted' | 'no_account' | 'target_unavailable'
-export interface GroupStatus {
-  group_id: string
-  strategy: ResponseStrategyName
-  /** 定向模式下负责应答的账号（ref）。 */
-  deterministic_account: string | null
-  silent_reason: SilentReason | null
-  /** 按绑定顺序排列，包含本次运行尚未连接的账号。 */
-  accounts: GroupAccount[]
-}
-export interface AccountsData {
-  accounts: AccountSummary[]
-  groups: GroupStatus[]
-}
-
 export type FeatureScope = 'group' | 'global' | (string & {})
 export interface FeatureInfo {
   /** 插件标识，用作 /manage/plugins|features/{plugin} 的路径参数。 */
@@ -132,51 +93,6 @@ export interface FeaturesData {
 
 // ---------------------------------------------------------------- 管理接口 /manage/*
 
-/** 能力覆盖：true 强制允许，false 强制禁用，缺省表示自动探测。 */
-export type CapabilityOverrides = Record<string, boolean>
-export interface ManagedAccount {
-  platform: string
-  id: string
-  alias: string
-  enabled: boolean
-  capabilities: CapabilityOverrides
-  online: boolean
-  available: boolean
-  group_count: number
-  groups: string[]
-  /** 协议端当前是否持有连接。 */
-  connected: boolean
-  /** 展示名（协议端用户名，缺省为账号 ID）。 */
-  name: string
-  /** 仅 QQ（qq-client）账号可管理。 */
-  manageable: boolean
-}
-export interface ManagedAccountsData {
-  accounts: ManagedAccount[]
-  /** 可覆盖的能力名，如 send_group_message、member_mute…… */
-  capabilities: string[]
-}
-export type AccountAction = 'preferences' | 'enable' | 'disable' | 'kick' | 'forget'
-export type AccountActionBody =
-  { alias?: string; capabilities?: CapabilityOverrides } | { confirm: true }
-export interface AccountActionResult {
-  action: AccountAction
-  platform: string
-  id: string
-}
-
-export interface PairingInfo {
-  url: string
-  path: string
-  /** 监听 0.0.0.0 / :: 时为 true，需要用户自己填写协议端可达的主机。 */
-  requires_host: boolean
-  token_configured: boolean
-  can_rotate: boolean
-  /** 仅在 reveal / rotate 的响应中出现。 */
-  access_token?: string
-}
-export type PairingActionBody = { action: 'reveal' } | { action: 'rotate'; confirm: true }
-
 export interface PluginToggleBody {
   enabled: boolean
   confirm: true
@@ -230,17 +146,6 @@ export interface BlacklistBody {
   id: string
   blacklisted: boolean
   reason?: string
-}
-
-export interface GroupResponseBody {
-  strategy: 'random' | 'deterministic'
-  /** 仅定向可非空；null 表示默认（第一个绑定的）账号。 */
-  account: string | null
-}
-export interface GroupResponseResult {
-  group_id: string
-  strategy: 'random' | 'deterministic'
-  deterministic_account: string | null
 }
 
 export type FriendRequestMode = 'off' | 'admins' | 'all'
