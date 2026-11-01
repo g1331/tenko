@@ -6,10 +6,10 @@ import json
 import os
 import tempfile
 import secrets
-from collections.abc import Callable, Mapping
+from collections.abc import Awaitable, Callable, Mapping
 from pathlib import Path
 from types import SimpleNamespace
-from typing import Any
+from typing import Any, TypeVar, overload
 
 from launart import Launart, Service
 from loguru import logger
@@ -27,12 +27,14 @@ from ..db.errors import DatabaseError
 from ..host.account_management import AccountManagement
 from .auth import (
     WEBUI_PATH,
+    ApiResponse,
     WebUIAuth,
     error_response as _error_response,
     read_json,
     success_response as _success_response,
 )
 from .accounts import AccountPanel
+from .contracts import OverviewData
 from .blacklist import BlacklistPanel
 from .chat import ChatPanel
 from .features import FeaturePanel
@@ -53,6 +55,8 @@ from ..host.accounts import AccountRegistry, account_registry
 from ..host.features import FeatureService, feature_service as default_feature_service
 from ..host.plugins.runtime import PluginRuntime
 from ..host.status import build_status_data
+
+T = TypeVar("T")
 
 _STATIC_DIR = Path(__file__).parent / "static"
 _STATIC_INDEX = _STATIC_DIR / "index.html"
@@ -180,11 +184,19 @@ class WebUIService(Service):
         ):
             self.server.asgi_route(f"{WEBUI_PATH}{path}", methods=methods)(handler)
 
+    @overload
+    async def read(
+        self, operation: str, reader: Callable[[], Awaitable[T]]
+    ) -> ApiResponse[T]: ...
+
+    @overload
+    async def read(self, operation: str, reader: Callable[[], T]) -> ApiResponse[T]: ...
+
     async def read(
         self,
         operation: str,
-        reader: Callable[[], object],
-    ) -> JSONResponse:
+        reader: Callable[[], Any],
+    ) -> ApiResponse[Any]:
         try:
             result = reader()
             if inspect.isawaitable(result):
@@ -215,7 +227,7 @@ class WebUIService(Service):
                 return str(line).removeprefix("版本信息：v")
         return "unknown"
 
-    def _overview_data(self) -> dict[str, Any]:
+    def _overview_data(self) -> OverviewData:
         status_data = self._status_data()
         online_bots = str(status_data.get("online_bots", "0/0"))
         online_count, separator, _total_count = online_bots.partition("/")
@@ -233,7 +245,7 @@ class WebUIService(Service):
             "uptime_seconds": process["uptime_seconds"],
             "rss": process["rss"],
             "resources": status_data["resources"],
-            "activity": [list(pair) for pair in self.metrics.activity()],
+            "activity": self.metrics.activity(),
             "online_accounts": online_accounts,
             "active_groups": status_data["active_groups"],
             "inbox": len(self.inbox),
@@ -246,7 +258,7 @@ class WebUIService(Service):
             },
         }
 
-    async def overview(self, request: Request) -> JSONResponse:
+    async def overview(self, request: Request) -> ApiResponse[OverviewData]:
         del request
         return await self.read("overview", self._overview_data)
 
@@ -280,8 +292,12 @@ class WebUIService(Service):
         return tuple(value for value in values if isinstance(value, str) and value)
 
     async def manage(
-        self, request: Request, operation: Callable, *, lock: bool = True
-    ) -> JSONResponse:
+        self,
+        request: Request,
+        operation: Callable[[], Awaitable[T]],
+        *,
+        lock: bool = True,
+    ) -> ApiResponse[T]:
         try:
             if lock:
                 async with self._write_lock:

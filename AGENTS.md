@@ -86,6 +86,15 @@ config/tenko.toml.example    # 配置模板
   （`tests/tenko/test_webui_browser*.py`）加载的是该构建产物。需要 Playwright 的
   Chromium，缺失时自动跳过；可用 `TENKO_WEBUI_STATIC=<目录>` 指向私有构建目录。
 
+- WebUI 接口的数据结构只在 `tenko/webui/contracts.py` 定义（TypedDict，从
+  `typing_extensions` 导入）。处理函数标注 `-> ApiResponse[契约]`，mypy 检查
+  `success_response` 的载荷；测试里每个 `WebUIService` 都装了契约检查
+  （`tests/tenko/webui_contract_support.py`），成功响应多字段、缺字段或类型不符都会让
+  发请求的测试失败。前端类型由 `cd webui && npm run gen:types` 生成到
+  `webui/src/api/generated.ts`（经 `scripts/webui_schema.py` 导出 JSON Schema，需要 uv
+  环境），`types.ts` 重新导出它，不要在 `types.ts` 里重复定义后端返回的结构。改了契约要
+  重新生成并提交，CI 在不一致时失败。
+
 - 全量钩子检查使用 `pre-commit run --all-files`。测试默认只收集
   `tests/tenko`，新增测试应放在该目录并保持测试可重复、无真实外部连接。
 

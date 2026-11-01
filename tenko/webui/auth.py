@@ -17,12 +17,20 @@ import time
 from collections import deque
 from dataclasses import replace
 from datetime import UTC, datetime, timedelta
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Generic, Never, TypeVar
 
 from starlette.requests import Request
 from starlette.responses import JSONResponse, Response
 
 from ..db.errors import DatabaseError
+from .contracts import (
+    AccountUpdateResult,
+    AuthState,
+    Empty,
+    LoginResult,
+    RevokeOthersResult,
+    SessionsData,
+)
 
 if TYPE_CHECKING:
     from ..db.repositories import WebUIAuthRepository, WebUISessionRecord
@@ -41,18 +49,31 @@ _SCRYPT_N, _SCRYPT_R, _SCRYPT_P = 2**14, 8, 1
 _SCRYPT_MAXMEM = 64 * 1024 * 1024
 
 
+T = TypeVar("T")
+T_co = TypeVar("T_co", covariant=True)
+
+
+class ApiResponse(JSONResponse, Generic[T_co]):
+    """WebUI 接口的 JSON 响应，类型参数是成功时 ``data`` 的契约（``contracts.py``）。
+
+    处理函数标注 ``-> ApiResponse[契约]``：mypy 检查 ``success_response`` 的载荷，
+    测试里的契约检查按这个标注核对真实响应。错误响应是 ``ApiResponse[Never]``，
+    可以从任何处理函数返回。
+    """
+
+
 def error_response(
     code: str, message: str, status_code: int, **extra: object
-) -> JSONResponse:
-    return JSONResponse(
+) -> ApiResponse[Never]:
+    return ApiResponse(
         {"ok": False, "error": {"code": code, "message": message, **extra}},
         status_code=status_code,
         headers={"Cache-Control": "no-store"},
     )
 
 
-def success_response(data: object) -> JSONResponse:
-    return JSONResponse(
+def success_response(data: T) -> ApiResponse[T]:
+    return ApiResponse(
         {"ok": True, "data": data}, headers={"Cache-Control": "no-store"}
     )
 
@@ -321,7 +342,7 @@ class WebUIAuth:
 
     # 接口 -----------------------------------------------------------------
 
-    async def state(self, request: Request) -> JSONResponse:
+    async def state(self, request: Request) -> ApiResponse[AuthState]:
         record = await self.resolve(request)
         account = await self.repository.get_account()
         return success_response(
@@ -333,7 +354,7 @@ class WebUIAuth:
             }
         )
 
-    def _too_many(self, retry_after: int) -> JSONResponse:
+    def _too_many(self, retry_after: int) -> ApiResponse[Never]:
         response = error_response(
             "too_many_attempts",
             "登录尝试过于频繁，请稍后再试",
@@ -343,7 +364,7 @@ class WebUIAuth:
         response.headers["Retry-After"] = str(retry_after)
         return response
 
-    async def login(self, request: Request) -> JSONResponse:
+    async def login(self, request: Request) -> ApiResponse[LoginResult]:
         request.state.webui_action = "login"
         ip = _client_ip(request)
         if retry_after := self.limiter.retry_after(ip):
@@ -392,21 +413,21 @@ class WebUIAuth:
         )
         await self.repository.delete_expired(now)
         await self.repository.create_session(record)
-        response = success_response(
+        response: ApiResponse[LoginResult] = success_response(
             {"username": account.username, "expires_at": _iso(record.expires_at)}
         )
         self.set_cookie(response, request, token)
         return response
 
-    async def logout(self, request: Request) -> JSONResponse:
+    async def logout(self, request: Request) -> ApiResponse[Empty]:
         request.state.webui_action = "logout"
         record = await self._current(request)
         await self.repository.delete_session(record.id)
-        response = success_response({})
+        response: ApiResponse[Empty] = success_response({})
         self.clear_cookie(response, request)
         return response
 
-    async def sessions(self, request: Request) -> JSONResponse:
+    async def sessions(self, request: Request) -> ApiResponse[SessionsData]:
         current = await self._current(request)
         now = _now()
         return success_response(
@@ -427,24 +448,24 @@ class WebUIAuth:
             }
         )
 
-    async def revoke(self, request: Request) -> JSONResponse:
+    async def revoke(self, request: Request) -> ApiResponse[Empty]:
         request.state.webui_action = "session-revoke"
         current = await self._current(request)
         session_id = request.path_params["id"]
         if not await self.repository.delete_session(session_id):
             return error_response("not_found", "会话不存在", 404)
-        response = success_response({})
+        response: ApiResponse[Empty] = success_response({})
         if session_id == current.id:
             self.clear_cookie(response, request)
         return response
 
-    async def revoke_others(self, request: Request) -> JSONResponse:
+    async def revoke_others(self, request: Request) -> ApiResponse[RevokeOthersResult]:
         request.state.webui_action = "session-revoke-others"
         current = await self._current(request)
         revoked = await self.repository.delete_sessions(except_id=current.id)
         return success_response({"revoked": revoked})
 
-    async def account(self, request: Request) -> JSONResponse:
+    async def account(self, request: Request) -> ApiResponse[AccountUpdateResult]:
         request.state.webui_action = "account-change"
         current = await self._current(request)
         try:
@@ -482,6 +503,7 @@ class WebUIAuth:
 
 
 __all__ = [
+    "ApiResponse",
     "DEFAULT_USERNAME",
     "LoginLimiter",
     "SESSION_COOKIE",

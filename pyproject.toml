@@ -30,6 +30,7 @@ dependencies = [
     "tomlkit>=0.13",
     "markdown-it-py>=3.0.0",
     "tenko-api",
+    "typing-extensions>=4.12",
 ]
 
 # 仅供插件开发者以 git 依赖安装 tenko 本体（pip install "tenko @ git+...@<tag>"）。
@@ -223,6 +224,7 @@ docstring-code-format = true # 启用 docstring 代码片段格式化
 dev = [
     "mypy>=2.4.1",
     "pre-commit>=4.2.0",
+    "pydantic>=2.14.2",
     "pytest>=8.4.0",
     "pytest-asyncio>=1.0.0",
     "ruff>=0.17.3",

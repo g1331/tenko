@@ -22,6 +22,7 @@ import type {
   SandboxData,
   SandboxSendBody,
   CoreConfigData,
+  Empty,
   FeaturesData,
   FeatureToggleBody,
   FeatureToggleResult,
@@ -62,10 +63,10 @@ export const api = {
   auth: {
     state: () => request<AuthState>('/auth/state'),
     login: (body: LoginBody) => request<LoginResult>('/auth/login', { body }),
-    logout: () => request<Record<string, never>>('/auth/logout', { body: {} }),
+    logout: () => request<Empty>('/auth/logout', { body: {} }),
     sessions: () => request<SessionsData>('/auth/sessions'),
     revokeSession: (id: string) =>
-      request<Record<string, never>>(`/auth/sessions/${segment(id)}/revoke`, { body: {} }),
+      request<Empty>(`/auth/sessions/${segment(id)}/revoke`, { body: {} }),
     revokeOthers: () => request<RevokeOthersResult>('/auth/sessions/revoke-others', { body: {} }),
     updateAccount: (body: AccountUpdateBody) =>
       request<AccountUpdateResult>('/auth/account', { body }),

@@ -51,6 +51,22 @@ def empty_permission_store():
     permission_store.configure(None)
 
 
+@pytest.fixture(autouse=True)
+def webui_contract_check(monkeypatch):
+    """测试里构造的 WebUI 都按 ``contracts.py`` 严格核对成功响应。"""
+
+    from tenko.webui.service import WebUIService
+    from webui_contract_support import ContractCheck
+
+    register = WebUIService._register_routes
+
+    def register_with_check(self):
+        register(self)
+        self.server.app.add_middleware(ContractCheck)
+
+    monkeypatch.setattr(WebUIService, "_register_routes", register_with_check)
+
+
 @pytest_asyncio.fixture
 async def tenko_database():
     """为调用点测试提供独立的内存 SQLite repository。"""

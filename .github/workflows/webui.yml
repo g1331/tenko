@@ -30,8 +30,34 @@ jobs:
           cache: npm
           cache-dependency-path: webui/package-lock.json
 
+      # 生成前端接口类型要导入后端契约（tenko/webui/contracts.py）。
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+          cache-dependency-glob: uv.lock
+
+      - name: Sync Python dependencies
+        run: uv sync --frozen
+
       - name: Install dependencies
         run: npm ci
+        working-directory: webui
+
+      # src/api/generated.ts 由后端契约生成；契约改了却没重新生成并提交时失败。
+      - name: Verify generated API types are up to date
+        run: |
+          npm run gen:types
+          if [ -n "$(git status --porcelain src/api/generated.ts)" ]; then
+            git diff -- src/api/generated.ts
+            echo "::error::webui/src/api/generated.ts 与 tenko/webui/contracts.py 不一致，请在 webui/ 运行 npm run gen:types 并提交。"
+            exit 1
+          fi
         working-directory: webui
 
       - name: Type-check and build
