@@ -73,6 +73,9 @@ def _normalize(schema: dict[str, Any]) -> None:
         # 生成器只认 draft-07 的元组写法。
         if "prefixItems" in node:
             node["items"] = node.pop("prefixItems")
+        # 任意值（object）只带 description 时，生成器会把它当成对象类型。
+        if not node.keys() - {"description"}:
+            node["tsType"] = "unknown"
         # 空 TypedDict 在 TypeScript 里写成 {} 会接受任何非空值。
         if node.get("type") == "object" and node.get("properties") == {}:
             node["tsType"] = "Record<string, never>"

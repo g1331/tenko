@@ -1092,10 +1092,10 @@ class CoreConfigFieldInfo(TypedDict):
 
 
 class CoreConfigField(CoreConfigFieldInfo):
-    """宿主配置项及其当前值；value 的类型随 kind：boolean / 数字 / 选项值 / 字符串 / 字符串数组。"""
+    """宿主配置项及其当前值。"""
 
-    # object 字段不能带文档字符串：生成器会把“只有 description 的 schema”写成对象类型。
     value: object
+    """类型随 kind：boolean / 数字 / 选项值 / 字符串 / 字符串数组。"""
     read_only: bool
     """值引用了环境变量，只能在配置文件里改。"""
 

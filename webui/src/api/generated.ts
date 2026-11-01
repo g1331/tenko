@@ -277,7 +277,7 @@ export interface CoreConfigData {
   can_restart: boolean
 }
 /**
- * 宿主配置项及其当前值；value 的类型随 kind：boolean / 数字 / 选项值 / 字符串 / 字符串数组。
+ * 宿主配置项及其当前值。
  */
 export interface CoreConfigField {
   key: string
@@ -289,6 +289,9 @@ export interface CoreConfigField {
   options: CoreConfigOption[]
   min: number | null
   max: number | null
+  /**
+   * 类型随 kind：boolean / 数字 / 选项值 / 字符串 / 字符串数组。
+   */
   value: unknown
   /**
    * 值引用了环境变量，只能在配置文件里改。
