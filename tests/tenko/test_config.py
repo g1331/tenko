@@ -25,9 +25,7 @@ def test_default_config_is_local_and_does_not_send() -> None:
     assert config.database.url == "sqlite+aiosqlite:///./.tenko/tenko.db"
     assert config.database.create_table_at == "preparing"
     assert config.webui == WebUIConfig()
-    assert config.webui.token is None
     assert config.webui.public_url is None
-    assert "web-secret" not in repr(WebUIConfig(enabled=True, token="web-secret"))
     assert config.upgrade.restart_watch_timeout == 300
     assert config.notify_group is None
 

@@ -309,6 +309,8 @@ def _is_loopback_host(host: str) -> bool:
 
 # 4.0.0-rc25 起内部 Satori 连接改为进程内直连，这些键只为兼容旧配置文件而识别。
 _LEGACY_SATORI_KEYS = ("satori_host", "satori_path", "satori_token")
+# 面板改用数据库账号后弃用的旧鉴权键：只识别并告警，不保存值。
+_LEGACY_WEBUI_KEYS = ("token", "admin_token")
 
 
 @dataclass(frozen=True, slots=True)
@@ -394,23 +396,17 @@ class OneBotConfig:
 class WebUIConfig:
     """内置 WebUI 的开关、来源地址白名单（IP 或网段）和对外访问地址。
 
-    登录凭据保存在数据库里的面板账号中。``token`` 与 ``admin_token`` 是已弃用
-    的旧配置项：仍可解析以便旧配置加载，但不再参与任何鉴权。
+    登录凭据保存在数据库里的面板账号中。旧配置里的 ``token`` 与 ``admin_token``
+    只在 ``from_mapping`` 里识别并告警，不进入配置对象。
     """
 
     enabled: bool = False
-    token: str | None = field(default=None, repr=False)
-    admin_token: str | None = field(default=None, repr=False)
     allowed_ips: tuple[str, ...] = ("127.0.0.1",)
     public_url: str | None = None
 
     def __post_init__(self) -> None:
         if type(self.enabled) is not bool:
             raise ValueError("webui enabled 必须是布尔值")
-        for name in ("token", "admin_token"):
-            value = getattr(self, name)
-            if value is not None and not isinstance(value, str):
-                raise ValueError(f"webui {name} 必须是字符串或 null")
         public_url = self.public_url
         if public_url is not None:
             if not isinstance(public_url, str):
@@ -427,17 +423,17 @@ class WebUIConfig:
             _ip_sequence({"allowed_ips": self.allowed_ips}, "allowed_ips", ()),
         )
 
-    @property
-    def deprecated_tokens_configured(self) -> bool:
-        return bool(self.token or self.admin_token)
-
     @classmethod
     def from_mapping(cls, section: Mapping[str, Any]) -> WebUIConfig:
         defaults = cls()
+        if any(section.get(key) for key in _LEGACY_WEBUI_KEYS):
+            logger.warning(
+                "[webui] token / admin_token 已弃用并被忽略；面板改用数据库账号，"
+                "请从配置中删除它们，并用 /面板重置密码 或 "
+                "python -m tenko webui-passwd 获取登录密码"
+            )
         return cls(
             enabled=_boolean(section, "enabled", defaults.enabled),
-            token=_optional_string(section, "token", defaults.token),
-            admin_token=_optional_string(section, "admin_token", defaults.admin_token),
             allowed_ips=_ip_sequence(section, "allowed_ips", defaults.allowed_ips),
             public_url=_optional_string(section, "public_url", defaults.public_url),
         )
@@ -828,12 +824,6 @@ class TenkoConfig:
         onebot = self.onebot
         if not _is_loopback_host(onebot.listen_host) and not onebot.access_token:
             raise ValueError("onebot.listen_host 不是回环地址时，必须设置 access_token")
-        if self.webui.deprecated_tokens_configured:
-            logger.warning(
-                "[webui] token / admin_token 已弃用并被忽略；面板改用数据库账号，"
-                "请从配置中删除它们，并用 /面板重置密码 或 "
-                "python -m tenko webui-passwd 获取登录密码"
-            )
 
     def notify_target_error(self) -> str | None:
         """没有任何通知接收方时返回原因：异常报告、掉线提醒等都将无处可发。"""
