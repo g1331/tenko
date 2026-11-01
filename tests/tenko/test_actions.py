@@ -19,6 +19,7 @@ from tenko.host.actions import (
     ActionServiceError,
 )
 from tenko.host.accounts import AccountRegistry
+from tenko.host.action_failures import _is_permission_failure
 from tenko.host.actions import ActionAccountUnavailable
 from tenko.host.perm import Permission
 
@@ -351,7 +352,7 @@ def test_napcat_permission_error_codes_are_classified(code: str) -> None:
         wording=code,
     )
 
-    assert service._is_permission_failure(failure)
+    assert _is_permission_failure(failure)
 
 
 def test_permission_failure_clears_stale_learned_capability() -> None:

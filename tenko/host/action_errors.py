@@ -8,12 +8,12 @@ from contextlib import asynccontextmanager
 from arclet.entari import Session
 from loguru import logger
 
+from .action_failures import _is_permission_failure
 from .actions import (
     ActionAccountUnavailable,
     ActionCapabilityUnavailable,
     ActionExecutionError,
     ActionPermissionDenied,
-    ActionService,
     ActionServiceError,
     ActionTargetUnavailable,
 )
@@ -46,7 +46,7 @@ def action_error_message(error: BaseException) -> str:
         return "该账号暂不支持此操作（或已被临时限制），已通知开发者"
     if isinstance(error, ActionExecutionError):
         failure = error.failure
-        if failure is not None and ActionService._is_permission_failure(failure):
+        if failure is not None and _is_permission_failure(failure):
             return "该账号在此群没有管理员权限"
         return "平台操作失败，已通知开发者"
     if isinstance(error, ActionAccountUnavailable):

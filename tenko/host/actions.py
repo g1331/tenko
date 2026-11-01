@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import ast
 import inspect
 import re
 from collections.abc import Awaitable, Callable, Iterable, Mapping
@@ -14,6 +13,17 @@ from satori.element import Element
 
 from ..context import MessageContext
 from .accounts import AccountRegistry, account_registry, account_key, account_reference
+from .action_failures import (
+    _is_permission_failure,
+    _is_transient_failure,
+    _is_unsupported_failure,
+)
+from .action_receipts import (
+    _fields_from_text,
+    _is_failed_receipt,
+    _mapping_from,
+    _retcode,
+)
 from .perm import Permission, PermissionChecker
 
 """宿主侧平台动作服务。
@@ -69,23 +79,6 @@ _CAPABILITY_ALIASES = {
 }
 _MAX_BAN_SECONDS = 30 * 24 * 60 * 60
 _ID_PATTERN = re.compile(r"^\d+$")
-_PERMISSION_ERROR_CODES = frozenset(
-    {
-        "ERR_NOT_GROUP_ADMIN",
-        "ERR_NOT_GROUP_OWNER",
-        "ERR_NOT_FRIEND",
-    }
-)
-# NapCat 当前的 ``SetGroupBan`` 源码明确记录了
-# bot 没有群管理员权限时对应的 ``120101005 / ERR_NOT_GROUP_ADMIN``：
-# 参考源码链接：https://github.com/NapNeko/NapCatQQ/blob/main/packages/napcat-onebot/action/group/SetGroupBan.ts
-# OneBot 会将底层 ``errMsg`` 作为自由格式的 ``message`` / ``wording`` 字段
-# 传输，而不是标准的符号枚举。下面另外两个名称是兼容变体，并不表示完整
-# 的官方列表；由于 NapCat 的源码没有发布稳定的符号错误码枚举，因此保留
-# 通用的 ERR_NOT_* 和 *_ADMIN/*_OWNER 规则。
-_PERMISSION_ERROR_CODE_PATTERN = re.compile(
-    r"\bERR_NOT_[A-Z0-9_]+\b|\b[A-Z0-9_]+_(?:ADMIN|OWNER)\b"
-)
 
 
 def _key(value: object, label: str) -> str:
@@ -114,81 +107,6 @@ def _capability(value: str | ActionCapability) -> ActionCapability:
             return _CAPABILITY_ALIASES[value]
         except KeyError as exc:
             raise ValueError(f"未知平台能力: {value}") from exc
-
-
-def _retcode(value: object) -> int | str | None:
-    if value is None or isinstance(value, int | str):
-        return value
-    return str(value)
-
-
-def _is_failed_receipt(value: Mapping[str, object]) -> bool:
-    status = str(value.get("status", "")).lower()
-    if status in {"failed", "error"}:
-        return True
-    retcode = value.get("retcode")
-    return retcode is not None and str(retcode).lower() not in {"0", "ok"}
-
-
-def _mapping_from_text(detail: str) -> Mapping[str, object] | None:
-    """从 ``ActionFailed`` 文本中的 Python 字典字面量取出回执。"""
-
-    start = detail.find("{")
-    end = detail.rfind("}")
-    if start < 0 or end < start:
-        return None
-    try:
-        value = ast.literal_eval(detail[start : end + 1])
-    except (SyntaxError, ValueError):
-        return None
-    return value if isinstance(value, Mapping) else None
-
-
-def _mapping_from(
-    value: object, *, failed_only: bool = False
-) -> Mapping[str, object] | None:
-    """从 Satori ActionFailed 或测试回执中取出 OneBot 风格 mapping。"""
-
-    candidates: list[object] = []
-    if isinstance(value, Mapping):
-        candidates.append(value)
-    elif isinstance(value, BaseException):
-        candidates.extend(value.args)
-
-    for candidate in candidates:
-        if isinstance(candidate, Mapping):
-            if not failed_only or _is_failed_receipt(candidate):
-                return candidate
-        if isinstance(candidate, str):
-            parsed = _mapping_from_text(candidate)
-            if parsed is not None and (not failed_only or _is_failed_receipt(parsed)):
-                return parsed
-        if isinstance(candidate, BaseException):
-            nested = _mapping_from(candidate, failed_only=failed_only)
-            if nested is not None:
-                return nested
-    return None
-
-
-def _fields_from_text(detail: str) -> tuple[str | None, int | str | None]:
-    status_match = re.search(
-        r"['\"]?status['\"]?\s*[=:]\s*['\"]?([\w-]+)",
-        detail,
-        re.IGNORECASE,
-    )
-    retcode_match = re.search(
-        r"['\"]?retcode['\"]?\s*[=:]\s*['\"]?([\w-]+)",
-        detail,
-        re.IGNORECASE,
-    )
-    status = status_match.group(1).lower() if status_match else None
-    raw_retcode = retcode_match.group(1) if retcode_match else None
-    if raw_retcode is None:
-        prefix_match = re.match(r"\s*(\d+)\s*:", detail)
-        raw_retcode = prefix_match.group(1) if prefix_match else None
-    if raw_retcode is not None and raw_retcode.isdigit():
-        return status, int(raw_retcode)
-    return status, raw_retcode
 
 
 @dataclass(frozen=True, slots=True)
@@ -449,106 +367,10 @@ class ActionService:
             raw=response,
         )
 
-    @staticmethod
-    def _is_permission_failure(failure: ActionFailure) -> bool:
-        """识别群内权限不足，避免把账号能力错误锁定到全局。"""
-
-        error_type = (failure.error_type or "").lower()
-        if any(
-            word in error_type for word in ("forbidden", "permission", "unauthorized")
-        ):
-            return True
-        status = (failure.status or "").lower()
-        if status in {"forbidden", "unauthorized", "permission_denied", "403"}:
-            return True
-        details = " ".join(
-            value.upper()
-            for value in (
-                failure.error_type,
-                failure.message,
-                failure.wording,
-                failure.detail,
-            )
-            if value
-        )
-        error_codes = _PERMISSION_ERROR_CODE_PATTERN.findall(details)
-        if any(
-            code in _PERMISSION_ERROR_CODES
-            or code.startswith("ERR_NOT_")
-            or code.endswith(("_ADMIN", "_OWNER"))
-            for code in error_codes
-        ):
-            return True
-        details = details.lower()
-        return any(
-            phrase in details
-            for phrase in (
-                "permission",
-                "forbidden",
-                "unauthorized",
-                "access denied",
-                "not allowed",
-                "no permission",
-                "权限",
-                "无权",
-                "不允许",
-                "禁止",
-                "管理员权限",
-            )
-        )
-
-    @staticmethod
-    def _is_transient_failure(failure: ActionFailure) -> bool:
-        """识别连接/超时等暂态错误，避免它们污染账号能力学习结果。"""
-
-        raw = failure.raw
-        if isinstance(raw, ConnectionError | TimeoutError | OSError):
-            return True
-        error_type = (failure.error_type or "").lower()
-        if any(
-            word in error_type
-            for word in ("connection", "timeout", "network", "tempor")
-        ):
-            return True
-        details = " ".join(
-            value.lower()
-            for value in (failure.message, failure.wording, failure.detail)
-            if value
-        )
-        return any(
-            phrase in details
-            for phrase in ("connection timed out", "network unavailable", "暂时不可用")
-        )
-
-    @staticmethod
-    def _is_unsupported_failure(failure: ActionFailure) -> bool:
-        """只识别协议端明确表示“不支持该 action”的失败（OneBot 1404 等）。
-
-        目标不存在（如撤回已删除的消息）、参数错误等同样是平台失败，但不说明
-        账号缺少该能力，不能据此永久关闭它。
-        """
-
-        if str(failure.retcode) == "1404" or isinstance(
-            failure.raw, NotImplementedError
-        ):
-            return True
-        error_type = (failure.error_type or "").lower()
-        if "methodnotallowed" in error_type or "notimplemented" in error_type:
-            return True
-        details = " ".join(
-            value.lower()
-            for value in (failure.message, failure.wording, failure.detail)
-            if value
-        )
-        return any(
-            phrase in details
-            for phrase in ("unsupported action", "unknown action", "不支持")
-        )
-
     def _remember_failure(self, failure: ActionFailure) -> None:
         self._failures.append(failure)
         key = (failure.account_id, failure.capability)
-        permission_failure = self._is_permission_failure(failure)
+        permission_failure = _is_permission_failure(failure)
         if permission_failure:
             # 权限是账号×群的运行时条件，不是账号能力；清理历史误判的
             # learned=False，让下一次有权限的调用重新探测该能力。
@@ -556,8 +378,8 @@ class ActionService:
                 self._learned.pop(key, None)
         elif (
             key not in self._overrides
-            and not self._is_transient_failure(failure)
-            and self._is_unsupported_failure(failure)
+            and not _is_transient_failure(failure)
+            and _is_unsupported_failure(failure)
         ):
             self._learned[key] = False
         logger.warning(
@@ -737,7 +559,7 @@ class ActionService:
                 error = self._execution_error(failure, exc)
                 if (
                     management_group_id is not None
-                    and self._is_permission_failure(failure)
+                    and _is_permission_failure(failure)
                     and candidate_index + 1 < len(candidates)
                 ):
                     last_error = error
@@ -756,7 +578,7 @@ class ActionService:
                 error = self._execution_error(failure)
                 if (
                     management_group_id is not None
-                    and self._is_permission_failure(failure)
+                    and _is_permission_failure(failure)
                     and candidate_index + 1 < len(candidates)
                 ):
                     last_error = error
