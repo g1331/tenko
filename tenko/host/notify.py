@@ -1,6 +1,8 @@
 """给 Master 的通知：发往私聊还是群、由哪个账号发送，都是数据库里的动态设置，修改后立即生效。
 
-启动通知、异常报告、好友申请、入群邀请、插件更新和账号掉线提醒都经由这里发送。
+启动通知、异常报告、好友申请、入群邀请、插件更新和账号掉线提醒都经由这里发送；
+扩展插件的通知（``tenko_api.notify``）由 :mod:`tenko.host.plugins.notices` 加上来源、
+限速后同样经由 :func:`deliver` 发送。
 """
 
 from __future__ import annotations
@@ -143,6 +145,24 @@ def masters(
     return tuple(dict.fromkeys(x for x in (*given, *superuser_ids(platform)) if x))
 
 
+@dataclass(frozen=True, slots=True)
+class Delivery:
+    """一次通知的投递结果。"""
+
+    # 没能开始发送的原因："no_account" 没有在线账号，"no_target" 没有可私聊的 Master。
+    reason: str | None = None
+    sender: object | None = None
+    # 送达的目标和平台返回的消息 ID（拿不到 ID 时为空元组）。
+    sent: tuple[tuple[str, tuple[str, ...]], ...] = ()
+    failed: tuple[str, ...] = ()
+
+    @property
+    def complete(self) -> bool:
+        """每个目标都已送达。"""
+
+        return bool(self.sent) and not self.failed
+
+
 async def notify(
     content: str | list,
     *,
@@ -158,19 +178,42 @@ async def notify(
     自身出错时也能送达。
     """
 
+    delivery = await deliver(
+        content,
+        preferred=preferred,
+        settings=settings,
+        actions=actions,
+        permission_checker=permission_checker,
+        direct=direct,
+    )
+    return delivery.complete
+
+
+async def deliver(
+    content: str | list,
+    *,
+    preferred: object | None = None,
+    settings: NotifySettings | None = None,
+    actions: Any = None,
+    permission_checker: object | None = None,
+    direct: bool = False,
+) -> Delivery:
+    """与 :func:`notify` 相同，但返回每个目标的投递结果和消息 ID。"""
+
     settings = settings or await load_settings()
     sender = pick_sender(settings, preferred)
     if sender is None:
         logger.warning("没有在线账号，无法发送通知：{}", _preview(content))
-        return False
+        return Delivery("no_account")
     actions = actions or action_service
     protocol = getattr(sender, "protocol", None)
     group = settings.mode == "group"
     targets = [settings.group] if group else masters(sender, permission_checker)
     if not targets:
         logger.warning("没有配置 Master，无法私聊通知：{}", _preview(content))
-        return False
-    delivered = True
+        return Delivery("no_target", sender)
+    sent: list[tuple[str, tuple[str, ...]]] = []
+    failed: list[str] = []
     for target in targets:
         try:
             if group and direct:
@@ -189,16 +232,31 @@ async def notify(
             else:
                 result = actions.send_private_message(sender, target, content)
             if inspect.isawaitable(result):
-                await result
+                result = await result
         except Exception:
-            delivered = False
+            failed.append(target)
             logger.exception(
                 "通知发送失败：account={} {}={}",
                 getattr(sender, "self_id", "-"),
                 settings.mode,
                 target,
             )
-    return delivered
+        else:
+            sent.append((target, _message_ids(result)))
+    return Delivery(None, sender, tuple(sent), tuple(failed))
+
+
+def _message_ids(result: object) -> tuple[str, ...]:
+    """从 ActionReceipt 或 Satori ``send_message`` 的返回值里取出消息 ID。"""
+
+    data = getattr(result, "data", result)
+    if not isinstance(data, list | tuple):
+        return ()
+    ids = (
+        item.get("id") if isinstance(item, Mapping) else getattr(item, "id", None)
+        for item in data
+    )
+    return tuple(str(value) for value in ids if value not in (None, ""))
 
 
 def _preview(content: object) -> str:
@@ -312,10 +370,12 @@ def describe_settings(settings: NotifySettings) -> str:
 
 __all__ = [
     "AccountAlerts",
+    "Delivery",
     "NotifySettings",
     "account_alerts",
     "bot_offline_reason",
     "configure",
+    "deliver",
     "describe_settings",
     "load_settings",
     "masters",
