@@ -41,6 +41,12 @@ jobs:
       - name: Sync dependencies
         run: uv sync --frozen
 
+      # mypy 在 pyproject.toml 里固定 python_version = "3.11"，各 Python 版本结果一致，
+      # 只在 3.11 这一项里跑一次。
+      - name: Type check
+        if: matrix.python-version == '3.11'
+        run: uv run --no-sync mypy
+
       - name: Run tests
         run: uv run --no-sync python -m pytest -q
 

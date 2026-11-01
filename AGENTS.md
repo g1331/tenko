@@ -58,8 +58,13 @@ config/tenko.toml.example    # 配置模板
 
   ```text
   ./.venv-entari/bin/ruff check tenko tests/tenko
+  ./.venv-entari/bin/mypy
   ./.venv-entari/bin/python -m pytest -q
   ```
+
+  mypy 的范围和配置在 `pyproject.toml` 的 `[tool.mypy]`（只检查 `tenko/`，不含
+  `tests/`），要求零错误。缺类型声明的第三方包在 `[[tool.mypy.overrides]]` 里按模块
+  忽略；`# type: ignore[错误码]` 只用于第三方声明本身有缺陷的地方，并在旁边写明原因。
 
 - 只检查配置和连接信息、不启动网络服务：
 

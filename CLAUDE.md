@@ -9,6 +9,7 @@ Tenko 是一个基于 Entari、Satori 和 OneBot 11 的 QQ 群管理 bot。
 
 ```text
 ./.venv-entari/bin/ruff check tenko tests/tenko
+./.venv-entari/bin/mypy
 ./.venv-entari/bin/python -m pytest -q
 ./.venv-entari/bin/python -m tenko --dry-run
 ```
@@ -19,4 +20,4 @@ Tenko 是一个基于 Entari、Satori 和 OneBot 11 的 QQ 群管理 bot。
 - 账号、权限、功能开关、限流、升级和平台动作优先复用 `tenko/host/` 中的服务。
 - 配置使用 TOML，数据库访问使用 `tenko/db/` 的现有抽象；不要把 token 或其他
   敏感值写入仓库。
-- 修改保持局部，并在提交前执行 Ruff 和完整 pytest。
+- 修改保持局部，并在提交前执行 Ruff、mypy 和完整 pytest。
