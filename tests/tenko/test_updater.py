@@ -439,7 +439,7 @@ async def test_disabled_from_config_ignores_unresolvable_source(
 
 
 def test_run_git_is_non_interactive_and_times_out(monkeypatch) -> None:
-    import tenko.host.updater as updater_module
+    import tenko.host.updater.sources as sources_module
 
     captured: dict[str, Any] = {}
 
@@ -447,10 +447,10 @@ def test_run_git_is_non_interactive_and_times_out(monkeypatch) -> None:
         captured.update(kwargs)
         raise subprocess.TimeoutExpired("git", kwargs["timeout"])
 
-    monkeypatch.setattr(updater_module.subprocess, "run", hang)
+    monkeypatch.setattr(sources_module.subprocess, "run", hang)
 
     with pytest.raises(UpdateSourceError, match="超时"):
-        updater_module._run_git("git", ["ls-remote", "origin"], timeout=1)
+        sources_module._run_git("git", ["ls-remote", "origin"], timeout=1)
 
     assert captured["timeout"] == 1
     assert captured["stdin"] is subprocess.DEVNULL
@@ -498,7 +498,7 @@ def test_from_config_resolves_existing_local_repository_against_stable_root(
 async def test_git_source_errors_redact_credentials_in_invalid_url(
     monkeypatch, tmp_path: Path
 ) -> None:
-    import tenko.host.updater as updater_module
+    import tenko.host.updater.sources as sources_module
 
     repository = "https://user:secret@example.invalid/tenko.git"
     config = UpgradeConfig(
@@ -515,7 +515,7 @@ async def test_git_source_errors_redact_credentials_in_invalid_url(
             stderr=f"fatal: unable to access '{repository}'",
         )
 
-    monkeypatch.setattr(updater_module.subprocess, "run", fail_git)
+    monkeypatch.setattr(sources_module.subprocess, "run", fail_git)
 
     with pytest.raises(UpdateSourceError) as error:
         await manager.check()
@@ -887,7 +887,7 @@ def test_upgrade_manager_restart_command_uses_stable_launcher(
 def test_upgrade_manager_passes_configured_watch_timeout(
     monkeypatch, tmp_path: Path
 ) -> None:
-    import tenko.host.updater as updater_module
+    import tenko.host.updater.manager as manager_module
 
     captured: dict[str, object] = {}
 
@@ -895,7 +895,7 @@ def test_upgrade_manager_passes_configured_watch_timeout(
         captured.update(old_pid=old_pid, command=command, kwargs=kwargs)
         return True
 
-    monkeypatch.setattr(updater_module, "spawn_restart_watcher", fake_spawn)
+    monkeypatch.setattr(manager_module, "spawn_restart_watcher", fake_spawn)
     manager = UpgradeManager(
         Version("1.0.0"),
         project_root=tmp_path,
@@ -937,7 +937,7 @@ async def test_default_health_checker_uses_stable_cwd_and_candidate_code(
 def test_restart_watcher_deduplicates_pid_and_detaches(
     monkeypatch, tmp_path: Path
 ) -> None:
-    import tenko.host.updater as updater_module
+    import tenko.host.updater.watcher as watcher_module
 
     captured: dict[str, Any] = {}
 
@@ -945,7 +945,7 @@ def test_restart_watcher_deduplicates_pid_and_detaches(
         captured.update(command=command, kwargs=kwargs)
         return object()
 
-    monkeypatch.setattr(updater_module.subprocess, "Popen", fake_popen)
+    monkeypatch.setattr(watcher_module.subprocess, "Popen", fake_popen)
     watcher_dir = tmp_path / "restart-watchers"
     command = (sys.executable, "-m", "tenko")
 
@@ -1276,12 +1276,12 @@ async def test_database_backup_failure_is_audited_without_blocking_install(
     manager.database_path.parent.mkdir(parents=True, exist_ok=True)
     manager.database_path.write_bytes(b"not a database")
 
-    import tenko.host.updater as updater_module
+    import tenko.host.updater.manager as manager_module
 
     def fail_backup(_source, _destination):
         raise sqlite3.DatabaseError("backup unavailable")
 
-    monkeypatch.setattr(updater_module, "backup_sqlite_database", fail_backup)
+    monkeypatch.setattr(manager_module, "backup_sqlite_database", fail_backup)
 
     await manager.prepare()
     result = await manager.request_install()
@@ -1309,10 +1309,10 @@ async def test_database_backup_is_skipped_when_disk_is_nearly_full(
     with sqlite3.connect(manager.database_path) as connection:
         connection.execute("CREATE TABLE values_table (value TEXT NOT NULL)")
 
-    import tenko.host.updater as updater_module
+    import tenko.host.updater.manager as manager_module
 
     monkeypatch.setattr(
-        updater_module.shutil,
+        manager_module.shutil,
         "disk_usage",
         lambda _path: shutil._ntuple_diskusage(1, 1, 0),
     )
