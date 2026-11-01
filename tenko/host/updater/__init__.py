@@ -27,10 +27,8 @@ from .database import (
     DATABASE_BACKUPS_KEEP as DATABASE_BACKUPS_KEEP,
     resolve_sqlite_database_path as resolve_sqlite_database_path,
 )
-from .deps import (
-    find_uv as find_uv,
-    UvDependencySync as UvDependencySync,
-)
+from ..uv import find_uv as find_uv
+from .deps import UvDependencySync as UvDependencySync
 from .health import (
     DefaultHealthChecker as DefaultHealthChecker,
     HealthCheckResult as HealthCheckResult,

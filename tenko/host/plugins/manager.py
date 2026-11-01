@@ -53,16 +53,15 @@ from packaging.version import InvalidVersion, Version
 from . import storage as plugin_storage
 from .runtime import _MODULE_PATH, _PLUGIN_ID, PluginInfo, PluginRuntime
 from ..sandbox import refuse_in_sandbox
+from ..redact import redact_text as _redact_text
 from ..updater import (
     AuditLogger,
     DefaultHealthChecker,
-    DependencySyncError,
     HealthCheckResult,
-    _redact_text,
-    find_uv,
     get_upgrade_manager,
     tenko_api_version,
 )
+from ..uv import UvError, run_uv
 
 LOCK_NAME = "plugins.lock"
 HISTORY_KEEP = 5
@@ -363,29 +362,13 @@ class PluginManager:
 
     def _uv(
         self, step: str, *args: str, check: bool = True
-    ) -> subprocess.CompletedProcess:
+    ) -> subprocess.CompletedProcess[str]:
         try:
-            command = [find_uv(self.uv), *args]
-        except DependencySyncError as error:
+            return run_uv(
+                args, uv=self.uv, timeout=_UV_TIMEOUT, cwd=self.cwd, check=check
+            )
+        except UvError as error:
             raise PluginManagerError(step, str(error)) from error
-        try:
-            completed = subprocess.run(
-                command,
-                check=False,
-                capture_output=True,
-                encoding="utf-8",
-                errors="replace",
-                timeout=_UV_TIMEOUT,
-                cwd=self.cwd,
-            )
-        except (OSError, subprocess.TimeoutExpired) as error:
-            raise PluginManagerError(step, f"uv 无法执行: {error}") from error
-        if check and completed.returncode != 0:
-            output = (completed.stderr or completed.stdout or "").strip()
-            raise PluginManagerError(
-                step, f"uv 返回 {completed.returncode}: {_redact_text(output)[-800:]}"
-            )
-        return completed
 
     def _freeze(self) -> dict[str, str]:
         """环境里已安装的包：规范化包名 -> ``==版本`` 或 ``@ 链接``。"""

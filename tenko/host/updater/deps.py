@@ -5,14 +5,13 @@ from __future__ import annotations
 import asyncio
 import hashlib
 import os
-import shutil
-import subprocess
 import sys
 from pathlib import Path
 
 from loguru import logger
 
-from .models import DependencySyncError, _redact_text
+from ..uv import UvError, run_uv
+from .models import DependencySyncError
 
 
 _DEPENDENCY_SYNC_TIMEOUT = 600
@@ -20,15 +19,6 @@ _DEPENDENCY_SYNC_TIMEOUT = 600
 
 def _lock_digest(release_root: Path) -> str:
     return hashlib.sha256((release_root / "uv.lock").read_bytes()).hexdigest()
-
-
-def find_uv(explicit: str | None = None) -> str:
-    """定位 uv 可执行文件：显式指定、环境变量 ``UV``，最后是 PATH。"""
-
-    uv = explicit or os.environ.get("UV") or shutil.which("uv")
-    if not uv:
-        raise DependencySyncError("找不到 uv 可执行文件（可用环境变量 UV 指定）")
-    return uv
 
 
 class UvDependencySync:
@@ -58,34 +48,24 @@ class UvDependencySync:
             # 早于 uv 迁移的旧版本没有锁文件，保持环境现状。
             logger.warning("Tenko 版本 {} 没有 uv.lock，跳过依赖同步", release_root)
             return
-        command = [
-            find_uv(self.uv),
-            "sync",
-            "--frozen",
-            "--inexact",
-            "--no-editable",
-            "--project",
-            str(release_root),
-        ]
         environment = os.environ.copy()
         environment["UV_PROJECT_ENVIRONMENT"] = str(self.environment)
         try:
-            completed = subprocess.run(
-                command,
-                check=False,
-                capture_output=True,
-                encoding="utf-8",
-                errors="replace",
+            run_uv(
+                [
+                    "sync",
+                    "--frozen",
+                    "--inexact",
+                    "--no-editable",
+                    "--project",
+                    str(release_root),
+                ],
+                uv=self.uv,
                 timeout=self.timeout,
                 env=environment,
             )
-        except (OSError, subprocess.TimeoutExpired) as exc:
-            raise DependencySyncError(f"依赖同步无法执行: {exc}") from exc
-        if completed.returncode != 0:
-            output = _redact_text((completed.stderr or completed.stdout or "").strip())
-            raise DependencySyncError(
-                f"依赖同步失败（uv sync 返回 {completed.returncode}）: {output[-800:]}"
-            )
+        except UvError as exc:
+            raise DependencySyncError(f"依赖同步失败: {exc}") from exc
         try:
             self._stamp.write_text(_lock_digest(release_root), encoding="utf-8")
         except OSError as exc:

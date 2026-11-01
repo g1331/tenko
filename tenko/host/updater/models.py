@@ -12,6 +12,8 @@ from typing import TYPE_CHECKING, Any, Protocol
 from packaging.version import InvalidVersion as PackagingInvalidVersion
 from packaging.version import Version
 
+from ..redact import redact_text as _redact_text
+
 
 if TYPE_CHECKING:
     from .compat import CompatibilityResult
@@ -177,26 +179,10 @@ _HEX_SHA_PATTERN = re.compile(r"^[0-9a-fA-F]{40,64}$")
 _SHA256_PATTERN = re.compile(r"^[0-9a-fA-F]{64}$")
 
 
-_URL_CREDENTIALS_PATTERN = re.compile(
-    r"(?P<prefix>[A-Za-z][A-Za-z0-9+.-]*://)[^/@\s]+@"
-)
-_SCP_CREDENTIALS_PATTERN = re.compile(
-    r"(?<![\w/@])[^/@\s:]+(?::[^/@\s]*)?@(?=[^/@\s:]+:)"
-)
-
-
 _RESTART_WATCHER_TIMEOUT = 300
 _RESTART_WATCHER_INTERVAL = 0.2
 _STARTUP_GRACE_PERIOD = 60.0
 _STARTUP_FAILURE_THRESHOLD = 2
-
-
-def _redact_text(value: object) -> str:
-    """隐藏错误文本和地址中的凭据。"""
-
-    text = str(value)
-    text = _URL_CREDENTIALS_PATTERN.sub(r"\g<prefix>***@", text)
-    return _SCP_CREDENTIALS_PATTERN.sub("***@", text)
 
 
 def parse_version(value: str | Version) -> Version:

@@ -14,6 +14,7 @@ from typing import Any
 
 from packaging.version import Version
 
+from ..atomic import atomic_write_text
 from .models import InvalidVersionError, UpgradeConfigError, parse_version
 
 
@@ -21,17 +22,9 @@ _FAILED_HANDOFF_RETENTION = 10
 
 
 def _atomic_write_json(path: Path, payload: Mapping[str, Any]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    temporary = path.with_name(f".{path.name}.{uuid.uuid4().hex}.tmp")
-    try:
-        with temporary.open("w", encoding="utf-8") as file:
-            json.dump(payload, file, ensure_ascii=False, sort_keys=True)
-            file.write("\n")
-            file.flush()
-            os.fsync(file.fileno())
-        os.replace(temporary, path)
-    finally:
-        temporary.unlink(missing_ok=True)
+    atomic_write_text(
+        path, json.dumps(payload, ensure_ascii=False, sort_keys=True) + "\n"
+    )
 
 
 @dataclass(frozen=True, slots=True)
