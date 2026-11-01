@@ -31,6 +31,17 @@ def disabled_chat_log():
 
 
 @pytest.fixture(autouse=True)
+def default_command_prefix():
+    """Alconna 命令前缀是进程级状态；构造 ``TenkoRuntime`` 会清空它，结束后恢复。"""
+
+    from arclet.alconna import config as alconna_config
+
+    prefixes = list(alconna_config.default_namespace.prefixes)
+    yield
+    alconna_config.default_namespace.prefixes = prefixes
+
+
+@pytest.fixture(autouse=True)
 def empty_permission_store():
     """黑名单和授权是进程级单例；运行时测试会接上数据库或标记不可用，结束后清空。"""
 
