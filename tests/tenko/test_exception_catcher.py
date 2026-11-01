@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import sys
 from datetime import datetime
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
@@ -555,8 +554,7 @@ def _delivering_origin(sent: list[str]):
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("loaded_plugin", ["exception_catcher"], indirect=True)
-async def test_action_error_path_respects_cooldown(loaded_plugin, monkeypatch) -> None:
-    monkeypatch.setitem(sys.modules, "tenko.plugins.exception_catcher", loaded_plugin)
+async def test_action_error_path_respects_cooldown(loaded_plugin) -> None:
     from tenko.host.action_errors import report_action_error
 
     sent: list[str] = []

@@ -303,10 +303,43 @@ class StartupNotifier:
         return delivered
 
 
+AccountOnlineHook = Callable[[object], Awaitable[None]]
+# 启动通知插件加载时登记的上线回调；宿主不反向导入插件。
+_account_online_hook: AccountOnlineHook | None = None
+
+
+def register_account_online_hook(hook: AccountOnlineHook) -> Callable[[], None]:
+    """登记账号上线回调，返回注销函数（交给插件的 ``collect_disposes``）。"""
+
+    global _account_online_hook
+    _account_online_hook = hook
+
+    def unregister() -> None:
+        global _account_online_hook
+        if _account_online_hook is hook:
+            _account_online_hook = None
+
+    return unregister
+
+
+async def dispatch_account_online(account: object) -> None:
+    """调用登记的上线回调；它是就绪后的附加动作，失败只记日志。"""
+
+    hook = _account_online_hook
+    if hook is None:
+        return
+    try:
+        await hook(account)
+    except Exception:
+        logger.exception("Could not dispatch Tenko startup notification")
+
+
 __all__ = [
     "STARTUP_NOTIFY_FEATURE",
     "StartupHistory",
     "StartupNotifier",
     "startup_history",
     "build_startup_notice",
+    "dispatch_account_online",
+    "register_account_online_hook",
 ]

@@ -1,10 +1,7 @@
 from __future__ import annotations
 
 import asyncio
-import inspect
 import signal
-import sys
-from collections.abc import Mapping
 from pathlib import Path
 
 import arclet.letoderea as le
@@ -39,7 +36,7 @@ from .host.plugins.registry import configure_registry, get_registry
 from .host.plugins.runtime import PluginRuntime
 from .host.quote import quote_group_reply
 from .host.ratelimit import configure_rate_limiter
-from .host.startup import startup_history
+from .host.startup import dispatch_account_online, startup_history
 from .host.stats import install as install_call_stats
 from .host.updater import (
     UpdateChannel,
@@ -116,7 +113,6 @@ class TenkoRuntime:
         self.app: Entari | None = None
         self.manager: Launart | None = None
         self.plugin_runtime: PluginRuntime | None = None
-        self._startup_notify_module: object | None = None
         self.database_service = None
         self.webui_service: WebUIService | None = None
         self.runtime_state_service = RuntimeStateService(
@@ -270,18 +266,6 @@ class TenkoRuntime:
             logger.error("Could not flush Tenko rate limit state: {}", error)
         await chat_log.flush()
 
-    @staticmethod
-    def _plugin_module(loaded_plugins: object, name: str) -> object | None:
-        """从 Entari loader 的结果取模块，兼容旧的 sys.modules 查找。"""
-
-        loaded = (
-            loaded_plugins.get(name) if isinstance(loaded_plugins, Mapping) else None
-        )
-        if loaded is not None:
-            module = getattr(loaded, "module", None)
-            return loaded if module is None else module
-        return sys.modules.get(f"tenko.plugins.{name}")
-
     def request_graceful_shutdown(self) -> bool:
         """沿 Launart 的 SIGINT 生命周期路径请求当前运行时退出。"""
 
@@ -386,20 +370,7 @@ class TenkoRuntime:
         if state == LoginStatus.ONLINE:
             logger.info("OneBot account {} is online", account.self_id)
             notify.account_alerts.online(account)
-            startup_notify = self._startup_notify_module
-            if startup_notify is None:
-                # 保留对测试替身和直接导入插件的兼容；正常的 Entari 插件
-                # 由自定义 loader 管理，不一定留在 sys.modules 中。
-                startup_notify = sys.modules.get("tenko.plugins.startup_notify")
-            on_account_online = getattr(startup_notify, "on_account_online", None)
-            if callable(on_account_online):
-                try:
-                    result = on_account_online(account)
-                    if inspect.isawaitable(result):
-                        await result
-                except Exception:
-                    # 启动通知是就绪后的附加动作，不能影响账号已上线的主流程。
-                    logger.exception("Could not dispatch Tenko startup notification")
+            await dispatch_account_online(account)
         elif state in (LoginStatus.CONNECT, LoginStatus.RECONNECT):
             logger.info("OneBot account {} is connecting/reconnecting", account.self_id)
         elif state in (LoginStatus.DISCONNECT, LoginStatus.OFFLINE):
@@ -452,7 +423,7 @@ class TenkoRuntime:
         self.plugin_runtime = PluginRuntime()
         await self._check_plugin_environment()
         # 宿主配置作为 Entari 插件配置在加载时传入，插件模块导入后即可使用。
-        loaded_plugins = await self.plugin_runtime.load_all(
+        await self.plugin_runtime.load_all(
             {
                 "webui_account": {
                     "enabled": self.config.webui.enabled,
@@ -463,9 +434,6 @@ class TenkoRuntime:
                 },
             },
             external_configs=self.config.plugin_config,
-        )
-        self._startup_notify_module = self._plugin_module(
-            loaded_plugins, "startup_notify"
         )
         # 策略挂在 Entari 已解析出命令的 CommandParse 事件上，返回 False 即阻断；
         # 订阅在根作用域，随 Entari 清理一起释放。

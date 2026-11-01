@@ -2,8 +2,7 @@
 
 from __future__ import annotations
 
-import sys
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
 
 from arclet.entari import Session
@@ -18,6 +17,24 @@ from .actions import (
     ActionServiceError,
     ActionTargetUnavailable,
 )
+
+ErrorReporter = Callable[[BaseException, object], Awaitable[None]]
+# 异常捕获插件加载时登记的上报函数；宿主不反向导入插件。
+_error_reporter: ErrorReporter | None = None
+
+
+def register_error_reporter(reporter: ErrorReporter) -> Callable[[], None]:
+    """登记动作错误的上报函数，返回注销函数（交给插件的 ``collect_disposes``）。"""
+
+    global _error_reporter
+    _error_reporter = reporter
+
+    def unregister() -> None:
+        global _error_reporter
+        if _error_reporter is reporter:
+            _error_reporter = None
+
+    return unregister
 
 
 def action_error_message(error: BaseException) -> str:
@@ -72,11 +89,10 @@ def _action_failure_fields(error: BaseException) -> tuple[object, ...]:
 
 
 async def report_action_error(error: BaseException, origin: object) -> None:
-    """复用异常捕获插件向 superusers 报告动作错误，并吞掉投递异常。"""
+    """经异常捕获插件登记的上报函数向 superusers 报告动作错误，并吞掉投递异常。"""
 
-    reporter = sys.modules.get("tenko.plugins.exception_catcher")
-    send_error_report = getattr(reporter, "send_error_report", None)
-    if not callable(send_error_report):
+    send_error_report = _error_reporter
+    if send_error_report is None:
         account, capability, action, retcode, message, wording, echo = (
             _action_failure_fields(error)
         )

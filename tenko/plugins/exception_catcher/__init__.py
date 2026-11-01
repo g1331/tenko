@@ -10,7 +10,7 @@ from typing import Any
 
 from arclet.entari import BasicConfModel, ExceptionEvent, plugin, scheduler
 from arclet.entari.plugin import get_plugins
-from arclet.entari.plugin import PluginRole, plugin_config
+from arclet.entari.plugin import PluginRole, collect_disposes, plugin_config
 from loguru import logger
 from satori import Image, Text
 from satori.exception import NotFoundException
@@ -23,6 +23,7 @@ from tenko.host.actions import (
     ActionTargetUnavailable,
 )
 from tenko.host import sandbox as sandbox_module
+from tenko.host.action_errors import register_error_reporter
 from tenko.host.errors import error_book, summary_text
 from tenko.host.notify import notify
 from tenko.host.sandbox import SandboxRefused
@@ -347,6 +348,10 @@ async def send_error_report(
             report,
             evidence_dir=evidence_dir,
         )
+
+
+# 平台动作失败（``action_errors``）也经这里上报；插件卸载时注销。
+collect_disposes(register_error_reporter(send_error_report))
 
 
 @plugin.listen(ExceptionEvent)
