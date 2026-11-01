@@ -63,8 +63,10 @@ def make_group_context(group_id: str) -> MessageContext:
 
 
 def test_discover_plugin_shapes_without_reading_plugin_metadata(
-    tmp_path: Path,
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    # 不让开发环境里装着的扩展插件混进结果。
+    patch_entry_points(monkeypatch)
     plugin_dir = make_plugin_dir(tmp_path)
     (plugin_dir / "package_plugin" / "metadata.json").write_text(
         "{not valid json", encoding="utf-8"
