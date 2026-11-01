@@ -290,7 +290,7 @@ class PluginMarket:
                 "plugins": plugins,
             }
 
-        return await self.service._read("market", read)
+        return await self.service.read("market", read)
 
     async def icon(self, request: Request) -> Response:
         name = request.path_params["name"]
@@ -385,7 +385,7 @@ class PluginMarket:
                 **notes,
             }
 
-        return await self.service._read("plugin_detail", read)
+        return await self.service.read("plugin_detail", read)
 
     async def installed_view(self, request: Request) -> JSONResponse:
         async def read():
@@ -449,7 +449,7 @@ class PluginMarket:
                 "task": self._task_data(self._latest_running()),
             }
 
-        return await self.service._read("installed_plugins", read)
+        return await self.service.read("installed_plugins", read)
 
     def load_failures(
         self, names: dict[str, str] | None = None
@@ -506,7 +506,7 @@ class PluginMarket:
         task = self.tasks.get(request.path_params["id"])
         if task is None:
             return error_response("not_found", "任务不存在", 404)
-        return await self.service._read("plugin_task", lambda: asdict(task))
+        return await self.service.read("plugin_task", lambda: asdict(task))
 
     async def _operation(
         self, action: str, body: dict[str, Any]
@@ -597,7 +597,7 @@ class PluginMarket:
             self._running = asyncio.create_task(self._run(task, operation))
             return asdict(task)
 
-        return await self.service._manage(request, start)
+        return await self.service.manage(request, start)
 
     async def _run(
         self, task: PluginTask, operation: Callable[[], Awaitable[Any]]
@@ -760,7 +760,7 @@ class PluginMarket:
             }
 
         # GET 也要把“插件不存在”映射成 404，所以同样走 _manage。
-        return await self.service._manage(request, action)
+        return await self.service.manage(request, action)
 
     # ------------------------------------------------------------------ 重启
 
@@ -796,4 +796,4 @@ class PluginMarket:
             request.state.webui_action = "restart"
             return {"restarting": True}
 
-        return await self.service._manage(request, action)
+        return await self.service.manage(request, action)

@@ -54,7 +54,7 @@ class StatsPanel:
             )
             return {"chat": "group" if failure.chat == "group" else "private"}
 
-        return await self.service._manage(request, action, lock=False)
+        return await self.service.manage(request, action, lock=False)
 
     async def stats(self, request: Request) -> JSONResponse:
         try:
@@ -67,7 +67,7 @@ class StatsPanel:
         from ..db.repositories import CommandStatRepository
 
         since, records = await load(CommandStatRepository(), days)
-        names = await self.service._group_names()
+        names = await self.service.group_names()
         infos = PluginRuntime().discover()
         labels = {info.name: info.display_name for info in infos}
 

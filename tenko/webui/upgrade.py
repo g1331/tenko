@@ -298,7 +298,7 @@ class HostUpgrade:
 
     async def upgrade(self, request: Request) -> JSONResponse:
         if request.method == "GET":
-            return await self.market.service._read("upgrade", self._status)
+            return await self.market.service.read("upgrade", self._status)
 
         async def start():
             body = await read_json(request)
@@ -329,7 +329,7 @@ class HostUpgrade:
             )
             return asdict(self.job)
 
-        return await self.market.service._manage(request, start)
+        return await self.market.service.manage(request, start)
 
     # ------------------------------------------------------------------ 后台
 

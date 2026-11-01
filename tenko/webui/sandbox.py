@@ -74,7 +74,7 @@ class SandboxPanel:
                 ),
             }
 
-        return await self.service._manage(request, read, lock=False)
+        return await self.service.manage(request, read, lock=False)
 
     async def send(self, request: Request) -> JSONResponse:
         async def action():
@@ -90,7 +90,7 @@ class SandboxPanel:
             await _adapter().send(chat, identity, elements)
             return {"sent": True}
 
-        return await self.service._manage(request, action, lock=False)
+        return await self.service.manage(request, action, lock=False)
 
     async def clear(self, request: Request) -> JSONResponse:
         async def action():
@@ -98,14 +98,14 @@ class SandboxPanel:
             _adapter().clear()
             return {"cleared": True}
 
-        return await self.service._manage(request, action, lock=False)
+        return await self.service.manage(request, action, lock=False)
 
     async def reset_data(self, request: Request) -> JSONResponse:
         async def action():
             request.state.webui_action = "sandbox-reset-data"
             return {"reset": await reset_sandbox_data()}
 
-        return await self.service._manage(request, action, lock=False)
+        return await self.service.manage(request, action, lock=False)
 
 
 __all__ = ["SandboxPanel"]

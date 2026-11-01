@@ -152,7 +152,7 @@ class ChatPanel:
         async def read():
             key = self._account(request.query_params)
             accounts = self.service.accounts
-            names = await self.service._group_names()
+            names = await self.service.group_names()
             latest = (
                 await chat_log.repository.conversations(*key, limit=CONVERSATION_LIMIT)
                 if chat_log.enabled
@@ -199,7 +199,7 @@ class ChatPanel:
                 "conversations": list(rows.values()),
             }
 
-        return await self.service._manage(request, read, lock=False)
+        return await self.service.manage(request, read, lock=False)
 
     async def messages(self, request: Request) -> JSONResponse:
         async def read():
@@ -221,7 +221,7 @@ class ChatPanel:
             await self._fill_quotes(key, channel, messages)
             return {"messages": messages, "has_more": has_more}
 
-        return await self.service._manage(request, read, lock=False)
+        return await self.service.manage(request, read, lock=False)
 
     async def _fill_quotes(
         self, key: tuple[str, str], channel: str, messages: list[dict[str, Any]]
@@ -282,7 +282,7 @@ class ChatPanel:
             return {"sent": True}
 
         # 发送不改动面板状态，不占用写锁，避免慢请求挡住其他管理操作。
-        return await self.service._manage(request, action, lock=False)
+        return await self.service.manage(request, action, lock=False)
 
 
 __all__ = ["ChatPanel", "build_message"]

@@ -306,7 +306,7 @@ class WebUIService(Service):
         ):
             self.server.asgi_route(f"{WEBUI_PATH}{path}", methods=methods)(handler)
 
-    async def _read(
+    async def read(
         self,
         operation: str,
         reader: Callable[[], object],
@@ -374,7 +374,7 @@ class WebUIService(Service):
 
     async def overview(self, request: Request) -> JSONResponse:
         del request
-        return await self._read("overview", self._overview_data)
+        return await self.read("overview", self._overview_data)
 
     @staticmethod
     def _account_name(account: object) -> str | None:
@@ -455,7 +455,7 @@ class WebUIService(Service):
 
     async def accounts_view(self, request: Request) -> JSONResponse:
         del request
-        return await self._read("accounts", self._accounts_data)
+        return await self.read("accounts", self._accounts_data)
 
     def _plugin_infos(self) -> tuple[Any, ...]:
         runtime = self.plugin_runtime or PluginRuntime()
@@ -594,9 +594,9 @@ class WebUIService(Service):
                     "groups": groups,
                 }
             )
-        return {"features": features, "group_names": await self._group_names()}
+        return {"features": features, "group_names": await self.group_names()}
 
-    async def _group_names(self) -> dict[str, str]:
+    async def group_names(self) -> dict[str, str]:
         """群名称取聊天记录里最近记下的名字，仅用于展示；读取失败不影响调用方。"""
 
         if not chat_log.enabled:
@@ -627,7 +627,7 @@ class WebUIService(Service):
 
     async def features_view(self, request: Request) -> JSONResponse:
         del request
-        return await self._read("features", self._features_data)
+        return await self.read("features", self._features_data)
 
     def _stamp(self):
         if self._config_path is None or not self._config_path.is_file():
@@ -646,7 +646,7 @@ class WebUIService(Service):
             )
         return tuple(value for value in values if isinstance(value, str) and value)
 
-    async def _manage(
+    async def manage(
         self, request: Request, operation: Callable, *, lock: bool = True
     ) -> JSONResponse:
         try:
@@ -721,7 +721,7 @@ class WebUIService(Service):
                 "capabilities": [item.value for item in ActionCapability],
             }
 
-        return await self._manage(request, read)
+        return await self.manage(request, read)
 
     async def manage_account(self, request: Request) -> JSONResponse:
         async def change():
@@ -769,7 +769,7 @@ class WebUIService(Service):
                 raise ValueError("未知账户操作")
             return {"action": action, "platform": platform, "id": identifier}
 
-        return await self._manage(request, change)
+        return await self.manage(request, change)
 
     def _pairing_data(self) -> dict[str, Any]:
         if self.connection is None or self.tenko_config is None:
@@ -883,7 +883,7 @@ class WebUIService(Service):
                 raise ValueError("请选择显示凭据，或确认轮换令牌")
             return data
 
-        return await self._manage(request, action)
+        return await self.manage(request, action)
 
     def _plugin(self, name: str):
         if self.plugin_runtime is None:
@@ -942,7 +942,7 @@ class WebUIService(Service):
                 "restart_reason": restart_reason,
             }
 
-        return await self._manage(request, change)
+        return await self.manage(request, change)
 
     async def manage_response(self, request: Request) -> JSONResponse:
         """设置群响应策略；定向时 account 为 null 表示按绑定顺序的默认账号。"""
@@ -978,7 +978,7 @@ class WebUIService(Service):
                 ),
             }
 
-        return await self._manage(request, change)
+        return await self.manage(request, change)
 
     async def manage_feature(self, request: Request) -> JSONResponse:
         async def change():
@@ -1038,7 +1038,7 @@ class WebUIService(Service):
                 "state": dict(self.feature_service.state.get(info.name, {})),
             }
 
-        return await self._manage(request, change)
+        return await self.manage(request, change)
 
     def _inbox_data(self) -> dict[str, Any]:
         return {
@@ -1064,7 +1064,7 @@ class WebUIService(Service):
 
     async def inbox_view(self, request: Request) -> JSONResponse:
         del request
-        return await self._read("inbox", self._inbox_data)
+        return await self.read("inbox", self._inbox_data)
 
     async def inbox_action(self, request: Request) -> JSONResponse:
         async def action():
@@ -1087,7 +1087,7 @@ class WebUIService(Service):
             self.inbox.discard(item.kind, item.account_id, item.request_id)
             return self._inbox_data()
 
-        return await self._manage(request, action)
+        return await self.manage(request, action)
 
     async def settings(self, request: Request) -> JSONResponse:
         async def action():
@@ -1131,7 +1131,7 @@ class WebUIService(Service):
                 "notify": (await load_notify_settings(repository)).to_dict(),
             }
 
-        return await self._manage(request, action)
+        return await self.manage(request, action)
 
     async def core_config(self, request: Request) -> JSONResponse:
         async def action():
@@ -1159,7 +1159,7 @@ class WebUIService(Service):
                 "can_restart": bool(getattr(self.market.updater, "enabled", False)),
             }
 
-        return await self._manage(request, action)
+        return await self.manage(request, action)
 
     def _log_directory(self) -> Path | None:
         if self.tenko_config is None or self.tenko_config.basic.log.save is None:
@@ -1190,7 +1190,7 @@ class WebUIService(Service):
             return data
 
         # 高频只读日志不产生审计日志，避免轮询形成递归日志流。
-        return await self._manage(request, read)
+        return await self.manage(request, read)
 
     def _http_stopping(self) -> bool:
         # uvicorn 先自己接住 Ctrl-C 并等所有连接结束，之后 launart 才收到退出信号，

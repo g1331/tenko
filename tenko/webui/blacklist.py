@@ -38,7 +38,7 @@ class BlacklistPanel:
         return (("/api/manage/blacklist", ["GET", "POST"], self.blacklist),)
 
     async def _data(self) -> dict[str, Any]:
-        names = await self.service._group_names()
+        names = await self.service.group_names()
         platforms = {QQ_PLATFORM}
         platforms.update(
             account_key(account)[0]
@@ -118,7 +118,7 @@ class BlacklistPanel:
                     await permission_store.remove_blacklist(kind, platform, target)
             return await self._data()
 
-        return await self.service._manage(request, action)
+        return await self.service.manage(request, action)
 
 
 __all__ = ["BlacklistPanel"]
