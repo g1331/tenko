@@ -333,8 +333,9 @@ def declare_feature(
     if native is None or found is None:
         raise RuntimeError("declare() 只能在扩展插件的模块导入期间调用")
     metadata = native.metadata
-    metadata.feature_scope = scope
-    metadata.rate_weight = rate_weight
+    # Entari 的 PluginMetadata 没有声明这两个属性，Tenko 约定在元数据上动态附加。
+    setattr(metadata, "feature_scope", scope)
+    setattr(metadata, "rate_weight", rate_weight)
     plugin_id = found
     if default_enabled:
         feature_service.plugin_defaults.pop(plugin_id, None)

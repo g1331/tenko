@@ -144,6 +144,7 @@ def _elements(content: object) -> list[Element]:
     if isinstance(content, str | Element):
         content = [content]
     try:
+        # content 来自插件，类型不可信；不可迭代时由下面的 except TypeError 报错。
         items = list(content)  # type: ignore[call-overload]
     except TypeError:
         raise TypeError("通知内容必须是 str 或消息元素序列") from None
@@ -307,7 +308,7 @@ async def _send(
 
     delivery = await host_notify.deliver(message)
     if delivery.reason is not None:
-        return MasterNotice(False, delivery.reason, key)  # type: ignore[arg-type]
+        return MasterNotice(False, delivery.reason, key)
     if not delivery.sent:
         return MasterNotice(False, "failed", key)
     if key is not None:

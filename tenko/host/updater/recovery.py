@@ -58,7 +58,7 @@ def record_automatic_startup_failure(
     失败只能影响留痕，不能让 watcher 因日志问题继续重启坏制品。
     """
 
-    layout = UpgradeLayout(upgrade_root)
+    layout = UpgradeLayout(Path(upgrade_root))
     audit = AuditLogger(layout.audit_file)
     active = _external_layout_pointer(layout, "read_active")
     try:
@@ -90,7 +90,7 @@ def request_automatic_rollback(
 ) -> bool:
     """为 detached watcher 写入一次自动回滚 handoff。"""
 
-    layout = UpgradeLayout(upgrade_root)
+    layout = UpgradeLayout(Path(upgrade_root))
     audit = AuditLogger(layout.audit_file)
     current = _external_layout_pointer(layout, "read_active")
     previous = _external_layout_pointer(layout, "read_previous")
@@ -183,7 +183,7 @@ def record_automatic_rollback_failure(
 ) -> None:
     """记录回滚目标也未能在宽限期内存活，并隔离剩余 handoff。"""
 
-    layout = UpgradeLayout(upgrade_root)
+    layout = UpgradeLayout(Path(upgrade_root))
     audit = AuditLogger(layout.audit_file)
     active = _external_layout_pointer(layout, "read_active")
     previous = _external_layout_pointer(layout, "read_previous")

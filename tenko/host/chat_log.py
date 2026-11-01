@@ -10,7 +10,7 @@ from __future__ import annotations
 import asyncio
 import json
 import time
-from collections.abc import Iterable
+from collections.abc import Iterable, Iterator
 from datetime import datetime
 from typing import Any
 
@@ -348,6 +348,7 @@ class ChatLog:
         content: list[dict[str, Any]],
         fields: dict[str, Any],
     ) -> None:
+        sources: Iterator[str]
         try:
             fetched = await asyncio.wait_for(
                 account.protocol.message_get(channel_id, message_id), _FETCH_TIMEOUT

@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Iterable
 from dataclasses import dataclass, replace
 
-from sqlalchemy import delete, func, select
+from sqlalchemy import Executable, delete, func, select
 
 from ..models import ChatMessage
 from ._base import _Repository
@@ -69,13 +69,16 @@ class ChatMessageRepository(_Repository):
         async with self._session() as session:
             dialect = session.get_bind().dialect.name
             if dialect in {"sqlite", "postgresql"}:
+                statement: Executable
                 if dialect == "sqlite":
-                    from sqlalchemy.dialects.sqlite import insert
+                    from sqlalchemy.dialects.sqlite import insert as sqlite_insert
+
+                    statement = sqlite_insert(ChatMessage).on_conflict_do_nothing()
                 else:
-                    from sqlalchemy.dialects.postgresql import insert
-                await session.execute(
-                    insert(ChatMessage).on_conflict_do_nothing(), rows
-                )
+                    from sqlalchemy.dialects.postgresql import insert as pg_insert
+
+                    statement = pg_insert(ChatMessage).on_conflict_do_nothing()
+                await session.execute(statement, rows)
                 await session.commit()
                 return
             # 其他数据库逐条写入，重复的消息跳过。

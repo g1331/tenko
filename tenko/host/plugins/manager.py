@@ -27,6 +27,7 @@
 from __future__ import annotations
 
 import asyncio
+import functools
 import hashlib
 import importlib
 import json
@@ -41,7 +42,7 @@ from contextlib import contextmanager
 from dataclasses import asdict, dataclass, replace
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Literal, TypeVar
+from typing import Any, Literal, TypeVar, cast
 from urllib.parse import urlsplit
 
 from loguru import logger
@@ -632,7 +633,7 @@ class PluginManager:
                 return {**records, created[0][0]: created[0][1]}
 
             def restore(new_state: dict[str, Any]) -> None:
-                if held is None:
+                if held is None or resuming is None:
                     return
                 rest = _suspended(new_state)
                 rest.pop(resuming, None)
@@ -647,7 +648,7 @@ class PluginManager:
                 action,
                 plugin_id,
                 record["dist"],
-                held and held["record"]["version"],
+                held["record"]["version"] if held is not None else None,
                 record["version"],
             )
 
@@ -812,13 +813,15 @@ class PluginManager:
                 before, after = current.get(pid), target.get(pid)
                 if (before or {}).get("version") == (after or {}).get("version"):
                     continue
+                # pid 取自两边键的并集，before、after 至少有一个非空。
+                present = cast(dict[str, Any], after or before)
                 changes.append(
                     PluginChange(
                         "rollback",
                         pid,
-                        (after or before)["dist"],
-                        before and before["version"],
-                        after and after["version"],
+                        present["dist"],
+                        before["version"] if before else None,
+                        after["version"] if after else None,
                     )  # fmt: skip
                 )
                 if after:  # 回到旧版本时，插件库也还原成旧版本时的备份。
@@ -888,9 +891,7 @@ class PluginManager:
             try:
                 self._audited(
                     "resume", "startup",
-                    lambda pid=pid, source=source: self._install(
-                        source, "startup", resuming=pid
-                    ),
+                    functools.partial(self._install, source, "startup", resuming=pid),
                     plugin=pid,
                 )  # fmt: skip
             except PluginManagerError as error:
@@ -1251,13 +1252,12 @@ class PluginManager:
                 failed = "数据库迁移失败" if migrated else "加载失败"
                 if len(changes) == 1:
                     await self.rollback(actor="hot-swap")
-                    results[pid] = (
+                    message = (
                         f"新版本{failed}，已回滚到 {change.old_version}（{cause}）"
                     )
                     if migrated:
-                        results[pid] = await self._swap_back(
-                            runtime, info, results[pid]
-                        )
+                        message = await self._swap_back(runtime, info, message)
+                    results[pid] = message
                 elif migrated:
                     results[pid] = f"新版本{failed}（{cause}）"
                 else:

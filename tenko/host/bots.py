@@ -5,17 +5,46 @@ from __future__ import annotations
 import asyncio
 import base64
 import time
+from typing import TypedDict
 
 import httpx
 
 from tenko.context import QQ_PLATFORM
-from tenko.host.accounts import AccountRegistry, account_key, account_reference
+from tenko.host.accounts import (
+    AccountInput,
+    AccountRegistry,
+    account_key,
+    account_reference,
+)
 
 _AVATAR_TTL = 3600
 _AVATAR_BYTES = 512 * 1024
 # 头像地址 -> (取到的时间, data URI 或 None)；失败也缓存，避免每次都等超时。
 _avatar_cache: dict[str, tuple[float, str | None]] = {}
 # 与面板 platformText 一致。
+
+
+class BotChip(TypedDict):
+    text: str
+    tone: str
+
+
+class BotCard(TypedDict):
+    """BOT 展示数据，字段对应状态、响应策略模板里的卡片。"""
+
+    ref: str
+    id: str
+    platform: str
+    groups: int
+    name: str
+    initial: str
+    avatar: str | None
+    tone: str
+    state: str
+    state_note: str
+    chips: list[BotChip]
+
+
 _PLATFORMS = {"qq-client": "QQ", "onebot": "OneBot 11", "satori": "Satori"}
 
 
@@ -65,10 +94,10 @@ async def bot_avatars(accounts) -> dict[str, str | None]:
 
 def bot_card(
     registry: AccountRegistry,
-    account: object,
+    account: AccountInput,
     avatars: dict[str, str | None],
     group_id: str | None = None,
-) -> dict[str, object]:
+) -> BotCard:
     """一个 BOT 的展示数据。
 
     给出 group_id 时禁言状态按该群计算（带到期时间）；不给时汇总为“禁言 群数/总群数”，

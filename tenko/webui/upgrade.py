@@ -164,9 +164,10 @@ class HostUpgrade:
                 continue  # 截断的首行或损坏的行
             if not isinstance(record, dict):
                 continue
-            if record.get("result") not in _HISTORY_RESULTS.get(
-                record.get("action"), ()
-            ):
+            action = record.get("action")
+            # 损坏的行里 action 可能不是字符串，也不能让读取历史失败。
+            known = _HISTORY_RESULTS.get(action, ()) if isinstance(action, str) else ()
+            if record.get("result") not in known:
                 continue
             entries.append(
                 {
@@ -273,9 +274,12 @@ class HostUpgrade:
         读取失败不影响检查结果，只返回原因。
         """
 
+        candidate = result.candidate
+        if candidate is None:
+            return [], None
         releases, prefix, error = await self._releases()
-        high = result.candidate.version
-        prerelease = result.channel.value == "prerelease" or result.candidate.prerelease
+        high = candidate.version
+        prerelease = result.channel.value == "prerelease" or candidate.prerelease
         entries = []
         for tag, note in releases:
             version = _in_range(tag, prefix, result.current_version, high, prerelease)
@@ -371,8 +375,12 @@ class HostUpgrade:
 
         index = await self.market.registry.load()
         entry = index.plugins.get(plugin_id)
-        item = entry and next((v for v in entry.versions if v.version == version), None)
-        if item is None:
+        item = (
+            next((v for v in entry.versions if v.version == version), None)
+            if entry is not None
+            else None
+        )
+        if entry is None or item is None:
             raise ValueError(f"插件目录里没有 {plugin_id} {version}")
         if reason := why_incompatible(item, Version(api_version or "0")):
             raise ValueError(f"{plugin_id} {version} 不能装在新版本上：{reason}")

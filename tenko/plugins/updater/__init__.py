@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import time
 from datetime import UTC, datetime, timedelta
+from typing import Any
 
 from arclet.alconna import Alconna, Args, CommandMeta
 from arclet.entari import Ready, Session, command, plugin, scheduler
@@ -49,7 +50,7 @@ _RESTART_COOLDOWN_MESSAGE = "重启操作冷却中，请稍后再试"
 _restart_cooldown_until = 0.0
 
 
-check_command = Alconna(
+check_command: Alconna[Any] = Alconna(
     "检查更新",
     meta=CommandMeta(
         "检查配置通道中的 Tenko 宿主版本",
@@ -58,7 +59,7 @@ check_command = Alconna(
         compact=True,
     ),
 )
-upgrade_command = Alconna(
+upgrade_command: Alconna[Any] = Alconna(
     "升级",
     Args["drop?", "停用不兼容插件"],
     meta=CommandMeta(
@@ -69,7 +70,7 @@ upgrade_command = Alconna(
         compact=True,
     ),
 )
-rollback_command = Alconna(
+rollback_command: Alconna[Any] = Alconna(
     "回滚",
     meta=CommandMeta(
         "请求外部重启流程回到上一可用宿主版本",
@@ -78,7 +79,7 @@ rollback_command = Alconna(
         compact=True,
     ),
 )
-restart_command = Alconna(
+restart_command: Alconna[Any] = Alconna(
     "重启",
     meta=CommandMeta(
         "通过升级系统安全重启 Tenko 宿主",

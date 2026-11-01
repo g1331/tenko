@@ -6,7 +6,7 @@ import random
 from collections.abc import Iterable, Mapping
 from datetime import datetime, UTC
 from types import MappingProxyType
-from typing import TYPE_CHECKING, Literal
+from typing import TYPE_CHECKING, Literal, cast
 
 from loguru import logger
 from satori.client import Account
@@ -25,12 +25,15 @@ from ..context import (
 )
 
 if TYPE_CHECKING:
-    from ..db.repositories import AccountStateRepository
+    from ..db.repositories import (
+        AccountResponseRecord,
+        AccountRouteRecord,
+        AccountStateRepository,
+    )
 
 ResponseType = Literal["random", "deterministic"]
 # 群当前不会响应的原因：没有可用账号，或定向指定的账号不可用。
 SilentReason = Literal["no_account", "target_unavailable"]
-_NO_MUTE = object()
 _MAX_EVENT_SELECTIONS = 4096
 _GROUP_PERMISSION_LEVELS = {
     "member": Permission.User,
@@ -124,7 +127,7 @@ class AccountRegistry:
         self._event_selections: dict[tuple[GroupKey, str], AccountKey] = {}
         self._repository = repository
         self._ready = repository is None
-        self._persist_task = None
+        self._persist_task: asyncio.Task[None] | None = None
         self._persist_requested = False
         self._persist_lock: asyncio.Lock | None = None
 
@@ -183,13 +186,16 @@ class AccountRegistry:
         response_types: dict[GroupKey, ResponseType] = {}
         deterministic_accounts: dict[GroupKey, AccountKey] = {}
         try:
-            for row in snapshot.responses:
-                if row.response_type not in {"random", "deterministic"}:
-                    raise ValueError(f"群 {row.group_id} 的响应类型非法")
-                key = group_key((row.platform, row.group_id))
-                response_types[key] = row.response_type
-                if row.deterministic_account is not None:
-                    deterministic_accounts[key] = account_key(row.deterministic_account)
+            for response in snapshot.responses:
+                if response.response_type not in {"random", "deterministic"}:
+                    raise ValueError(f"群 {response.group_id} 的响应类型非法")
+                key = group_key((response.platform, response.group_id))
+                # 上面已校验取值，数据库记录里的字段类型只是 str。
+                response_types[key] = cast(ResponseType, response.response_type)
+                if response.deterministic_account is not None:
+                    deterministic_accounts[key] = account_key(
+                        response.deterministic_account
+                    )
         except Exception:
             self.mark_unavailable()
             raise
@@ -208,7 +214,9 @@ class AccountRegistry:
     def _route_available(self) -> bool:
         return self._ready
 
-    def _state_records(self) -> tuple[tuple[object, ...], tuple[object, ...]]:
+    def _state_records(
+        self,
+    ) -> tuple[tuple[AccountRouteRecord, ...], tuple[AccountResponseRecord, ...]]:
         from ..db.repositories import AccountResponseRecord, AccountRouteRecord
 
         routes = tuple(
@@ -424,9 +432,9 @@ class AccountRegistry:
         """查询账号在指定群是否仍被禁言，并惰性恢复已到期状态。"""
 
         mute_key = (account_key(account_id), group_key(group_id))
-        until = self._muted_until.get(mute_key, _NO_MUTE)
-        if until is _NO_MUTE:
+        if mute_key not in self._muted_until:
             return False
+        until = self._muted_until[mute_key]
         if until is not None and self._mute_expired(until):
             del self._muted_until[mute_key]
             return False

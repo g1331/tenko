@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
+from typing import Any
+
 from arclet.alconna import Alconna, Args, CommandMeta
 from arclet.entari import command, plugin
 from arclet.entari.command import Query
@@ -21,7 +24,7 @@ plugin.metadata(
 )
 
 
-notify_command = Alconna(
+notify_command: Alconna[Any] = Alconna(
     "通知设置",
     Args["action?", "私聊|群聊|账号|测试"]["value?", str],
     meta=CommandMeta(
@@ -47,6 +50,7 @@ async def notify_settings(
             if await notify("🔔 这是一条测试通知，收到说明通知设置可用。"):
                 return "测试通知已发出"
             return "测试通知没有全部送达，请查看日志"
+        changes: Mapping[str, str | None]
         if action.result == "私聊":
             changes = {"mode": "private"}
         elif action.result == "群聊":

@@ -9,15 +9,21 @@ from __future__ import annotations
 
 import asyncio
 import inspect
-from collections.abc import Awaitable, Callable, Mapping
+from collections.abc import Awaitable, Callable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Any
+from typing import Any, Literal, cast
 
 from loguru import logger
 
 from ..context import QQ_PLATFORM
-from .accounts import AccountRegistry, account_key, account_reference, account_registry
+from .accounts import (
+    AccountInput,
+    AccountRegistry,
+    account_key,
+    account_reference,
+    account_registry,
+)
 from .actions import action_service
 from .sandbox import refuse_in_sandbox
 from .perm import superuser_ids
@@ -108,9 +114,9 @@ async def save_settings(
 
 def pick_sender(
     settings: NotifySettings,
-    preferred: object | None = None,
+    preferred: AccountInput | None = None,
     registry: AccountRegistry | None = None,
-) -> object | None:
+) -> AccountInput | None:
     """通知账号在线就用它；否则依次退回事件自己的账号、通知群里的账号、任一在线账号。"""
 
     registry = registry or account_registry
@@ -145,12 +151,15 @@ def masters(
     return tuple(dict.fromkeys(x for x in (*given, *superuser_ids(platform)) if x))
 
 
+DeliveryFailure = Literal["no_account", "no_target"]
+
+
 @dataclass(frozen=True, slots=True)
 class Delivery:
     """一次通知的投递结果。"""
 
     # 没能开始发送的原因："no_account" 没有在线账号，"no_target" 没有可私聊的 Master。
-    reason: str | None = None
+    reason: DeliveryFailure | None = None
     sender: object | None = None
     # 送达的目标和平台返回的消息 ID（拿不到 ID 时为空元组）。
     sent: tuple[tuple[str, tuple[str, ...]], ...] = ()
@@ -166,7 +175,7 @@ class Delivery:
 async def notify(
     content: str | list,
     *,
-    preferred: object | None = None,
+    preferred: AccountInput | None = None,
     settings: NotifySettings | None = None,
     actions: Any = None,
     permission_checker: object | None = None,
@@ -192,7 +201,7 @@ async def notify(
 async def deliver(
     content: str | list,
     *,
-    preferred: object | None = None,
+    preferred: AccountInput | None = None,
     settings: NotifySettings | None = None,
     actions: Any = None,
     permission_checker: object | None = None,
@@ -206,9 +215,12 @@ async def deliver(
         logger.warning("没有在线账号，无法发送通知：{}", _preview(content))
         return Delivery("no_account")
     actions = actions or action_service
-    protocol = getattr(sender, "protocol", None)
+    protocol: Any = getattr(sender, "protocol", None)
     group = settings.mode == "group"
-    targets = [settings.group] if group else masters(sender, permission_checker)
+    # parse_settings 保证群模式一定有通知群。
+    targets: Sequence[str] = (
+        [cast(str, settings.group)] if group else masters(sender, permission_checker)
+    )
     if not targets:
         logger.warning("没有配置 Master，无法私聊通知：{}", _preview(content))
         return Delivery("no_target", sender)

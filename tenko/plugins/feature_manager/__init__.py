@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import Any
+
 from arclet.alconna import Alconna, Args, CommandMeta
 from arclet.entari import Session, command, plugin
 from arclet.entari.command import Match
@@ -104,7 +106,7 @@ async def _change(session: Session, operation: str, feature: Match[str]):
     return f"功能<{target_name}>{'已开启' if requested_enabled else '已关闭'}~"
 
 
-enable_command = Alconna(
+enable_command: Alconna[Any] = Alconna(
     "开启",
     Args["feature", str],
     meta=CommandMeta(
@@ -123,7 +125,7 @@ async def enable(session: Session, feature: Match[str]):
     return await _change(session, "开启", feature)
 
 
-disable_command = Alconna(
+disable_command: Alconna[Any] = Alconna(
     "关闭",
     Args["feature", str],
     meta=CommandMeta(
@@ -142,7 +144,7 @@ async def disable(session: Session, feature: Match[str]):
     return await _change(session, "关闭", feature)
 
 
-clear_data_command = Alconna(
+clear_data_command: Alconna[Any] = Alconna(
     "清除插件数据",
     Args["plugin_id", str],
     meta=CommandMeta(

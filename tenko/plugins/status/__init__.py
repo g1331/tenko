@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+from typing import Any
 
 from arclet.alconna import Alconna, CommandMeta, Option, store_true
 from arclet.entari import Session, command, plugin
@@ -9,7 +10,7 @@ from arclet.entari.plugin import PluginRole
 
 from tenko.context import context_from_session
 from tenko.host.accounts import account_registry
-from tenko.host.bots import bot_avatars, bot_card
+from tenko.host.bots import BotCard, bot_avatars, bot_card
 from tenko.host.guards import require
 from tenko.host.perm import Permission, PermissionChecker
 from tenko.host.render import RenderService
@@ -40,7 +41,7 @@ def _plugin_count() -> int:
 _TONE_ORDER = {"ok": 0, "warn": 1, "off": 2}
 
 
-async def _bot_cards() -> list[dict[str, object]]:
+async def _bot_cards() -> list[BotCard]:
     """全部 BOT 账号，在线的在前；禁言汇总为所在群里被禁言的群数。"""
 
     accounts = tuple(account_registry.accounts.values())
@@ -49,7 +50,7 @@ async def _bot_cards() -> list[dict[str, object]]:
     return sorted(cards, key=lambda card: _TONE_ORDER[card["tone"]])
 
 
-status_command = Alconna(
+status_command: Alconna[Any] = Alconna(
     "状态",
     Option(
         "-t",

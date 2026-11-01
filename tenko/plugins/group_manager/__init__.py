@@ -350,7 +350,7 @@ async def _can_review_invite(session: Session, pending: PendingInvite) -> bool:
     return await permission_checker.require_perm(context, Permission.Master)
 
 
-invite_approve_command = Alconna(
+invite_approve_command: Alconna[Any] = Alconna(
     "同意邀请",
     Args["request_id", str],
     meta=CommandMeta(
@@ -385,7 +385,7 @@ async def approve_invite(session: Session, request_id: Match[str]):
     return f"已同意邀请 {pending.request_id}"
 
 
-invite_reject_command = Alconna(
+invite_reject_command: Alconna[Any] = Alconna(
     "拒绝邀请",
     Args["request_id", str],
     Args["reason", MultiVar(str, "*")],
@@ -427,7 +427,7 @@ async def reject_invite(
     return f"已拒绝邀请 {pending.request_id}"
 
 
-pending_invites_command = Alconna(
+pending_invites_command: Alconna[Any] = Alconna(
     "待审邀请",
     meta=CommandMeta(
         "查看待审群邀请（Master 私聊；目标群 BotAdmin/Master 审批，GroupAdmin 无权）",
@@ -457,7 +457,7 @@ async def pending_invite_list(session: Session):
     return "待审邀请:\n" + "\n".join(lines)
 
 
-leave_group_command = Alconna(
+leave_group_command: Alconna[Any] = Alconna(
     "退群",
     # 群号和账号都是纯数字；\b 保证整词匹配（Alconna 的正则只做前缀匹配）。
     Args["group_id", r"re:\d+\b"],
@@ -503,7 +503,7 @@ async def leave_group(
         return f"BOT{target_account}已退出群{target_group}!"
 
 
-reset_capability_command = Alconna(
+reset_capability_command: Alconna[Any] = Alconna(
     "重置能力",
     Args["account_id?", int],
     meta=CommandMeta(
@@ -599,7 +599,7 @@ def group_settings_data(
     )
 
 
-group_setting_command = Alconna(
+group_setting_command: Alconna[Any] = Alconna(
     "群设置",
     Option(
         "--group",
@@ -648,7 +648,7 @@ async def group_setting(
     )
 
 
-frequency_limit_command = Alconna(
+frequency_limit_command: Alconna[Any] = Alconna(
     "频率限制",
     Args["state?", "开启|关闭"],
     meta=CommandMeta(
@@ -709,7 +709,7 @@ def _value_id(value: object) -> str | None:
 def _moderation_target(
     arguments: tuple[object, ...],
     session: Session,
-    option_minutes: Match[int],
+    option_minutes: Match[int] | None,
 ) -> tuple[str | None, int | None, bool]:
     """解析文本/At/回复三种目标，并保留旧命令的分钟单位。"""
 
@@ -735,7 +735,11 @@ def _moderation_target(
     if target is None and numeric_values:
         target = numeric_values[0]
 
-    minutes: int | None = option_minutes.result if option_minutes.available else None
+    minutes: int | None = (
+        option_minutes.result
+        if option_minutes is not None and option_minutes.available
+        else None
+    )
     if minutes is None:
         if (target_from_argument or quoted_target is not None) and numeric_values:
             minutes = int(numeric_values[-1])
@@ -749,10 +753,10 @@ async def _target_has_management_permission(context, target_id: str) -> bool:
     return await permission_checker.require_perm(target_context, Permission.GroupAdmin)
 
 
-_MODERATION_ARGS = Args["arguments", MultiVar(object, "*")]
+_MODERATION_ARGS: Args = Args["arguments", MultiVar(object, "*")]
 
 
-mute_command = Alconna(
+mute_command: Alconna[Any] = Alconna(
     "禁言",
     _MODERATION_ARGS,
     Option(
@@ -803,7 +807,7 @@ async def mute(
         return f"已设置【{target_id}】{minutes}分钟的禁言!"
 
 
-unmute_command = Alconna(
+unmute_command: Alconna[Any] = Alconna(
     "解禁",
     _MODERATION_ARGS,
     meta=CommandMeta(
@@ -823,9 +827,7 @@ async def unmute(
     arguments: Match[tuple[object, ...]],
 ):
     context = context_from_session(session)
-    target_id, _, invalid = _moderation_target(
-        arguments.result, session, Match(None, False)
-    )
+    target_id, _, invalid = _moderation_target(arguments.result, session, None)
     if invalid or target_id is None:
         return "请@成员、填写成员ID或回复目标消息"
     async with action_errors(session):
@@ -839,7 +841,7 @@ async def unmute(
         return f"已解禁{target_id}!"
 
 
-unmute_self_command = Alconna(
+unmute_self_command: Alconna[Any] = Alconna(
     "解禁自己",
     meta=CommandMeta(
         "解除当前 BOT 在本群的禁言状态",
@@ -866,7 +868,7 @@ async def unmute_self(session: Session):
         return "已解除本BOT在当前群的禁言状态!"
 
 
-whole_mute_command = Alconna(
+whole_mute_command: Alconna[Any] = Alconna(
     "全体禁言",
     meta=CommandMeta(
         "开启全体禁言", usage="全体禁言", example="/全体禁言", compact=False
@@ -890,7 +892,7 @@ async def mute_all(session: Session):
         return "开启全体禁言成功!"
 
 
-whole_unmute_command = Alconna(
+whole_unmute_command: Alconna[Any] = Alconna(
     "全体解禁",
     meta=CommandMeta(
         "关闭全体禁言",
@@ -917,7 +919,7 @@ async def unmute_all(session: Session):
         return "关闭全体禁言成功!"
 
 
-recall_command = Alconna(
+recall_command: Alconna[Any] = Alconna(
     "撤回",
     meta=CommandMeta(
         "撤回回复的消息",
@@ -946,7 +948,7 @@ async def recall(session: Session):
         )
 
 
-essence_command = Alconna(
+essence_command: Alconna[Any] = Alconna(
     "加精",
     Args["message_id?", r"re:\d+\b"],
     meta=CommandMeta(
@@ -983,7 +985,7 @@ async def set_essence(
         return "加精成功"
 
 
-kick_command = Alconna(
+kick_command: Alconna[Any] = Alconna(
     "踢出",
     _MODERATION_ARGS,
     meta=CommandMeta(
@@ -1003,9 +1005,7 @@ async def kick(
     arguments: Match[tuple[object, ...]],
 ):
     context = context_from_session(session)
-    target_id, _, invalid = _moderation_target(
-        arguments.result, session, Match(None, False)
-    )
+    target_id, _, invalid = _moderation_target(arguments.result, session, None)
     if invalid or target_id is None:
         return "请@成员、填写成员ID或回复目标消息"
     if target_id == context.account_id or account_registry.get(target_id):

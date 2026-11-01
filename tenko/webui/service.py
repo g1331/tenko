@@ -253,10 +253,11 @@ class WebUIService(Service):
     async def group_names(self) -> dict[str, str]:
         """群名称取聊天记录里最近记下的名字，仅用于展示；读取失败不影响调用方。"""
 
-        if not chat_log.enabled:
+        repository = chat_log.repository
+        if not chat_log.enabled or repository is None:
             return {}
         try:
-            return await chat_log.repository.group_names()
+            return await repository.group_names()
         except Exception as error:
             logger.debug("WebUI group names unavailable: {}", type(error).__name__)
             return {}
@@ -269,7 +270,7 @@ class WebUIService(Service):
         return hashlib.sha256(self._config_path.read_bytes()).digest()
 
     def _secrets(self) -> tuple[str, ...]:
-        values = [*self._retired_tokens]
+        values: list[str | None] = [*self._retired_tokens]
         if self.tenko_config is not None:
             values.append(self.tenko_config.onebot.access_token)
         if self.connection is not None:
@@ -349,7 +350,8 @@ class WebUIService(Service):
 
         import tomlkit
 
-        if self._config_path is None or self._config_stamp is None:
+        native = self.tenko_config.entari_config if self.tenko_config else None
+        if self._config_path is None or self._config_stamp is None or native is None:
             raise RuntimeError("没有可写回的配置文件")
         if self._config_path.suffix != ".toml":
             raise RuntimeError("只支持写回当前项目的 TOML 配置")
@@ -377,9 +379,9 @@ class WebUIService(Service):
         finally:
             temporary.unlink(missing_ok=True)
         self._config_stamp = self._stamp()
-        mutate(self.tenko_config.entari_config.data)
+        mutate(native.data)
         # 跳过 Entari 对这次写入的自动重载。
-        self.tenko_config.entari_config.save_flag = True
+        native.save_flag = True
 
     def raw_config(self) -> dict[str, Any]:
         """配置文件的原始内容（环境变量占位符未展开）。"""
@@ -391,6 +393,8 @@ class WebUIService(Service):
         return tomllib.loads(self._config_path.read_text(encoding="utf-8"))
 
     def _rotate_token(self) -> str:
+        if self.connection is None:
+            raise RuntimeError("协议连接未配置")
         value = self.raw_config().get("onebot", {}).get("access_token", "")
         if isinstance(value, str) and "${" in value:
             raise RuntimeError("OneBot token 由环境变量提供，请在配置来源中轮换")

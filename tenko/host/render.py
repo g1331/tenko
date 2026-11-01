@@ -6,27 +6,38 @@ import functools
 import mimetypes
 from collections.abc import Awaitable, Callable, Mapping
 from pathlib import Path
-from typing import Any, ParamSpec
+from typing import TYPE_CHECKING, Any, ParamSpec
 
 from launart import Launart, Service
 from loguru import logger
 
 from .stats import render_timer
 
-try:
+if TYPE_CHECKING:
     from jinja2 import Environment, FileSystemLoader, StrictUndefined, select_autoescape
-except ImportError:  # pragma: no cover - 依赖项单独声明
-    Environment = FileSystemLoader = StrictUndefined = select_autoescape = None
-
-try:
     from markdown_it import MarkdownIt
-except ImportError:  # pragma: no cover - 依赖项单独声明
-    MarkdownIt = None
-
-try:
     from playwright.async_api import async_playwright
-except ImportError:  # pragma: no cover - 运行时可选渲染
-    async_playwright = None
+else:
+    # 这些依赖在 pyproject 里都有声明；导入失败时退回 None，渲染时再报错。
+    try:
+        from jinja2 import (
+            Environment,
+            FileSystemLoader,
+            StrictUndefined,
+            select_autoescape,
+        )
+    except ImportError:  # pragma: no cover - 依赖项单独声明
+        Environment = FileSystemLoader = StrictUndefined = select_autoescape = None
+
+    try:
+        from markdown_it import MarkdownIt
+    except ImportError:  # pragma: no cover - 依赖项单独声明
+        MarkdownIt = None
+
+    try:
+        from playwright.async_api import async_playwright
+    except ImportError:  # pragma: no cover - 运行时可选渲染
+        async_playwright = None
 
 P = ParamSpec("P")
 
@@ -65,7 +76,7 @@ class RenderService(Service):
     """
 
     id = "tenko.render"
-    required = set()
+    required: set[str] = set()
     stages = {"preparing", "blocking", "cleanup"}
 
     def __init__(

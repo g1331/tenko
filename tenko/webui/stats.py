@@ -92,7 +92,7 @@ class StatsPanel:
             )
         used = {item["key"] for item in plugins}
         counts = hourly(records, since)
-        (total,) = summarize(records, lambda r: "") or [None]
+        total = next(iter(summarize(records, lambda r: "")), None)
         return success_response(
             {
                 "days": days,

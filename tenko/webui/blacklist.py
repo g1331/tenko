@@ -14,7 +14,7 @@ from starlette.responses import JSONResponse
 from ..context import QQ_PLATFORM, normalize_platform
 from ..host.accounts import account_key
 from ..host.notify import load_settings
-from ..host.perm import GLOBAL_SCOPE, permission_store, superuser_ids
+from ..host.perm import GLOBAL_SCOPE, BlacklistKind, permission_store, superuser_ids
 from .auth import read_json
 
 if TYPE_CHECKING:
@@ -45,7 +45,7 @@ class BlacklistPanel:
             for account in self.service.accounts.accounts.values()
         )
 
-        def rows(kind: str) -> list[dict[str, Any]]:
+        def rows(kind: BlacklistKind) -> list[dict[str, Any]]:
             result = []
             for record in permission_store.blacklist(kind):
                 platforms.add(record.platform)

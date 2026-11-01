@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 from arclet.alconna import Alconna, Args, CommandMeta
 from arclet.entari import Session, command, plugin
 from arclet.entari.command import Query
@@ -77,15 +79,17 @@ async def friend_request_event(event: FriendRequestEvent):
     request_id = str(event.message.id)
     user_id = str(event.user.id)
 
+    mode: str | None
     try:
-        mode = await get_mode(default_repository())
+        current_mode = await get_mode(default_repository())
     except Exception:
         # 数据库不可用或设置损坏：不自动同意，按待处理通知 Master。
         logger.exception("Could not read friend request mode; keeping request pending")
         mode = None
         reason = "策略读取失败，未自动同意"
     else:
-        reason = f"当前策略：{MODE_LABELS[mode]}"
+        mode = current_mode
+        reason = f"当前策略：{MODE_LABELS[current_mode]}"
     if mode == "off":
         logger.info("Friend request {} ignored: mode is off", request_id)
         return
@@ -134,7 +138,7 @@ async def friend_request_event(event: FriendRequestEvent):
     )
 
 
-friend_request_command = Alconna(
+friend_request_command: Alconna[Any] = Alconna(
     "好友申请",
     Args["mode?", "关闭|仅管理员|所有人"],
     meta=CommandMeta(

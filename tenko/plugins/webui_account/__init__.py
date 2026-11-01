@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
+from typing import Any
 
 from arclet.alconna import Alconna, CommandMeta
 from arclet.entari import BasicConfModel, Session, command, plugin
@@ -33,7 +34,7 @@ class Config(BasicConfModel):
 config = plugin_config(Config)
 
 
-account_command = Alconna(
+account_command: Alconna[Any] = Alconna(
     "面板账号",
     meta=CommandMeta(
         "查看面板账号、会话数量和访问地址",
@@ -42,7 +43,7 @@ account_command = Alconna(
         compact=True,
     ),
 )
-reset_command = Alconna(
+reset_command: Alconna[Any] = Alconna(
     "面板重置密码",
     meta=CommandMeta(
         "生成新的面板登录密码，并让所有已登录会话下线",
@@ -51,7 +52,7 @@ reset_command = Alconna(
         compact=True,
     ),
 )
-logout_command = Alconna(
+logout_command: Alconna[Any] = Alconna(
     "面板下线",
     meta=CommandMeta(
         "让所有面板登录会话下线",

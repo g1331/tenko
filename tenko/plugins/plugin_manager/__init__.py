@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import asyncio
 from datetime import timedelta
+from typing import Any
 
 from arclet.alconna import Alconna, Args, CommandMeta
 from arclet.entari import (
@@ -106,7 +107,7 @@ def _actor(session: Session) -> str:
     return context_from_session(session).user_id
 
 
-install_command = Alconna(
+install_command: Alconna[Any] = Alconna(
     "安装插件",
     Args["source", str],
     meta=CommandMeta(
@@ -175,7 +176,7 @@ async def install(session: Session, source: Match[str]):
     )
 
 
-update_command = Alconna(
+update_command: Alconna[Any] = Alconna(
     "更新插件",
     Args["plugin_id?", str]["source?", str],
     meta=CommandMeta(
@@ -245,7 +246,7 @@ async def update(
     return "已更新：\n" + "\n".join(lines) + f"\n{tail}；不满意可 /回滚插件。"
 
 
-uninstall_command = Alconna(
+uninstall_command: Alconna[Any] = Alconna(
     "卸载插件",
     Args["plugin_id", str]["clear?", "清除数据"],
     meta=CommandMeta(
@@ -299,7 +300,7 @@ async def uninstall(
     return f"已卸载插件<{change.plugin_id}>{note}。执行 /重启 后彻底生效。"
 
 
-rollback_command = Alconna(
+rollback_command: Alconna[Any] = Alconna(
     "回滚插件",
     meta=CommandMeta(
         "撤销最近一次插件安装、更新或卸载（版本、依赖和插件数据库一起恢复）",
@@ -321,7 +322,7 @@ async def rollback(session: Session):
     return "已回滚：\n" + "\n".join(lines) + "\n执行 /重启 后生效。"
 
 
-sync_command = Alconna(
+sync_command: Alconna[Any] = Alconna(
     "同步插件环境",
     meta=CommandMeta(
         "按插件锁重装缺失的插件包（例如执行 uv sync 之后）",
@@ -345,7 +346,7 @@ async def sync_environment(session: Session):
     return "已重装：" + "、".join(repaired) + "\n执行 /重启 后生效。"
 
 
-list_command = Alconna(
+list_command: Alconna[Any] = Alconna(
     "插件列表",
     meta=CommandMeta(
         "列出由插件管理器安装的扩展插件及状态",
@@ -492,7 +493,7 @@ def _tier_chip(tier: str) -> dict[str, str]:
     }
 
 
-enable_command = Alconna(
+enable_command: Alconna[Any] = Alconna(
     "启用插件",
     Args["plugin_id", str],
     meta=CommandMeta(
@@ -502,7 +503,7 @@ enable_command = Alconna(
         compact=False,
     ),
 )
-disable_command = Alconna(
+disable_command: Alconna[Any] = Alconna(
     "停用插件",
     Args["plugin_id", str],
     meta=CommandMeta(
@@ -565,7 +566,7 @@ async def disable(plugin_id: Match[str]):
     return await _toggle(plugin_id.result, False)
 
 
-reload_command = Alconna(
+reload_command: Alconna[Any] = Alconna(
     "重载插件",
     Args["plugin_id", str],
     meta=CommandMeta(
@@ -600,7 +601,7 @@ async def reload_local(plugin_id: Match[str]):
     return f"已重载本地插件<{pid}>"
 
 
-market_command = Alconna(
+market_command: Alconna[Any] = Alconna(
     "插件市场",
     Args["keyword?", str],
     meta=CommandMeta(
@@ -610,7 +611,7 @@ market_command = Alconna(
         compact=False,
     ),
 )
-detail_command = Alconna(
+detail_command: Alconna[Any] = Alconna(
     "插件详情",
     Args["plugin_id", str],
     meta=CommandMeta(

@@ -512,7 +512,9 @@ class GitHubReleaseSource(_ArchiveSource):
                     artifact_sha256=self._digest(asset),
                     artifact_name=asset.get("name"),
                     prerelease=is_prerelease,
-                    required_config_version=required,
+                    required_config_version=(
+                        parse_version(required) if required is not None else None
+                    ),
                     notes=str(item.get("body", "") or ""),
                     metadata=item,
                 )

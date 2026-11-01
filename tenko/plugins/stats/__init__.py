@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import re
 from datetime import UTC, datetime, timedelta
+from typing import Any
 
 from arclet.alconna import Alconna, Args, CommandMeta
 from arclet.entari import Cleanup, command, plugin, scheduler
@@ -106,7 +107,7 @@ def text_report(title: str, items: list[dict[str, object]]) -> str:
     return "\n".join(lines) if items else f"{title}\n还没有调用记录"
 
 
-stats_command = Alconna(
+stats_command: Alconna[Any] = Alconna(
     "统计",
     Args["first?", str]["second?", str],
     meta=CommandMeta(
@@ -148,7 +149,7 @@ async def stats(
         title = f"{labels.get(target, target)} · 最近 {period}"
         items = rows(summarize(records, lambda r: r.handler), {})
         groups = rows(summarize(records, lambda r: r.group_id), {})[:8]
-    (total,) = summarize(records, lambda r: "") or [None]
+    total = next(iter(summarize(records, lambda r: "")), None)
     counts = hourly(records, since)
     # 一天内按小时，更长按天。
     trend = (

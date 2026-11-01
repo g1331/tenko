@@ -92,8 +92,10 @@ class InProcessServer(Server):
         if is_sandbox(event) and event.channel is not None:
             # 处理链里的真实副作用由 GuardedProtocol 和 refuse_in_sandbox 拦下。
             with sandbox_origin(event.channel.id):
+                # _InProcessNetwork 按鸭子类型实现了 post 用到的接口，没有继承 BaseNetwork。
                 await client.post(event, self.network)  # type: ignore[arg-type]
         else:
+            # 同上：_InProcessNetwork 没有继承 satori 的 BaseNetwork。
             await client.post(event, self.network)  # type: ignore[arg-type]
 
 

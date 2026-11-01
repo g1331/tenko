@@ -43,7 +43,7 @@ _HELP_SECTIONS = (
     ("third_party", "扩展插件", "独立安装的插件包"),
 )
 
-help_command = Alconna(
+help_command: Alconna[Any] = Alconna(
     "帮助",
     Args["index?", int],
     Option(
@@ -68,8 +68,8 @@ def registered_commands():
     return [item for item in command_manager.get_commands() if not item.meta.hide]
 
 
-def _help_plugins() -> tuple[tuple[PluginInfo, object], ...]:
-    plugins: list[tuple[PluginInfo, object]] = []
+def _help_plugins() -> tuple[tuple[PluginInfo, Plugin], ...]:
+    plugins: list[tuple[PluginInfo, Plugin]] = []
     for info in plugin_runtime.discover():
         native_plugin = info.native_plugin
         if native_plugin is not None:
@@ -77,7 +77,7 @@ def _help_plugins() -> tuple[tuple[PluginInfo, object], ...]:
     return tuple(plugins)
 
 
-def _plugin_help(native_plugin: object) -> str:
+def _plugin_help(native_plugin: Plugin) -> str:
     """将插件注册的命令元数据格式化为纯文本帮助。"""
 
     commands = plugin_command_help(native_plugin)

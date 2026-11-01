@@ -293,7 +293,7 @@ async def _send_progress(session: Session, target_count: int) -> None:
     await session.send(f"开始推送：目标数 {target_count}")
 
 
-announcement_command = Alconna(
+announcement_command: Alconna[Any] = Alconna(
     "公告",
     Args["function_name", str],
     Args["content", MultiVar(str)],

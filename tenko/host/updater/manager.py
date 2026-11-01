@@ -1181,6 +1181,7 @@ class UpgradeManager:
         """
 
         root = Path(project_root or Path.cwd()).expanduser().resolve()
+        database_path: Path | None
         if database_url is None:
             database_path = root / ".tenko" / "tenko.db"
             database_backup_enabled = True

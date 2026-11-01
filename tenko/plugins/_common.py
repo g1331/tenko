@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
 
 from arclet.entari import MessageChain
 from satori import Image
@@ -8,12 +8,12 @@ from satori import Image
 from tenko.host.render import RenderService, try_render
 
 
-def normalize_targets(value: object) -> tuple[str, ...]:
+def normalize_targets(value: str | Iterable[object]) -> tuple[str, ...]:
     """将 Alconna 已解析的值规范化为数据库 ID。"""
 
     if isinstance(value, str):
         return (value,)
-    return tuple(str(item) for item in value)  # type: ignore[union-attr]
+    return tuple(str(item) for item in value)
 
 
 async def render_or_text(

@@ -13,7 +13,7 @@ from dataclasses import dataclass
 from importlib.metadata import entry_points
 from pathlib import Path
 from types import MappingProxyType
-from typing import Any, Literal
+from typing import Any, Literal, cast
 
 from arclet.alconna import command_manager
 from arclet.entari.command.provider import AlconnaSuppiler
@@ -89,7 +89,9 @@ def _mount_local_namespace() -> None:
         module = importlib.util.module_from_spec(spec)
         sys.modules[LOCAL_NAMESPACE] = module
     module.__path__ = [path]
-    module.__spec__.submodule_search_locations = [path]
+    # 上面新建的模块一定带 spec；已存在的同名模块同样由这里创建。
+    spec = cast(importlib.machinery.ModuleSpec, module.__spec__)
+    spec.submodule_search_locations = [path]
 
 
 def external_plugin_for_module(module_name: str) -> str | None:
@@ -570,8 +572,7 @@ class PluginRuntime:
         for info in infos:
             if info.name not in configured_names:
                 continue
-            config = configs.get(info.name)
-            await self.load(info, config=dict(config))
+            await self.load(info, config=dict(configs[info.name]))
         for info in infos:
             if info.name in configured_names:
                 continue

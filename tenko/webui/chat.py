@@ -112,7 +112,7 @@ def build_message(content: object) -> list[Element]:
                 raise ValueError("图片数据无效") from error
             if size > IMAGE_LIMIT:
                 raise ValueError("图片不能超过 4 MiB")
-            elements.append(Image(src=source))
+            elements.append(Image(src=matched.string))
         elif kind == "quote":
             target = item.get("id")
             if index != 0 or not isinstance(target, str) or not target:
@@ -149,13 +149,14 @@ class ChatPanel:
         return key
 
     async def conversations(self, request: Request) -> JSONResponse:
-        async def read():
+        async def read() -> dict[str, Any]:
             key = self._account(request.query_params)
             accounts = self.service.accounts
             names = await self.service.group_names()
+            repository = chat_log.repository
             latest = (
-                await chat_log.repository.conversations(*key, limit=CONVERSATION_LIMIT)
-                if chat_log.enabled
+                await repository.conversations(*key, limit=CONVERSATION_LIMIT)
+                if chat_log.enabled and repository is not None
                 else ()
             )
             rows: dict[str, dict[str, Any]] = {}
@@ -235,11 +236,12 @@ class ChatPanel:
             and segment.get("id")
             and not segment.get("text")
         ]
-        if not quotes:
+        repository = chat_log.repository
+        if not quotes or repository is None:
             return
         found = {
             record.message_id: record
-            for record in await chat_log.repository.find(
+            for record in await repository.find(
                 *key, channel, (segment["id"] for segment in quotes)
             )
         }

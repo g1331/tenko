@@ -160,7 +160,9 @@ def install_model_guard() -> None:
     register_callback(guard_plugin_model)
 
 
-class Model(BaseOrm, tablename="tenko_plugin_model"):
+# entari_plugin_database 没有类型声明，BaseOrm 是 Any；mypy 仍把 Any 基类的类关键字
+# 参数按 object.__init_subclass__ 检查。
+class Model(BaseOrm, tablename="tenko_plugin_model"):  # type: ignore[call-arg]
     """插件模型的声明式基类，绑定到调用方插件自己的 SQLite 库。
 
     默认表名为 ``<插件ID>_<类名小写>``；显式写 ``__tablename__`` 时，名称在所有

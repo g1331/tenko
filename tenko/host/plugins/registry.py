@@ -18,7 +18,7 @@ import time
 from collections.abc import Awaitable, Callable, Mapping, Sequence
 from dataclasses import dataclass, replace
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal, cast, overload
 from urllib.parse import urljoin, urlsplit
 
 import httpx
@@ -32,6 +32,7 @@ from .manager import (
     PluginManager,
     PluginManagerError,
     PluginSource,
+    Trust,
     parse_source,
 )
 
@@ -48,6 +49,14 @@ _ID = re.compile(r"^[a-z][a-z0-9_]*$")
 _ICON = re.compile(
     r"^icons/(?P<name>(?P<id>[a-z][a-z0-9_]*)-(?P<sha>[0-9a-f]{8})\.png)$"
 )
+
+
+def _icon_parts(icon: str) -> re.Match[str]:
+    """拆开图标路径；格式在解析目录时已核对过。"""
+
+    return cast(re.Match[str], _ICON.match(icon))
+
+
 _SHA256 = re.compile(r"^[0-9a-f]{64}$")
 _COMMIT = re.compile(r"^[0-9a-f]{40}$")
 
@@ -81,7 +90,7 @@ class RegistryPlugin:
     homepage: str | None
     license: str | None
     tags: tuple[str, ...]
-    tier: str
+    tier: Trust
     icon: str | None  # 目录里的相对路径 icons/<id>-<sha8>.png，本地文件见 icon_path
     source_type: str
     package: str | None
@@ -251,7 +260,9 @@ async def registry_updates(
     sources = {}
     for row in rows:
         entry = index.plugins.get(row.plugin_id)
-        latest = entry and compatible(entry)
+        if entry is None:
+            continue
+        latest = compatible(entry)
         if latest and Version(latest.version) > Version(row.version):
             sources[row.plugin_id] = source_for(entry, latest)
     return sources
@@ -277,6 +288,14 @@ async def resume_source(
 
 
 # ------------------------------------------------------------------ 解析
+
+
+@overload
+def _text(value: Any, *, optional: Literal[True]) -> str | None: ...
+
+
+@overload
+def _text(value: Any, *, optional: Literal[False] = False) -> str: ...
 
 
 def _text(value: Any, *, optional: bool = False) -> str | None:
@@ -310,7 +329,8 @@ def _version(raw: Mapping[str, Any], source_type: str) -> RegistryVersion:
         if not _COMMIT.match(commit):
             raise ValueError("pin.commit 应为 40 位提交号")
     yanked = raw.get("yanked")
-    tested = raw.get("tested") if isinstance(raw.get("tested"), Mapping) else {}
+    tested_raw = raw.get("tested")
+    tested = tested_raw if isinstance(tested_raw, Mapping) else {}
     return RegistryVersion(
         version,
         hashes,
@@ -350,6 +370,7 @@ def _plugin(
         if matched is None or matched["id"] != plugin_id:
             raise ValueError(f"图标路径不合法: {icon!r}")
     versions = tuple(_version(v, source_type) for v in raw.get("versions") or ())
+    category = raw.get("category")
     return RegistryPlugin(
         plugin_id,
         _text(raw["name"]),
@@ -365,9 +386,7 @@ def _plugin(
         git_url,
         subdirectory,
         tuple(sorted(versions, key=lambda v: Version(v.version), reverse=True)),
-        categories.get(raw.get("category"))
-        if isinstance(raw.get("category"), str)
-        else None,
+        categories.get(category) if isinstance(category, str) else None,
     )
 
 
@@ -455,7 +474,7 @@ class Registry:
 
         if plugin.icon is None:
             return None
-        path = self.icon_dir / _ICON.match(plugin.icon)["name"]  # type: ignore[index]
+        path = self.icon_dir / _icon_parts(plugin.icon)["name"]
         return path if path.is_file() else None
 
     def cached(self) -> RegistryIndex | None:
@@ -509,7 +528,7 @@ class Registry:
         wanted = {p.icon for p in index.plugins.values() if p.icon}
         self.icon_dir.mkdir(parents=True, exist_ok=True)
         for relative in wanted:
-            matched = _ICON.match(relative)
+            matched = _icon_parts(relative)
             path = self.icon_dir / matched["name"]
             if path.is_file():
                 continue

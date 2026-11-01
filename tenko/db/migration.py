@@ -62,14 +62,16 @@ def install_forward_only_guard() -> None:
     if getattr(originals["_normalize_alembic_ops"], "tenko_guard", False):
         return
 
-    async def refuse_table_drops(obsolete_tables, service, state) -> None:
+    async def refuse_table_drops(
+        obsolete_tables: Any, service: Any, state: Any
+    ) -> None:
         del service, state
         logger.error(
             "Schema 只前进：拒绝删除已废弃的表 {}，表与迁移状态均已保留",
             sorted(obsolete_tables),
         )
 
-    def guard_ops(ops_list):
+    def guard_ops(ops_list: Iterable[Any]) -> Any:
         ops_list = list(ops_list)
         found = list(_walk_ops(ops_list))
         violations: list[str] = []
@@ -90,10 +92,11 @@ def install_forward_only_guard() -> None:
             raise ForwardOnlyMigrationError("；".join(violations))
         return originals["_normalize_alembic_ops"](ops_list)
 
-    def update_state(state, table_name, *args, **kwargs):
+    def update_state(state: Any, table_name: str, *args: Any, **kwargs: Any) -> None:
         if table_name not in _refused_tables:
             originals["_update_state_for_model"](state, table_name, *args, **kwargs)
 
+    # 在函数对象上打标记，重复安装时据此识别；函数没有声明这个属性。
     guard_ops.tenko_guard = True  # type: ignore[attr-defined]
     official._execute_table_drops = refuse_table_drops
     official._normalize_alembic_ops = guard_ops

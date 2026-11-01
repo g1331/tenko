@@ -5,7 +5,7 @@ import re
 from collections.abc import Awaitable, Callable, Iterable, Mapping
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any
+from typing import Any, cast
 
 from loguru import logger
 from satori.client import Account
@@ -121,7 +121,8 @@ class ActionFailure:
     data: Any = None
     message: str | None = None
     wording: str | None = None
-    echo: str | int | None = None
+    # 原样记录 OneBot 响应里的 echo，只用于日志。
+    echo: object = None
     error_type: str | None = None
     detail: str | None = None
     raw: Any = field(default=None, repr=False, compare=False)
@@ -430,7 +431,8 @@ class ActionService:
             if raw in {"member", "user", "群员"}:
                 return int(Permission.User)
             try:
-                return int(value)
+                # value 来源不定，转换不了的情况由下面的 except 兜住。
+                return int(cast(Any, value))
             except (TypeError, ValueError):
                 pass
         roles = getattr(value, "roles", ())
@@ -556,15 +558,15 @@ class ActionService:
                 self._remember_failure(failure)
                 if send_group_id is not None:
                     self.registry.observe_send_failure(current_id, send_group_id, exc)
-                error = self._execution_error(failure, exc)
+                execution_error = self._execution_error(failure, exc)
                 if (
                     management_group_id is not None
                     and _is_permission_failure(failure)
                     and candidate_index + 1 < len(candidates)
                 ):
-                    last_error = error
+                    last_error = execution_error
                     continue
-                raise error from exc
+                raise execution_error from exc
 
             if isinstance(response, Mapping) and _is_failed_receipt(response):
                 failure = self._failure_from_response(
@@ -575,15 +577,15 @@ class ActionService:
                     self.registry.observe_send_failure(
                         current_id, send_group_id, response
                     )
-                error = self._execution_error(failure)
+                execution_error = self._execution_error(failure)
                 if (
                     management_group_id is not None
                     and _is_permission_failure(failure)
                     and candidate_index + 1 < len(candidates)
                 ):
-                    last_error = error
+                    last_error = execution_error
                     continue
-                raise error
+                raise execution_error
 
             status = "ok"
             retcode: int | str = 0
@@ -617,7 +619,7 @@ class ActionService:
 
         items: list[object] = []
         if hasattr(result, "__aiter__"):
-            async for item in result:  # type: ignore[union-attr]
+            async for item in result:
                 items.append(item)
             return tuple(items)
 
@@ -790,7 +792,7 @@ class ActionService:
 
         _, account = self._account(account_or_id)
         group, _ = _numeric_id(group_id, "群 ID")
-        result = account.protocol.guild_get(group)
+        result: Any = account.protocol.guild_get(group)
         if inspect.isawaitable(result):
             result = await result
         if isinstance(result, Mapping) and _is_failed_receipt(result):

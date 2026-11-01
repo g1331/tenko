@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import Any
+
 from arclet.alconna import Alconna, Args, CommandMeta, Field, MultiVar, Option
 from arclet.entari import Session, command, plugin
 from arclet.entari.command import Match, Query
@@ -88,7 +90,7 @@ async def _in_group(session: Session, group_id: str, user_id: str) -> bool:
     return await action_service.get_group_member(account, group_id, user_id) is not None
 
 
-grant_command = Alconna(
+grant_command: Alconna[Any] = Alconna(
     "授权",
     Args["level", "群管理"],
     _targets_arg(),
@@ -134,7 +136,7 @@ async def grant(
     return _failure_summary(targets, failures)
 
 
-revoke_command = Alconna(
+revoke_command: Alconna[Any] = Alconna(
     "取消授权",
     _targets_arg(),
     _GROUP_OPTION,
@@ -173,7 +175,7 @@ async def revoke(
     return _failure_summary(targets, failures)
 
 
-bot_admin_command = Alconna(
+bot_admin_command: Alconna[Any] = Alconna(
     "BOT管理",
     Args["action", "添加|删除"],
     _targets_arg(),
@@ -263,7 +265,7 @@ async def bot_admin_list(session: Session, *, render_service: RenderService):
     )
 
 
-permission_list_command = Alconna(
+permission_list_command: Alconna[Any] = Alconna(
     "权限列表",
     _GROUP_OPTION,
     meta=CommandMeta(
@@ -321,7 +323,7 @@ def _protected(platform: str, user_id: str) -> str | None:
     return None
 
 
-blacklist_command = Alconna(
+blacklist_command: Alconna[Any] = Alconna(
     "拉黑",
     _targets_arg(),
     _REASON_OPTION,
@@ -363,7 +365,7 @@ async def add_user_blacklist(
     return _failure_summary(targets, failures)
 
 
-unblacklist_command = Alconna(
+unblacklist_command: Alconna[Any] = Alconna(
     "解除拉黑",
     _targets_arg(),
     meta=CommandMeta(
@@ -424,7 +426,7 @@ async def _is_notify_group(group_id: str) -> bool:
     return settings.mode == "group" and group_id == settings.group
 
 
-group_blacklist_command = Alconna(
+group_blacklist_command: Alconna[Any] = Alconna(
     "拉黑群",
     Args["group_id?", str],
     _REASON_OPTION,

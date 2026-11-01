@@ -24,7 +24,7 @@ from tenko.host.actions import (
 )
 from tenko.host import sandbox as sandbox_module
 from tenko.host.action_errors import register_error_reporter
-from tenko.host.errors import error_book, summary_text
+from tenko.host.errors import FailureInput, error_book, summary_text
 from tenko.host.notify import notify
 from tenko.host.sandbox import SandboxRefused
 from tenko.host.render import RenderService, try_render
@@ -265,7 +265,7 @@ def _prune_evidence(directory: Path) -> None:
         logger.exception("清理异常取证文件失败: {}", directory)
 
 
-def _failure(event: Any, context: MessageContext | None) -> dict[str, str] | None:
+def _failure(event: Any, context: MessageContext | None) -> FailureInput | None:
     """触发异常的消息，留在内存里供在沙盒重放；不是消息事件时为 ``None``。"""
 
     raw = getattr(event, "_origin", event)

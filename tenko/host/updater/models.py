@@ -185,8 +185,11 @@ _STARTUP_GRACE_PERIOD = 60.0
 _STARTUP_FAILURE_THRESHOLD = 2
 
 
-def parse_version(value: str | Version) -> Version:
-    """解析严格 SemVer 形状，并交由 packaging 提供版本比较。"""
+def parse_version(value: object) -> Version:
+    """解析严格 SemVer 形状，并交由 packaging 提供版本比较。
+
+    ``value`` 常来自外部 JSON，所以接受任意对象，非字符串一律按非法版本报错。
+    """
 
     if isinstance(value, Version):
         return value

@@ -64,6 +64,10 @@ class _Bucket:
     actions: Counter[str] = field(default_factory=Counter)
 
 
+# 键是 (小时, plugin, handler, subcommand, platform, group_id, outcome)，与
+# CommandStatRecord 开头的七个字段一一对应。
+_BucketKey = tuple[datetime, str, str, str, str, str, str]
+
 _current: ContextVar[_Call | None] = ContextVar("tenko_call", default=None)
 
 
@@ -81,7 +85,7 @@ def _hour(now: datetime | None = None) -> datetime:
 
 class CallStats:
     def __init__(self) -> None:
-        self._buckets: dict[tuple[Any, ...], _Bucket] = {}
+        self._buckets: dict[_BucketKey, _Bucket] = {}
 
     def _add(
         self,

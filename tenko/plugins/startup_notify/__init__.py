@@ -4,6 +4,7 @@ from arclet.entari import Ready, plugin
 from arclet.entari.plugin import PluginRole, collect_disposes
 
 from tenko import _process_start_monotonic
+from tenko.host.accounts import AccountInput
 from tenko.host.actions import action_service
 from tenko.host.features import feature_service
 from tenko.host.perm import PermissionChecker
@@ -23,7 +24,8 @@ plugin.metadata(
     classifier=["required"],
 )
 # 启动通知是宿主级开关，但仍允许 feature_manager 通过 Tenko 功能状态动态控制。
-plugin.get_plugin().metadata.feature_scope = "global"
+# Entari 的 PluginMetadata 没有声明 feature_scope，Tenko 约定在元数据上动态附加。
+setattr(plugin.get_plugin().metadata, "feature_scope", "global")
 
 
 permission_checker = PermissionChecker()
@@ -38,7 +40,7 @@ notifier = StartupNotifier(
 )
 
 
-async def on_account_online(account: object) -> None:
+async def on_account_online(account: AccountInput) -> None:
     await notifier.mark_account_online(account)
 
 

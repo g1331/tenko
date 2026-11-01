@@ -238,7 +238,11 @@ class PluginMarket:
     # ------------------------------------------------------------------ 只读
 
     def _icon_url(self, entry: RegistryPlugin | None) -> str | None:
-        if entry is None or self.registry.icon_path(entry) is None:
+        if (
+            entry is None
+            or entry.icon is None
+            or self.registry.icon_path(entry) is None
+        ):
             return None
         return f"{WEBUI_PATH}/api/market/icons/{entry.icon.removeprefix('icons/')}"
 
@@ -327,7 +331,7 @@ class PluginMarket:
         if info is None:
             return error_response("not_found", "插件不存在", 404)
 
-        def read():
+        def read() -> dict[str, Any]:
             native = info.native_plugin
             meta = getattr(native, "metadata", None)
             index = self.registry.cached() if info.source == "external" else None
@@ -340,7 +344,11 @@ class PluginMarket:
                 if (safe := _http(url)) and all(x["url"] != safe for x in links):
                     links.append({"kind": kind, "label": label, "url": safe})
 
-            notes = {"blocked": None, "yanked": None, "update": None}
+            notes: dict[str, str | None] = {
+                "blocked": None,
+                "yanked": None,
+                "update": None,
+            }
             if info.source == "builtin":
                 version, ref = _tenko_release()
                 link("repo", "源码", f"{_REPO}/tree/{ref}/tenko/plugins/{info.name}")
@@ -458,7 +466,7 @@ class PluginMarket:
 
         runtime = self.service.plugin_runtime
         failures = getattr(runtime, "load_failures", None)
-        if not failures:
+        if runtime is None or not failures:
             return []
         installed = {r.plugin_id for r in self.manager.status()}
         builtin = runtime.builtin_names()
@@ -537,8 +545,8 @@ class PluginMarket:
             version = body.get("version")
             if version is not None and not isinstance(version, str):
                 raise ValueError("version 必须是字符串")
-            held = manager.suspended().get(plugin_id or "")
-            if held is None:
+            held = manager.suspended().get(plugin_id) if plugin_id is not None else None
+            if plugin_id is None or held is None:
                 raise KeyError(plugin_id)
             try:
                 source = await resume_source(plugin_id, held, version)

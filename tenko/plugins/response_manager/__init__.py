@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import Any, cast
+
 from arclet.alconna import Alconna, Args, CommandMeta
 from arclet.entari import Session, command, plugin
 from arclet.entari.command import Match, Query
@@ -7,9 +9,10 @@ from arclet.entari.plugin import PluginRole
 
 from tenko.host.accounts import (
     AccountRegistry,
+    ResponseType,
     account_registry,
 )
-from tenko.host.bots import bot_avatars, bot_card
+from tenko.host.bots import BotCard, bot_avatars, bot_card
 from tenko.host.guards import group_only, private_only, require
 from tenko.host.perm import Permission
 from tenko.context import context_from_session, group_reference
@@ -55,7 +58,9 @@ def build_bots_data(
         return None
     strategy = registry.response_type_for_group(group_id) or "random"
     leader = registry.deterministic_account_for_group(group_id)
-    bots, lines, leader_name = [], [], "未指定的 BOT"
+    bots: list[BotCard] = []
+    lines: list[str] = []
+    leader_name = "未指定的 BOT"
     for account in bound:
         bot = bot_card(registry, account, avatars, group_id)
         ref = bot["ref"]
@@ -78,7 +83,7 @@ def build_bots_data(
         subtitle = f"响应策略 · 定向：由 {leader_name} 回复，其余候补"
     else:
         subtitle = "响应策略 · 随机：可回复的 BOT 轮流响应"
-    data = {
+    data: dict[str, object] = {
         "group": f"群 {group_id}",
         "subtitle": subtitle,
         "stats": [(usable, "可回复"), (len(bound), "已绑定"), (muted, "禁言中")],
@@ -196,7 +201,7 @@ def build_all_account_groups_data(
     )
 
 
-bot_list_command = Alconna(
+bot_list_command: Alconna[Any] = Alconna(
     "BOT列表",
     meta=CommandMeta(
         "查看本群绑定的 BOT：头像、昵称、账号、在线和禁言状态，以及谁负责回复",
@@ -220,7 +225,7 @@ async def bot_list(session: Session, *, render_service: RenderService):
     return await render_or_text(render_service, "bots.html", data, text)
 
 
-bot_group_list_command = Alconna(
+bot_group_list_command: Alconna[Any] = Alconna(
     "BOT群列表",
     Args["account_id?", str],
     meta=CommandMeta(
@@ -263,7 +268,7 @@ async def bot_group_list(
     )
 
 
-response_strategy_command = Alconna(
+response_strategy_command: Alconna[Any] = Alconna(
     "设定响应",
     Args["response_type?", "random|deterministic"],
     meta=CommandMeta(
@@ -294,12 +299,13 @@ async def set_response_strategy(
     if requested == current:
         return "响应模式与当前相同!"
 
-    account_registry.set_response_type(group_id, requested)
+    # Alconna 的参数声明已把取值限定为这两个。
+    account_registry.set_response_type(group_id, cast(ResponseType, requested))
     await account_registry.persist_state()
     return f"已将当前群响应策略设为 {requested}"
 
 
-specified_bot_command = Alconna(
+specified_bot_command: Alconna[Any] = Alconna(
     "指定BOT",
     # 账号 ID 是纯数字；\b 保证整词匹配（Alconna 的正则只做前缀匹配）。
     Args["account_id", r"re:(?:\d+|清除)\b"],

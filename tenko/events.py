@@ -18,7 +18,7 @@ from .host.accounts import AccountRegistry, account_key
 from .host.sandbox import is_sandbox
 from .host.chat_log import ChatLog
 from .host.metrics import MessageMetrics, message_metrics
-from .host.perm import PermissionStore, permission_store
+from .host.perm import BlacklistKind, PermissionStore, permission_store
 
 
 def _event_group_id(event: Event) -> str | None:
@@ -86,6 +86,7 @@ def _leading_mention(event: Event) -> str | None:
     try:
         elements = [
             item
+            # message 可能为 None，此时 AttributeError 由下面的 except 兜住。
             for item in event.message.message  # type: ignore[union-attr]
             if not isinstance(item, Quote)
         ]
@@ -193,10 +194,11 @@ class MessageEventHandler:
         # 黑名单（#234）：名单里的人在任何群和私聊、名单里的群对任何人，都不响应，
         # 包括复读这类不经命令的功能。
         platform = account_key(account)[0]
-        for kind, target in (
+        targets: tuple[tuple[BlacklistKind, str | None], ...] = (
             ("user", _event_user_id(event)),
             ("group", _event_group_id(event)),
-        ):
+        )
+        for kind, target in targets:
             if target is not None and self.permissions.blacklisted(
                 kind, platform, target
             ):
@@ -299,6 +301,7 @@ class MessageEventHandler:
         """
 
         try:
+            # message 可能为 None，此时 AttributeError 由下面的 except 兜住。
             elements = list(event.message.message)  # type: ignore[union-attr]
         except (AttributeError, TypeError):
             return False

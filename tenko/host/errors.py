@@ -15,12 +15,25 @@ from collections.abc import Mapping
 from dataclasses import dataclass, field
 from datetime import datetime
 from types import TracebackType
+from typing import TypedDict
 
 SUMMARY_INTERVAL = 3600.0
 MAX_ERRORS = 200
 # 失败调用的原始输入只留在内存里，供在沙盒重放。
 MAX_FAILURES = 50
 _failure_ids = itertools.count(1)
+
+
+class FailureInput(TypedDict):
+    """:class:`Failure` 除指纹、时间、编号之外的字段。"""
+
+    platform: str
+    account_id: str
+    chat: str
+    group_id: str
+    user_id: str
+    content: str
+    preview: str
 
 
 @dataclass(frozen=True, slots=True)
@@ -103,7 +116,7 @@ class ErrorBook:
         exception: BaseException,
         modules: Mapping[str, str] | None = None,
         group: str | None = None,
-        failure: dict[str, str] | None = None,
+        failure: FailureInput | None = None,
     ) -> bool:
         """登记一次异常，返回是否该立即报告（指纹首次出现）。
 

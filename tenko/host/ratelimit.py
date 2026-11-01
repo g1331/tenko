@@ -10,7 +10,12 @@ from loguru import logger
 from ..context import GroupKey, group_key
 
 if TYPE_CHECKING:
-    from ..db.repositories import GroupSettingRepository, RateLimitRepository
+    from ..db.repositories import (
+        GroupSettingRepository,
+        RateLimitEventRecord,
+        RateLimitRepository,
+        RateLimitSubjectRecord,
+    )
 
 
 _DATABASE_UNAVAILABLE_MESSAGE = "限流状态暂不可用，请稍后再试"
@@ -149,12 +154,12 @@ class RateLimitService:
         self._events = events
         self._cooldowns = {}
         self._blacklist = {}
-        for row in snapshot.subjects:
-            key = self._row_key(row)
-            if row.cooldown_until is not None:
-                self._cooldowns[key] = row.cooldown_until
-            if row.blacklist_until is not None:
-                self._blacklist[key] = row.blacklist_until
+        for subject in snapshot.subjects:
+            key = self._row_key(subject)
+            if subject.cooldown_until is not None:
+                self._cooldowns[key] = subject.cooldown_until
+            if subject.blacklist_until is not None:
+                self._blacklist[key] = subject.blacklist_until
         self._ready = True
 
     def set_group_limited(self, group: object, enabled: bool) -> None:
@@ -187,7 +192,9 @@ class RateLimitService:
         for key in {*self._events, *self._cooldowns, *self._blacklist}:
             self._prune(key, now)
 
-    def _state_records(self) -> tuple[tuple[object, ...], tuple[object, ...]]:
+    def _state_records(
+        self,
+    ) -> tuple[tuple[RateLimitEventRecord, ...], tuple[RateLimitSubjectRecord, ...]]:
         from ..db.repositories import RateLimitEventRecord, RateLimitSubjectRecord
 
         self._prune_all(self.clock())

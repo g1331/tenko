@@ -7,6 +7,7 @@ from collections import deque
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import datetime
+from typing import Any
 
 from arclet.entari import MessageChain, SendResponse
 from arclet.entari.logger import escape_tag, log
@@ -245,8 +246,8 @@ class MessageMetrics:
         channel_id = str(getattr(response, "channel", "-"))
         chat_type = "private" if channel_id.startswith("private:") else "group"
         session = getattr(response, "session", None)
-        event = getattr(session, "event", None)
-        origin = getattr(event, "_origin", event)
+        event: Any = getattr(session, "event", None)
+        origin: Any = getattr(event, "_origin", event)
         try:
             context = MessageContext.from_event(origin)
         except (AttributeError, TypeError, ValueError):

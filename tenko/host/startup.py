@@ -8,13 +8,13 @@ import time
 import tomllib
 from collections.abc import Awaitable, Callable, Mapping, Sequence
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 from loguru import logger
 
 from tenko.host.actions import action_service as default_action_service
 from tenko.host.features import feature_service as default_feature_service
-from tenko.host.accounts import account_registry
+from tenko.host.accounts import AccountInput, account_registry
 from tenko.host.notify import NotifySettings, load_settings, notify
 from tenko.host.perm import PermissionChecker
 
@@ -192,14 +192,14 @@ class StartupNotifier:
             if recovery_notice_path is None
             else Path(recovery_notice_path).expanduser().resolve()
         )
-        self._online_account: object | None = None
+        self._online_account: AccountInput | None = None
         self._framework_ready = False
         self._attempted = False
         self._sending = False
         self._ready_at: float | None = None
         self._grace: asyncio.Task | None = None
 
-    async def mark_account_online(self, account: object) -> None:
+    async def mark_account_online(self, account: AccountInput) -> None:
         self._online_account = account
         await self._maybe_notify()
 
@@ -254,7 +254,8 @@ class StartupNotifier:
             logger.info("Tenko startup notification is disabled")
             return
 
-        duration = max(float(self._ready_at) - self.started_at, 0.0)
+        # _maybe_notify 在进入通知流程之前已经记下 _ready_at。
+        duration = max(float(cast(float, self._ready_at)) - self.started_at, 0.0)
         notice = build_startup_notice(self.version_provider(), duration)
         try:
             await self.history.record(duration)
@@ -303,7 +304,7 @@ class StartupNotifier:
         return delivered
 
 
-AccountOnlineHook = Callable[[object], Awaitable[None]]
+AccountOnlineHook = Callable[[AccountInput], Awaitable[None]]
 # 启动通知插件加载时登记的上线回调；宿主不反向导入插件。
 _account_online_hook: AccountOnlineHook | None = None
 
@@ -322,7 +323,7 @@ def register_account_online_hook(hook: AccountOnlineHook) -> Callable[[], None]:
     return unregister
 
 
-async def dispatch_account_online(account: object) -> None:
+async def dispatch_account_online(account: AccountInput) -> None:
     """调用登记的上线回调；它是就绪后的附加动作，失败只记日志。"""
 
     hook = _account_online_hook
