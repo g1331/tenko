@@ -160,7 +160,7 @@ class PluginStatus:
     dist: str
     version: str
     source: str
-    trust: str
+    trust: Trust
     requirement: str
     enabled: bool
     loaded: bool

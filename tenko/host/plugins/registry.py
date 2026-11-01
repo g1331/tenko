@@ -32,7 +32,6 @@ from .manager import (
     PluginManager,
     PluginManagerError,
     PluginSource,
-    Trust,
     parse_source,
 )
 
@@ -90,7 +89,7 @@ class RegistryPlugin:
     homepage: str | None
     license: str | None
     tags: tuple[str, ...]
-    tier: Trust
+    tier: Literal["official", "listed"]
     icon: str | None  # 目录里的相对路径 icons/<id>-<sha8>.png，本地文件见 icon_path
     source_type: str
     package: str | None

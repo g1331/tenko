@@ -11,14 +11,13 @@ import asyncio
 import json
 import re
 from collections import deque
-from dataclasses import asdict, dataclass, field
+from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
 from loguru import logger
 from packaging.version import InvalidVersion, Version
 from starlette.requests import Request
-from starlette.responses import JSONResponse
 
 from ..host.plugins.manager import PluginManagerError, PluginSource
 from ..host.plugins.registry import (
@@ -35,7 +34,17 @@ from ..host.updater import (
     UrllibHttpClient,
     parse_version,
 )
-from .auth import error_response, read_json, success_response
+from .auth import ApiResponse, error_response, read_json, success_response
+from .contracts import (
+    ReleaseNote,
+    ReleaseNotesData,
+    UpgradeAction,
+    UpgradeCheck,
+    UpgradeHistoryEntry,
+    UpgradeJob as UpgradeJobData,
+    UpgradeJobState,
+    UpgradeStatus,
+)
 
 if TYPE_CHECKING:
     from .plugins import PluginMarket
@@ -55,14 +64,26 @@ _HISTORY_RESULTS = {
 
 @dataclass
 class UpgradeJob:
-    action: str  # upgrade | rollback
-    state: str = "running"  # running | restarting | succeeded | failed
+    action: UpgradeAction
+    state: UpgradeJobState = "running"
     stage: str = ""
     message: str = ""
     target: str | None = None
     incompatible: dict[str, str] = field(default_factory=dict)
     # 不兼容插件在新版本上可装的版本（新到旧），供 Master 选择；空表示只能停用。
     options: dict[str, list[str]] = field(default_factory=dict)
+
+
+def _job_data(job: UpgradeJob) -> UpgradeJobData:
+    return {
+        "action": job.action,
+        "state": job.state,
+        "stage": job.stage,
+        "message": job.message,
+        "target": job.target,
+        "incompatible": job.incompatible,
+        "options": job.options,
+    }
 
 
 def _clean(text: object, limit: int = 300) -> str:
@@ -75,7 +96,7 @@ def _display(version) -> str:
     return f"{text}-{version.pre[0]}{version.pre[1]}" if version.pre else text
 
 
-def _check_data(result: CheckResult) -> dict[str, Any]:
+def _check_data(result: CheckResult) -> UpgradeCheck:
     release = result.candidate
     return {
         "checked_at": datetime.now(UTC).isoformat(),
@@ -129,11 +150,11 @@ class HostUpgrade:
     def __init__(self, market: PluginMarket) -> None:
         self.market = market
         self.job: UpgradeJob | None = None
-        self.last_check: dict[str, Any] | None = None
+        self.last_check: UpgradeCheck | None = None
         self._task: asyncio.Task | None = None
         self.http = UrllibHttpClient(timeout=10)
         # 当前版本的发布说明：版本只在重启后变，读到一次就够了。
-        self._current_notes: tuple[str, dict[str, Any] | None] | None = None
+        self._current_notes: tuple[str, ReleaseNote | None] | None = None
 
     @property
     def busy(self) -> bool:
@@ -148,7 +169,7 @@ class HostUpgrade:
 
     # ------------------------------------------------------------------ 状态
 
-    def _history(self) -> list[dict[str, Any]]:
+    def _history(self) -> list[UpgradeHistoryEntry]:
         path = self.market.updater.layout.audit_file
         try:
             with path.open("rb") as file:
@@ -156,7 +177,7 @@ class HostUpgrade:
                 lines = file.read().decode("utf-8", "replace").splitlines()
         except OSError:
             return []
-        entries: deque[dict[str, Any]] = deque(maxlen=_HISTORY_LIMIT)
+        entries: deque[UpgradeHistoryEntry] = deque(maxlen=_HISTORY_LIMIT)
         for line in lines:
             try:
                 record = json.loads(line)
@@ -183,7 +204,7 @@ class HostUpgrade:
             )
         return list(reversed(entries))
 
-    def _status(self) -> dict[str, Any]:
+    def _status(self) -> UpgradeStatus:
         updater = self.market.updater
         previous = updater.layout.read_previous()
         return {
@@ -195,13 +216,13 @@ class HostUpgrade:
             "previous_version": _display(previous.version) if previous else None,
             "release_url": self._release_url(updater),
             "last_check": self.last_check,
-            "job": asdict(self.job) if self.job else None,
+            "job": _job_data(self.job) if self.job else None,
             "history": self._history(),
         }
 
     # ------------------------------------------------------------------ 接口
 
-    async def check(self, request: Request) -> JSONResponse:
+    async def check(self, request: Request) -> ApiResponse[UpgradeCheck]:
         # 联网检查可能要几秒，不占用面板的写锁；升级管理器自己会串行化。
         if await read_json(request) != {}:
             return error_response("invalid_request", "包含未知字段", 400)
@@ -227,7 +248,7 @@ class HostUpgrade:
 
     async def _releases(
         self,
-    ) -> tuple[list[tuple[str, dict[str, Any]]], str, str | None]:
+    ) -> tuple[list[tuple[str, ReleaseNote]], str, str | None]:
         """GitHub Releases 里的已发布版本：``([(tag, 说明)], tag 前缀, 失败原因)``。
 
         升级源不在 GitHub 上时返回空列表。
@@ -253,7 +274,7 @@ class HostUpgrade:
             if not isinstance(item, dict) or item.get("draft"):
                 continue
             tag = str(item.get("tag_name") or "")
-            note = {
+            note: ReleaseNote = {
                 "tag": tag,
                 "name": str(item.get("name") or tag),
                 "published_at": item.get("published_at"),
@@ -268,7 +289,7 @@ class HostUpgrade:
 
     async def _changelog(
         self, result: CheckResult
-    ) -> tuple[list[dict[str, Any]], str | None]:
+    ) -> tuple[list[ReleaseNote], str | None]:
         """当前版本之后、直到候选版本的各版发布说明（新到旧），取自 GitHub Releases。
 
         读取失败不影响检查结果，只返回原因。
@@ -288,7 +309,7 @@ class HostUpgrade:
         entries.sort(key=lambda pair: pair[0], reverse=True)
         return [entry for _, entry in entries[:_CHANGELOG_LIMIT]], error
 
-    async def notes(self, request: Request) -> JSONResponse:
+    async def notes(self, request: Request) -> ApiResponse[ReleaseNotesData]:
         """当前运行版本的发布说明；GitHub 上没有这个版本时 note 为 null。"""
 
         current = _display(self.market.updater.current_version)
@@ -300,11 +321,13 @@ class HostUpgrade:
             self._current_notes = (current, note)
         return success_response({"note": self._current_notes[1]})
 
-    async def upgrade(self, request: Request) -> JSONResponse:
+    async def upgrade(
+        self, request: Request
+    ) -> ApiResponse[UpgradeStatus | UpgradeJobData]:
         if request.method == "GET":
             return await self.market.service.read("upgrade", self._status)
 
-        async def start():
+        async def start() -> UpgradeJobData:
             body = await read_json(request)
             action = body.get("action")
             choices = body.get("plugins", {})
@@ -331,7 +354,7 @@ class HostUpgrade:
             self._task = asyncio.create_task(
                 self._run(self.job, run(self.job, choices))
             )
-            return asdict(self.job)
+            return _job_data(self.job)
 
         return await self.market.service.manage(request, start)
 

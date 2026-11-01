@@ -13,18 +13,19 @@ import time
 import uuid
 from collections.abc import Awaitable, Callable
 import dataclasses
-from dataclasses import asdict, dataclass, field
+from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
 from loguru import logger
 from starlette.requests import Request
-from starlette.responses import FileResponse, JSONResponse, Response
+from starlette.responses import FileResponse, Response
 
 from ..host.plugins.docs import plugin_command_help, plugin_icon_path
 from ..host.plugins.manager import (
     PluginChange,
     PluginManager,
     PluginManagerError,
+    PluginStatus,
     get_plugin_manager,
 )
 from ..host.plugins.registry import (
@@ -41,8 +42,28 @@ from ..host.plugins.registry import (
     why_incompatible,
 )
 from ..host.startup import _project_version
-from .auth import WEBUI_PATH, error_response, read_json
-from .contracts import PluginIconRef
+from .auth import WEBUI_PATH, ApiResponse, error_response, read_json
+from .contracts import (
+    InstalledData,
+    InstalledPlugin,
+    InstalledPluginRecord,
+    MarketData,
+    MarketPlugin,
+    MarketVersion,
+    PluginChange as PluginChangeData,
+    PluginCommandDoc,
+    PluginConfigResponse,
+    PluginDetail,
+    PluginFailure,
+    PluginIconRef,
+    PluginLink,
+    PluginLinkKind,
+    PluginTask as PluginTaskData,
+    PluginTaskAction,
+    PluginTaskState,
+    RestartResult,
+    SuspendedPlugin,
+)
 from .upgrade import HostUpgrade
 
 if TYPE_CHECKING:
@@ -64,7 +85,7 @@ def _http(url: object) -> str | None:
     return text if text.lower().startswith(("https://", "http://")) else None
 
 
-def _link_kind(label: str, url: str) -> str:
+def _link_kind(label: str, url: str) -> PluginLinkKind:
     key = label.lower()
     if key in {"home", "homepage", "documentation", "docs"}:
         return "home"
@@ -99,11 +120,11 @@ def _authors(value: object) -> list[str]:
 @dataclass
 class PluginTask:
     id: str
-    action: str
+    action: PluginTaskAction
     plugin_id: str | None
-    state: str = "running"  # running | succeeded | failed
+    state: PluginTaskState = "running"
     message: str = ""
-    changes: list[dict[str, Any]] = field(default_factory=list)
+    changes: list[PluginChangeData] = field(default_factory=list)
     restored: bool | None = None
     # 更新和恢复：每个插件仍需重启的原因，None 表示已在运行中生效。
     live: dict[str, str | None] = field(default_factory=dict)
@@ -112,7 +133,39 @@ class PluginTask:
     finished_at: float | None = None
 
 
-def _change(change: PluginChange) -> dict[str, Any]:
+def _record(row: PluginStatus) -> InstalledPluginRecord:
+    return {
+        "plugin_id": row.plugin_id,
+        "dist": row.dist,
+        "version": row.version,
+        "source": row.source,
+        "trust": row.trust,
+        "requirement": row.requirement,
+        "enabled": row.enabled,
+        "loaded": row.loaded,
+        "restart_required": row.restart_required,
+        "installed_at": row.installed_at,
+        "updated_at": row.updated_at,
+    }
+
+
+def _task_data(task: PluginTask) -> PluginTaskData:
+    return {
+        "id": task.id,
+        "action": task.action,
+        "plugin_id": task.plugin_id,
+        "state": task.state,
+        "message": task.message,
+        "changes": task.changes,
+        "restored": task.restored,
+        "live": task.live,
+        "restart_required": task.restart_required,
+        "started_at": task.started_at,
+        "finished_at": task.finished_at,
+    }
+
+
+def _change(change: PluginChange) -> PluginChangeData:
     return {
         "plugin_id": change.plugin_id,
         "dist": change.dist,
@@ -121,7 +174,7 @@ def _change(change: PluginChange) -> dict[str, Any]:
     }
 
 
-def _versions(entry: RegistryPlugin) -> list[dict[str, Any]]:
+def _versions(entry: RegistryPlugin) -> list[MarketVersion]:
     return [
         {
             "version": item.version,
@@ -247,8 +300,8 @@ class PluginMarket:
             return None
         return f"{WEBUI_PATH}/api/market/icons/{entry.icon.removeprefix('icons/')}"
 
-    async def market_view(self, request: Request) -> JSONResponse:
-        async def read():
+    async def market_view(self, request: Request) -> ApiResponse[MarketData]:
+        async def read() -> MarketData:
             from tenko_api import __version__ as api_version
 
             refresh = request.query_params.get("refresh") == "1"
@@ -257,7 +310,7 @@ class PluginMarket:
             except RegistryError as error:
                 return {"available": False, "error": str(error), "plugins": []}
             installed = {r.plugin_id: r.version for r in self.manager.status()}
-            plugins = []
+            plugins: list[MarketPlugin] = []
             for entry in index.search():
                 latest = compatible(entry)
                 plugins.append(
@@ -327,21 +380,21 @@ class PluginMarket:
         media = "image/svg+xml" if path.suffix == ".svg" else "image/png"
         return FileResponse(path, media_type=media)
 
-    async def plugin_detail(self, request: Request) -> JSONResponse:
+    async def plugin_detail(self, request: Request) -> ApiResponse[PluginDetail]:
         info = self._info(request.path_params["plugin"])
         if info is None:
             return error_response("not_found", "插件不存在", 404)
 
-        def read() -> dict[str, Any]:
+        def read() -> PluginDetail:
             native = info.native_plugin
             meta = getattr(native, "metadata", None)
             index = self.registry.cached() if info.source == "external" else None
             entry = index.find(info.name) if index is not None else None
             rows = self.manager.status() if info.source == "external" else []
             row = next((r for r in rows if r.plugin_id == info.name), None)
-            links: list[dict[str, str]] = []
+            links: list[PluginLink] = []
 
-            def link(kind: str, label: str, url: object) -> None:
+            def link(kind: PluginLinkKind, label: str, url: object) -> None:
                 if (safe := _http(url)) and all(x["url"] != safe for x in links):
                     links.append({"kind": kind, "label": label, "url": safe})
 
@@ -366,7 +419,7 @@ class PluginMarket:
                     notes = installed_notes(
                         index, row.plugin_id, row.dist, row.version, row.trust
                     )
-            commands = [
+            commands: list[PluginCommandDoc] = [
                 {"title": title, "fields": [{"label": k, "value": v} for k, v in f]}
                 for title, f in (plugin_command_help(native) if native else [])
             ]
@@ -388,22 +441,24 @@ class PluginMarket:
                 "icon": self.icon_of(info.name, info.source),
                 "links": links,
                 "commands": commands,
-                "installed": asdict(row) if row else None,
+                "installed": _record(row) if row else None,
                 "has_config": info.source == "external"
                 and getattr(meta, "config", None) is not None,
-                **notes,
+                "update": notes["update"],
+                "yanked": notes["yanked"],
+                "blocked": notes["blocked"],
             }
 
         return await self.service.read("plugin_detail", read)
 
-    async def installed_view(self, request: Request) -> JSONResponse:
-        async def read():
+    async def installed_view(self, request: Request) -> ApiResponse[InstalledData]:
+        async def read() -> InstalledData:
             index = self.registry.cached()  # 不联网；市场页刷新时会更新缓存
             runtime = self.service.plugin_runtime
             names = (
                 {i.name: i.display_name for i in runtime.discover()} if runtime else {}
             )
-            rows = []
+            rows: list[InstalledPlugin] = []
             for row in self.manager.status():
                 entry = index.plugins.get(row.plugin_id) if index else None
                 notes = (
@@ -415,13 +470,15 @@ class PluginMarket:
                 )
                 rows.append(
                     {
-                        **asdict(row),
+                        **_record(row),
                         "name": entry.name if entry else names.get(row.plugin_id),
                         "icon_url": self._icon_url(entry),
-                        **notes,
+                        "update": notes["update"],
+                        "yanked": notes["yanked"],
+                        "blocked": notes["blocked"],
                     }
                 )
-            suspended = []
+            suspended: list[SuspendedPlugin] = []
             for plugin_id, held in sorted(self.manager.suspended().items()):
                 entry = index.plugins.get(plugin_id) if index else None
                 record, resume = held["record"], held.get("resume")
@@ -443,6 +500,7 @@ class PluginMarket:
                     }
                 )
             drift = await asyncio.to_thread(self.manager.drift)
+            running = self._latest_running()
             history = self.manager.history_dir
             return {
                 "plugins": rows,
@@ -455,14 +513,12 @@ class PluginMarket:
                 "restart_required": any(r["restart_required"] for r in rows)
                 or bool(self._pending_removal()),
                 "can_restart": bool(getattr(self.updater, "enabled", False)),
-                "task": self._task_data(self._latest_running()),
+                "task": _task_data(running) if running else None,
             }
 
         return await self.service.read("installed_plugins", read)
 
-    def load_failures(
-        self, names: dict[str, str] | None = None
-    ) -> list[dict[str, Any]]:
+    def load_failures(self, names: dict[str, str] | None = None) -> list[PluginFailure]:
         """本次启动加载失败、且仍然安装着的插件（内置插件总是安装着）。"""
 
         runtime = self.service.plugin_runtime
@@ -507,15 +563,11 @@ class PluginMarket:
     def _latest_running(self) -> PluginTask | None:
         return next((t for t in self.tasks.values() if t.state == "running"), None)
 
-    @staticmethod
-    def _task_data(task: PluginTask | None) -> dict[str, Any] | None:
-        return asdict(task) if task else None
-
-    async def task_view(self, request: Request) -> JSONResponse:
+    async def task_view(self, request: Request) -> ApiResponse[PluginTaskData]:
         task = self.tasks.get(request.path_params["id"])
         if task is None:
             return error_response("not_found", "任务不存在", 404)
-        return await self.service.read("plugin_task", lambda: asdict(task))
+        return await self.service.read("plugin_task", lambda: _task_data(task))
 
     async def _operation(
         self, action: str, body: dict[str, Any]
@@ -584,8 +636,8 @@ class PluginMarket:
             return lambda: manager.rollback(actor=actor)
         return lambda: manager.sync_env(actor=actor)
 
-    async def create_task(self, request: Request) -> JSONResponse:
-        async def start():
+    async def create_task(self, request: Request) -> ApiResponse[PluginTaskData]:
+        async def start() -> PluginTaskData:
             body = await read_json(request)
             action = body.get("action")
             if action not in _ACTIONS or body.get("confirm") is not True:
@@ -604,7 +656,7 @@ class PluginMarket:
                 if self.tasks[stale].state != "running":
                     del self.tasks[stale]
             self._running = asyncio.create_task(self._run(task, operation))
-            return asdict(task)
+            return _task_data(task)
 
         return await self.service.manage(request, start)
 
@@ -678,10 +730,12 @@ class PluginMarket:
         model = getattr(getattr(native, "metadata", None), "config", None)
         return native, model
 
-    async def plugin_config(self, request: Request) -> JSONResponse:
+    async def plugin_config(
+        self, request: Request
+    ) -> ApiResponse[PluginConfigResponse]:
         from arclet.entari.config.action import config_model_schema
 
-        async def action():
+        async def action() -> PluginConfigResponse:
             plugin_id = request.path_params["plugin"]
             native, model = self._loaded_plugin(plugin_id)
             if native is None or model is None:
@@ -745,8 +799,11 @@ class PluginMarket:
                     self.service.update_config(mutate)
 
                 write(values)
+                runtime = self.service.plugin_runtime
+                if runtime is None:  # _loaded_plugin 已检查，这里只为收窄类型
+                    raise RuntimeError("插件运行时尚未就绪")
                 try:
-                    await self.service.plugin_runtime.apply_config(plugin_id, merged)
+                    await runtime.apply_config(plugin_id, merged)
                 except Exception as error:
                     # 新配置让插件加载失败：文件改回去，免得下次启动时插件起不来。
                     write(raw)
@@ -787,8 +844,8 @@ class PluginMarket:
         # 先把响应发回去，再退出。
         asyncio.get_running_loop().call_later(1.0, updater.request_graceful_shutdown)
 
-    async def restart(self, request: Request) -> JSONResponse:
-        async def action():
+    async def restart(self, request: Request) -> ApiResponse[RestartResult]:
+        async def action() -> RestartResult:
             body = await read_json(request)
             if body != {"confirm": True}:
                 raise ValueError("请确认重启")

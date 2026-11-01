@@ -50,7 +50,8 @@ import type {
   SessionsData,
   SettingsBody,
   SettingsData,
-  ReleaseNote,
+  ReleaseNotesData,
+  RestartResult,
   UpgradeCheck,
   UpgradeJob,
   UpgradeStartBody,
@@ -105,10 +106,10 @@ export const api = {
       request<PluginConfigData>(`/manage/plugin-config/${segment(plugin)}`, {
         body: { values, reset, confirm: true },
       }),
-    restart: () => request<{ restarting: boolean }>('/manage/restart', { body: { confirm: true } }),
+    restart: () => request<RestartResult>('/manage/restart', { body: { confirm: true } }),
     upgrade: () => request<UpgradeStatus>('/manage/upgrade'),
     checkUpgrade: () => request<UpgradeCheck>('/manage/upgrade/check', { body: {} }),
-    upgradeNotes: () => request<{ note: ReleaseNote | null }>('/manage/upgrade/notes'),
+    upgradeNotes: () => request<ReleaseNotesData>('/manage/upgrade/notes'),
     startUpgrade: (body: UpgradeStartBody) => request<UpgradeJob>('/manage/upgrade', { body }),
     config: () => request<CoreConfigData>('/manage/config'),
     saveConfig: (values: Record<string, unknown>, reset: string[] = []) =>

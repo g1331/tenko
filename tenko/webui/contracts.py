@@ -728,3 +728,331 @@ class StatsData(TypedDict):
 
 class StatsReplayResult(TypedDict):
     chat: SandboxChat
+
+
+# ---------------------------------------------------------------- 插件市场与已安装插件
+
+PluginTier = TypeAliasType("PluginTier", Literal["official", "listed"])
+PluginTrust = TypeAliasType("PluginTrust", Literal["official", "listed", "unlisted"])
+
+
+class MarketVersion(TypedDict):
+    version: str
+    requires_api: str | None
+    problem: str | None
+    """不能安装的原因；null 表示可安装。"""
+    tested_on: str | None
+    """目录最近一次实测所用的 Tenko 版本和时间；从未测过为 null。"""
+    tested_at: str | None
+
+
+class MarketPlugin(TypedDict):
+    id: str
+    name: str
+    description: str
+    authors: list[str]
+    homepage: str | None
+    license: str | None
+    category: str | None
+    """分类的显示名；旧目录没有分类时为 null。"""
+    tags: list[str]
+    tier: PluginTier
+    icon_url: str | None
+    source: str | None
+    source_type: str
+    latest: str | None
+    """宿主可安装的最新版本；没有则看 problem。"""
+    problem: str | None
+    versions: list[MarketVersion]
+    installed_version: str | None
+    blocked: str | None
+
+
+class MarketData(TypedDict):
+    """目录不可用时只有 available / error / plugins。"""
+
+    available: bool
+    error: NotRequired[str]
+    url: NotRequired[str | None]
+    host_api: NotRequired[str]
+    categories: NotRequired[list[str]]
+    """目录定义的分类显示名，按展示顺序。"""
+    plugins: list[MarketPlugin]
+
+
+class InstalledPluginRecord(TypedDict):
+    """``PluginManager`` 记录的已安装插件。"""
+
+    plugin_id: str
+    dist: str
+    version: str
+    source: str
+    trust: PluginTrust
+    requirement: str
+    enabled: bool
+    loaded: bool
+    restart_required: bool
+    installed_at: str
+    updated_at: str
+
+
+class InstalledPlugin(InstalledPluginRecord):
+    name: str | None
+    icon_url: str | None
+    update: str | None
+    """目录里可更新到的版本。"""
+    yanked: str | None
+    """当前版本被撤回的原因。"""
+    blocked: str | None
+    """被目录封禁的原因。"""
+
+
+PluginTaskAction = TypeAliasType(
+    "PluginTaskAction",
+    Literal["install", "update", "resume", "uninstall", "rollback", "sync"],
+)
+PluginTaskState = TypeAliasType(
+    "PluginTaskState", Literal["running", "succeeded", "failed"]
+)
+
+
+class PluginTaskBody(TypedDict):
+    action: PluginTaskAction
+    plugin_id: NotRequired[str]
+    version: NotRequired[str]
+    clear_data: NotRequired[bool]
+    confirm: Literal[True]
+
+
+PluginChange = TypedDict(
+    "PluginChange",
+    {
+        "plugin_id": str,
+        "dist": str,
+        "from": str | None,
+        "to": str | None,
+    },
+)
+
+
+class PluginTask(TypedDict):
+    id: str
+    action: PluginTaskAction
+    plugin_id: str | None
+    state: PluginTaskState
+    message: str
+    changes: list[PluginChange]
+    restored: bool | None
+    """失败时环境是否已恢复；成功或未判断时为 null。"""
+    live: dict[str, str | None]
+    """更新和恢复：每个插件仍需重启的原因，null 表示已在运行中生效。"""
+    restart_required: bool
+    """这次变更是否要重启才能生效。"""
+    started_at: float
+    finished_at: float | None
+
+
+class SuspendedPlugin(TypedDict):
+    """因与宿主不兼容而停用的插件：包已移出环境，记录、数据和配置保留。"""
+
+    plugin_id: str
+    name: str | None
+    icon_url: str | None
+    dist: str
+    version: str
+    """停用前的版本。"""
+    trust: PluginTrust
+    enabled: bool
+    """停用前是否启用；恢复后沿用。"""
+    reason: str
+    suspended_at: str | None
+    resume: str | None
+    """已选定、下次启动自动装回的来源。"""
+    error: str | None
+    """上次自动恢复失败的原因。"""
+    options: list[str]
+    """目录里能装在当前宿主上的版本（新到旧）；未收录的插件为空，按原来源恢复。"""
+
+
+class PluginFailure(TypedDict):
+    """本次启动加载失败的插件；失败只跳过该插件。"""
+
+    plugin_id: str
+    name: str | None
+    builtin: bool
+    reason: str
+
+
+class InstalledData(TypedDict):
+    plugins: list[InstalledPlugin]
+    suspended: list[SuspendedPlugin]
+    failures: list[PluginFailure]
+    drift: list[str]
+    """环境与插件锁不一致的包。"""
+    rollback_available: bool
+    restart_required: bool
+    can_restart: bool
+    task: PluginTask | None
+
+
+# ---------------------------------------------------------------- 插件详情
+
+# 友好的链接分类，前端据此选图标。
+PluginLinkKind = TypeAliasType(
+    "PluginLinkKind", Literal["home", "repo", "pypi", "link"]
+)
+
+
+class PluginLink(TypedDict):
+    kind: PluginLinkKind
+    label: str
+    url: str
+
+
+class PluginCommandField(TypedDict):
+    label: str
+    value: str
+
+
+class PluginCommandDoc(TypedDict):
+    title: str
+    """带前缀的命令名，如 /帮助。"""
+    fields: list[PluginCommandField]
+    """说明、用法、示例、选项、权限；与群里 /帮助 编号 的内容一致。"""
+
+
+class PluginDetail(TypedDict):
+    """插件详情页的说明资料；状态和开关仍以 FeatureInfo 为准。"""
+
+    plugin: str
+    name: str
+    source: FeatureSource
+    local: bool
+    description: str
+    version: str | None
+    """内置插件为 Tenko 版本，扩展插件为已安装版本。"""
+    authors: list[str]
+    license: str | None
+    tier: str | None
+    tags: list[str]
+    icon: PluginIconRef
+    links: list[PluginLink]
+    commands: list[PluginCommandDoc]
+    """插件未加载时为空。"""
+    installed: InstalledPluginRecord | None
+    has_config: bool
+    update: str | None
+    yanked: str | None
+    blocked: str | None
+
+
+# ---------------------------------------------------------------- 插件配置
+
+
+class PluginConfigResponse(TypedDict):
+    """插件配置表单。"""
+
+    plugin_id: str
+    available: bool
+    schema: NotRequired[dict[str, object]]
+    """pydantic 生成的 JSON Schema；面板只用到其中的 properties。"""
+    values: NotRequired[dict[str, object]]
+    editable: NotRequired[list[str]]
+    read_only_reason: NotRequired[str | None]
+
+
+class RestartResult(TypedDict):
+    restarting: bool
+
+
+# ---------------------------------------------------------------- 宿主升级 /manage/upgrade
+
+
+class ReleaseNote(TypedDict):
+    tag: str
+    name: str
+    published_at: str | None
+    prerelease: bool
+    url: str | None
+    """GitHub 上的发布页。"""
+    body: str
+    """Markdown 原文。"""
+
+
+class ReleaseNotesData(TypedDict):
+    note: ReleaseNote | None
+
+
+class UpgradeCandidate(TypedDict):
+    tag: str
+    version: str
+    prerelease: bool
+    source: str
+    notes: str | None
+
+
+class UpgradeCheck(TypedDict):
+    """宿主升级页；时间均为 ISO 8601 UTC。"""
+
+    checked_at: str
+    status: str
+    current_version: str
+    channel: str
+    candidate: UpgradeCandidate | None
+    changelog: NotRequired[list[ReleaseNote]]
+    """当前版本之后到候选版本的各版发布说明（新到旧），取自 GitHub Releases。"""
+    changelog_error: NotRequired[str | None]
+    """读取发布说明失败的原因；不影响检查结果。"""
+
+
+UpgradeAction = TypeAliasType("UpgradeAction", Literal["upgrade", "rollback"])
+UpgradeJobState = TypeAliasType(
+    "UpgradeJobState", Literal["running", "restarting", "succeeded", "failed"]
+)
+
+
+class UpgradeJob(TypedDict):
+    action: UpgradeAction
+    state: UpgradeJobState
+    stage: str
+    message: str
+    target: str | None
+    incompatible: dict[str, str]
+    """与目标版本不兼容的插件及原因；"*" 表示插件组合冲突。"""
+    options: dict[str, list[str]]
+    """不兼容插件在目标版本上可装的目录版本（新到旧）；空数组表示只能停用。"""
+
+
+UpgradeHistoryEntry = TypedDict(
+    "UpgradeHistoryEntry",
+    {
+        "timestamp": str | None,
+        "action": Literal["install", "rollback", "startup", "download", "restart"],
+        "result": str,
+        "from": str | None,
+        "to": str | None,
+        "automatic": bool,
+        "error": str | None,
+    },
+)
+
+
+class UpgradeStatus(TypedDict):
+    enabled: bool
+    current_version: str
+    channel: Literal["stable", "prerelease"]
+    policy: Literal["check", "download", "install"]
+    check_interval_hours: int
+    previous_version: str | None
+    release_url: str | None
+    """当前版本在 GitHub 上的发布页；升级源不在 GitHub 上时为 null。"""
+    last_check: UpgradeCheck | None
+    job: UpgradeJob | None
+    history: list[UpgradeHistoryEntry]
+
+
+class UpgradeStartBody(TypedDict):
+    action: UpgradeAction
+    confirm: Literal[True]
+    plugins: NotRequired[dict[str, str]]
+    """每个不兼容插件的处理："suspend" 或目标版本上要装的版本号。"""
