@@ -404,15 +404,14 @@ class HostUpgrade:
                 else await self._target_source(pid, choices[pid], error.api_version)
                 for pid in error.reasons
             }
-            manager = self.market.manager
-            await manager.suspend(sources, reasons=error.reasons, actor="webui")
-            job.stage = f"下载并校验 {job.target}"
-            try:
-                await updater.prepare(checked.candidate)
-            except Exception:
-                # 宿主没升级成，插件也不该停着：撤销刚才的停用。
-                await manager.rollback(actor="webui")
-                raise
+
+            async def retry():
+                job.stage = f"下载并校验 {job.target}"
+                return await updater.prepare(checked.candidate)
+
+            await self.market.manager.suspend_then(
+                sources, retry, reasons=error.reasons, actor="webui"
+            )
         job.stage = "切换版本"
         await updater.request_install()
         self._restart(job, f"{job.target} 已下载并校验通过，正在重启进入新版本")

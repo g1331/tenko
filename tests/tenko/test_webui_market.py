@@ -16,7 +16,11 @@ from test_registry import index_data
 from test_webui import _login
 
 from tenko.config import TenkoConfig
-from tenko.host.plugins.manager import PluginChange, PluginManagerError
+from tenko.host.plugins.manager import (
+    PluginChange,
+    PluginManager,
+    PluginManagerError,
+)
 from tenko.host.plugins.registry import Registry
 from tenko.host.updater import (
     CheckResult,
@@ -58,6 +62,12 @@ class FakeManager:
 
     async def go_live(self, runtime, changes):
         return {}
+
+    # 停用后重试、失败再撤销的组合逻辑用真实实现，测试只替换 suspend。
+    suspend_then = PluginManager.suspend_then
+
+    async def rollback(self, *, actor):
+        return []
 
 
 CONFIG = """# 手工维护的说明

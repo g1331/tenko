@@ -37,12 +37,12 @@ import subprocess
 import sys
 import tempfile
 import threading
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Awaitable, Callable, Mapping, Sequence
 from contextlib import contextmanager
 from dataclasses import asdict, dataclass, replace
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any, Literal, TypeVar
 from urllib.parse import urlsplit
 
 from loguru import logger
@@ -62,6 +62,8 @@ from ..updater import (
     tenko_api_version,
 )
 from ..uv import UvError, run_uv
+
+T = TypeVar("T")
 
 LOCK_NAME = "plugins.lock"
 HISTORY_KEEP = 5
@@ -1313,6 +1315,26 @@ class PluginManager:
             lambda: self._suspend(choices, reasons or {}, actor),
             plugins=sorted(choices),
         )  # fmt: skip
+
+    async def suspend_then(
+        self,
+        choices: Mapping[str, PluginSource | None],
+        retry: Callable[[], Awaitable[T]],
+        *,
+        reasons: Mapping[str, str],
+        actor: str | None,
+    ) -> T:
+        """宿主升级遇到不兼容插件时：先停用它们再重试 ``retry``（重新准备候选版本）。
+
+        重试失败就撤销这次停用再抛出：宿主没升级成，插件也不该停着。
+        """
+
+        await self.suspend(choices, reasons=reasons, actor=actor)
+        try:
+            return await retry()
+        except Exception:
+            await self.rollback(actor=actor)
+            raise
 
     async def resume(
         self, plugin_id: str, source: PluginSource, *, actor: str | None = None

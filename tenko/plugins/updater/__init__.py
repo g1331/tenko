@@ -138,16 +138,12 @@ async def upgrade(session: Session, drop: Match[str]):
                     f"{exc}\n可发送 /升级 停用不兼容插件：先停用它们（保留记录、数据和"
                     "配置）再升级，之后在面板或用 /更新插件 装上兼容版本即可恢复。"
                 )
-            manager, actor = get_plugin_manager(), context_from_session(session).user_id
-            await manager.suspend(
-                dict.fromkeys(exc.reasons), reasons=exc.reasons, actor=actor
+            prepared = await get_plugin_manager().suspend_then(
+                dict.fromkeys(exc.reasons),
+                lambda: updater.prepare(checked.candidate),
+                reasons=exc.reasons,
+                actor=context_from_session(session).user_id,
             )
-            try:
-                prepared = await updater.prepare(checked.candidate)
-            except Exception:
-                # 宿主没升级成，插件也不该停着：撤销刚才的停用。
-                await manager.rollback(actor=actor)
-                raise
         handoff = await updater.request_install()
         watcher_armed = _arm_restart_watcher()
         response = _format_upgrade(prepared, handoff, watcher_armed)
