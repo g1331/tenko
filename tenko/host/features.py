@@ -452,7 +452,7 @@ class CommandPolicy:
         if native is not None:
             requires = command_requirements(native).get(command.command, {})
             if "rate" in requires:
-                return requires["rate"]  # type: ignore[return-value]
+                return requires["rate"]
         return getattr(owner, "rate_weight", None)
 
     async def check(self, session: Session, command: Alconna) -> PolicyVerdict:

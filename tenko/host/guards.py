@@ -12,12 +12,12 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable, Mapping
-from typing import Any, ClassVar
+from collections.abc import Callable
+from typing import Any, ClassVar, Literal, TypedDict
 
 from arclet.entari import Session
 from arclet.entari.command.provider import AlconnaSuppiler
-from arclet.entari.plugin import get_plugin, get_plugin_subscribers
+from arclet.entari.plugin import Plugin, get_plugin, get_plugin_subscribers
 from arclet.letoderea import STOP, Propagator, propagate
 from loguru import logger
 
@@ -28,10 +28,20 @@ from .plugins.runtime import external_plugin_for_module
 from .stats import mark_denied
 
 REQUIRES_ATTR = "__tenko_requires__"
+
+
+class Requirements(TypedDict, total=False):
+    """处理函数上 ``__tenko_requires__`` 登记的要求。"""
+
+    user: Permission
+    chat: Literal["group", "private"]
+    rate: int
+
+
 # 测试可以替换它；内置和扩展插件共用同一个检查器（数据库 + Entari superusers）。
 permission_checker = PermissionChecker()
 
-_USER_LABELS = {
+_USER_LABELS: dict[int, str] = {
     Permission.User: "成员",
     Permission.GroupAdmin: "群管理员",
     Permission.GroupOwner: "群主",
@@ -42,7 +52,7 @@ _CHAT_LABELS = {"group": "群聊", "private": "私聊"}
 
 
 def user_label(level: int) -> str:
-    return _USER_LABELS.get(level, str(level))  # type: ignore[call-overload]
+    return _USER_LABELS.get(level, str(level))
 
 
 def _context(session: Session | None) -> MessageContext | None:
@@ -172,22 +182,22 @@ def rate_limit(weight: int) -> Callable[[Any], Any]:
     return decorate
 
 
-def requirement_text(requires: Mapping[str, object]) -> str | None:
+def requirement_text(requires: Requirements) -> str | None:
     """把处理函数登记的要求格式化为一行帮助文本；没有要求时返回 ``None``。"""
 
     parts = []
     if "user" in requires:
-        parts.append(user_label(requires["user"]))  # type: ignore[arg-type]
+        parts.append(user_label(requires["user"]))
     if "chat" in requires:
-        parts.append(f"仅{_CHAT_LABELS[requires['chat']]}")  # type: ignore[index]
+        parts.append(f"仅{_CHAT_LABELS[requires['chat']]}")
     return "，".join(parts) or None
 
 
-def command_requirements(native_plugin: object) -> dict[str, Mapping[str, object]]:
+def command_requirements(native_plugin: Plugin) -> dict[str, Requirements]:
     """按 Alconna 命令名返回插件各命令处理函数声明的要求。"""
 
-    result: dict[str, Mapping[str, object]] = {}
-    for subscriber in get_plugin_subscribers(native_plugin):  # type: ignore[arg-type]
+    result: dict[str, Requirements] = {}
+    for subscriber in get_plugin_subscribers(native_plugin):
         requires = getattr(subscriber.callable_target, REQUIRES_ATTR, None)
         if not requires:
             continue

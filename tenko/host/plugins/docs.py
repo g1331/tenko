@@ -9,7 +9,7 @@ from collections.abc import Iterable
 from pathlib import Path
 
 from arclet.alconna import Option, command_manager
-from arclet.entari.plugin import get_plugin_commands
+from arclet.entari.plugin import Plugin, get_plugin_commands
 
 from tenko.host.guards import command_requirements, requirement_text
 from tenko.host.plugins.registry import Registry, get_registry
@@ -153,7 +153,7 @@ def format_command_help(
 
 
 def plugin_command_help(
-    native_plugin: object,
+    native_plugin: Plugin,
 ) -> list[tuple[str, list[tuple[str, str]]]]:
     """插件每条命令的 (显示名, 字段)；按注册顺序排列。"""
 
@@ -165,5 +165,5 @@ def plugin_command_help(
             prefixes,
             requirement_text(requirements.get(command_name, {})),
         )
-        for prefixes, command_name in get_plugin_commands(native_plugin)  # type: ignore[arg-type]
+        for prefixes, command_name in get_plugin_commands(native_plugin)
     ]
