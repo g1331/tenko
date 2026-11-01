@@ -68,5 +68,5 @@ Satori 负责协议对象和动作抽象，Entari 负责事件分发、插件生
   渲染 HTML/Markdown；服务异常不会
   阻断文本功能。
 - 数据层使用 SQLite、SQLAlchemy 和 entari-plugin-database。新 ORM 位于
-  tenko/db/models.py，repository 位于 tenko/db/repositories.py；应用启动时会创建
+  tenko/db/models.py，repository 位于 tenko/db/repositories/ 包；应用启动时会创建
   或迁移所需表，已有 SQLite 数据库文件可以继续使用。
