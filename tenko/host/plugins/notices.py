@@ -18,7 +18,6 @@ from __future__ import annotations
 
 import hashlib
 import json
-import os
 import time
 from collections.abc import Callable, Coroutine, Iterable
 from dataclasses import dataclass
@@ -32,6 +31,7 @@ from ...context import context_from_session
 from .. import notify as host_notify
 from .. import sandbox
 from ..accounts import account_registry
+from ..atomic import atomic_write_text
 from ..perm import Permission, PermissionChecker
 from .runtime import external_plugin_for_module
 from .storage import _caller_module, _data_dir
@@ -216,13 +216,10 @@ def _track(plugin_id: str, key: str, refs: Iterable[Ref], digest: str) -> None:
     item = {"key": key, "refs": [list(ref) for ref in refs], "digest": digest}
     try:
         notices = [*_load(plugin_id), {**item, "at": time.time()}]
-        path = _book(plugin_id)
-        temp = path.with_name(f"{path.name}.tmp")
         text = json.dumps(
             {"version": 1, "notices": notices[-KEEP_MAX:]}, ensure_ascii=False
         )
-        temp.write_text(text + "\n", encoding="utf-8")
-        os.replace(temp, path)
+        atomic_write_text(_book(plugin_id), text + "\n")
     except OSError:
         logger.exception(
             "无法记录插件 {} 的通知 {}，将识别不了对它的回复", plugin_id, key

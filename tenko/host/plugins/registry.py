@@ -12,7 +12,6 @@ from __future__ import annotations
 
 import hashlib
 import json
-import os
 import platform
 import re
 import time
@@ -28,6 +27,7 @@ from packaging.specifiers import InvalidSpecifier, SpecifierSet
 from packaging.utils import canonicalize_name
 from packaging.version import InvalidVersion, Version
 
+from ..atomic import atomic_write_text
 from .manager import (
     PluginManager,
     PluginManagerError,
@@ -499,12 +499,9 @@ class Registry:
         raise RegistryError("插件目录不可用：" + "；".join(errors))
 
     def _save(self, raw: Any, url: str) -> None:
-        self.cache_dir.mkdir(parents=True, exist_ok=True)
-        temp = self.cache_file.with_name("index.json.tmp")
-        temp.write_text(
-            json.dumps({"url": url, "index": raw}, ensure_ascii=False), encoding="utf-8"
+        atomic_write_text(
+            self.cache_file, json.dumps({"url": url, "index": raw}, ensure_ascii=False)
         )
-        os.replace(temp, self.cache_file)
 
     async def _download_icons(self, index: RegistryIndex) -> None:
         """下载缺少的图标；文件名带内容哈希前缀，下载后核对，不一致的丢弃。"""

@@ -12,7 +12,6 @@
 from __future__ import annotations
 
 import json
-import os
 import re
 import shutil
 import sqlite3
@@ -25,6 +24,7 @@ from typing import Any
 
 from loguru import logger
 
+from ..atomic import atomic_write_text
 from ..sandbox import origin as sandbox_origin
 from .runtime import _PLUGIN_ID, external_plugin_for_module
 
@@ -282,13 +282,11 @@ class Store:
         return data
 
     def save(self, data: Any) -> None:
-        """原子写入：先写同目录临时文件再 ``os.replace``。
+        """原子写入（``atomic_write_text``）。
 
         已有文件损坏或版本比声明的新时抛错，避免覆盖无法处理的数据。
         """
 
         self._read()
         text = json.dumps({"version": self.version, "data": data}, ensure_ascii=False)
-        temp = self.path.with_name(f"{self.path.name}.tmp")
-        temp.write_text(text + "\n", encoding="utf-8")
-        os.replace(temp, self.path)
+        atomic_write_text(self.path, text + "\n")

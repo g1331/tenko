@@ -4,7 +4,6 @@ import importlib
 import importlib.machinery
 import importlib.util
 import json
-import os
 import re
 import shutil
 import sys
@@ -37,6 +36,7 @@ from loguru import logger
 from packaging.requirements import InvalidRequirement, Requirement
 
 from ...context import MessageContext
+from ..atomic import atomic_write_text
 from ..sandbox import refuse_in_sandbox
 
 _DEFAULT_PLUGIN_DIR = Path(__file__).resolve().parents[2] / "plugins"
@@ -383,12 +383,9 @@ class PluginRuntime:
         return frozenset(self.read_state()["enabled"])
 
     def write_state(self, state: Mapping[str, Any]) -> None:
-        """原子写入状态文件（先写同目录临时文件再 ``os.replace``）。"""
+        """原子写入状态文件（``atomic_write_text``）。"""
 
-        self.state_file.parent.mkdir(parents=True, exist_ok=True)
-        temp = self.state_file.with_name(f"{self.state_file.name}.tmp")
-        temp.write_text(json.dumps(state, indent=2) + "\n", encoding="utf-8")
-        os.replace(temp, self.state_file)
+        atomic_write_text(self.state_file, json.dumps(state, indent=2) + "\n")
 
     def _write_external_enabled(self, name: str, enabled: bool) -> None:
         state = self.read_state()
