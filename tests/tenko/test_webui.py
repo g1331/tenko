@@ -15,6 +15,7 @@ from tenko.host.metrics import MessageMetrics
 from tenko.host.accounts import AccountRegistry
 from tenko.host.features import FeatureService
 from tenko.webui import WebUIService
+from webui_contract_support import response_contract
 
 
 async def _get(
@@ -1151,3 +1152,25 @@ async def test_inbox_decisions_run_the_plugin_callback(tenko_database):
     # 平台动作失败时请求留在列表里，可以重试或忽略。
     assert failed.status_code == 409 and "请求已失效" in failed.text and kept == 1
     assert dismissed.json()["data"]["items"] == [] and len(decisions) == 1
+
+
+# 返回的不是 JSON 信封：SSE 流和图标文件。
+_NON_JSON_ROUTES = {
+    "/webui/api/events",
+    "/webui/api/market/icons/{name}",
+    "/webui/api/plugins/{plugin}/icon",
+}
+
+
+def test_every_json_api_route_declares_its_response_contract():
+    server, _service_ = _service(WebUIConfig(enabled=True))
+
+    missing = [
+        route.path
+        for route in server.app.routes
+        if route.path.startswith("/webui/api/")
+        and route.path not in _NON_JSON_ROUTES
+        and response_contract(route.endpoint) is None
+    ]
+
+    assert missing == []

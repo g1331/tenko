@@ -18,6 +18,9 @@ export type ChatSegment =
   | ChatOtherSegment
 export type ChatSendSegment =
   ChatSendTextSegment | ChatSendAtSegment | ChatSendImageSegment | ChatSendQuoteSegment
+export type CoreConfigGroup =
+  'basic' | 'upgrade' | 'render' | 'ratelimit' | 'chat_log' | 'exception' | 'registry'
+export type CoreConfigKind = 'boolean' | 'integer' | 'number' | 'enum' | 'identifier' | 'urls'
 /**
  * 没有内容的成功响应。
  */
@@ -30,6 +33,7 @@ export type InboxAction = 'approve' | 'reject' | 'dismiss'
 export type PluginTrust = 'official' | 'listed' | 'unlisted'
 export type PluginTaskAction = 'install' | 'update' | 'resume' | 'uninstall' | 'rollback' | 'sync'
 export type PluginTaskState = 'running' | 'succeeded' | 'failed'
+export type LogData = LogLiveData | LogHistoryData
 export type PluginTier = 'official' | 'listed'
 export type PairingActionBody = PairingRevealBody | PairingRotateBody
 export type PluginLinkKind = 'home' | 'repo' | 'pypi' | 'link'
@@ -261,6 +265,53 @@ export interface ChatSendImageSegment {
 export interface ChatSendQuoteSegment {
   type: 'quote'
   id: string
+}
+export interface CoreConfigData {
+  fields: CoreConfigField[]
+  writable: boolean
+  restart_required: boolean
+  /**
+   * 已保存但要重启才生效的字段 key；"*" 表示整份配置。
+   */
+  restart_fields: string[]
+  can_restart: boolean
+}
+/**
+ * 宿主配置项及其当前值；value 的类型随 kind：boolean / 数字 / 选项值 / 字符串 / 字符串数组。
+ */
+export interface CoreConfigField {
+  key: string
+  group: CoreConfigGroup
+  label: string
+  kind: CoreConfigKind
+  default: unknown
+  help: string
+  options: CoreConfigOption[]
+  min: number | null
+  max: number | null
+  value: unknown
+  /**
+   * 值引用了环境变量，只能在配置文件里改。
+   */
+  read_only: boolean
+}
+export interface CoreConfigOption {
+  value: string | number
+  label: string
+}
+/**
+ * 宿主配置项的声明：键、分组、取值范围和默认值。
+ */
+export interface CoreConfigFieldInfo {
+  key: string
+  group: CoreConfigGroup
+  label: string
+  kind: CoreConfigKind
+  default: unknown
+  help: string
+  options: CoreConfigOption[]
+  min: number | null
+  max: number | null
 }
 export interface FeatureControlledBody {
   /**
@@ -533,6 +584,28 @@ export interface InstalledPluginRecord {
   restart_required: boolean
   installed_at: string
   updated_at: string
+}
+export interface LogLiveData {
+  records: LogRecord[]
+  cursor: number
+  reset: boolean
+  truncated: boolean
+  files: string[]
+  history_enabled: boolean
+}
+export interface LogRecord {
+  id: number
+  time: string
+  level: string
+  message: string
+}
+export interface LogHistoryData {
+  lines: string[]
+  truncated: boolean
+  matched: number
+  scan_limit_bytes: number
+  files: string[]
+  history_enabled: boolean
 }
 export interface LoginBody {
   username: string

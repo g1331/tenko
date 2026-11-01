@@ -17,7 +17,6 @@ from satori.server import Server
 from starlette.requests import Request
 from starlette.responses import (
     FileResponse,
-    JSONResponse,
     Response,
     StreamingResponse,
 )
@@ -34,7 +33,12 @@ from .auth import (
     success_response as _success_response,
 )
 from .accounts import AccountPanel
-from .contracts import OverviewData, PairingInfo
+from .contracts import (
+    CoreConfigData,
+    LogData,
+    OverviewData,
+    PairingInfo,
+)
 from .blacklist import BlacklistPanel
 from .chat import ChatPanel
 from .features import FeaturePanel
@@ -470,8 +474,8 @@ class WebUIService(Service):
 
         return await self.manage(request, action)
 
-    async def core_config(self, request: Request) -> JSONResponse:
-        async def action():
+    async def core_config(self, request: Request) -> ApiResponse[CoreConfigData]:
+        async def action() -> CoreConfigData:
             writable = self._config_path is not None and self._config_stamp is not None
             raw = self.raw_config() if writable else {}
             if request.method == "POST":
@@ -484,7 +488,11 @@ class WebUIService(Service):
                 raw = self.raw_config()
                 self._restart_fields = ["*"]
                 if self._apply_config is not None:
-                    native = self.tenko_config.entari_config
+                    native = (
+                        self.tenko_config.entari_config if self.tenko_config else None
+                    )
+                    if native is None:  # update_config 已检查，这里只为收窄类型
+                        raise RuntimeError("没有可写回的配置文件")
                     config = TenkoConfig.from_mapping(native.data, entari_config=native)
                     self._restart_fields = self._apply_config(config)
                     self.tenko_config = config
@@ -505,8 +513,8 @@ class WebUIService(Service):
 
         return local_data._get_base_log_dir()
 
-    async def log_view(self, request: Request) -> JSONResponse:
-        async def read():
+    async def log_view(self, request: Request) -> ApiResponse[LogData]:
+        async def read() -> LogData:
             params = request.query_params
             query = params.get("q", "")
             if len(query) > 200:
@@ -514,17 +522,29 @@ class WebUIService(Service):
             directory = self._log_directory()
             name = params.get("file")
             if name:
-                data = await asyncio.to_thread(
+                history = await asyncio.to_thread(
                     self.logs.history, directory, name, query
                 )
-            else:
-                after = int(params.get("after", "0"))
-                if after < 0:
-                    raise ValueError("日志游标不能为负数")
-                data = self.logs.live(after, query, params.get("level", ""))
-            data["files"] = await asyncio.to_thread(self.logs.files, directory)
-            data["history_enabled"] = directory is not None
-            return data
+                return {
+                    "lines": history["lines"],
+                    "truncated": history["truncated"],
+                    "matched": history["matched"],
+                    "scan_limit_bytes": history["scan_limit_bytes"],
+                    "files": await asyncio.to_thread(self.logs.files, directory),
+                    "history_enabled": directory is not None,
+                }
+            after = int(params.get("after", "0"))
+            if after < 0:
+                raise ValueError("日志游标不能为负数")
+            live = self.logs.live(after, query, params.get("level", ""))
+            return {
+                "records": live["records"],
+                "cursor": live["cursor"],
+                "reset": live["reset"],
+                "truncated": live["truncated"],
+                "files": await asyncio.to_thread(self.logs.files, directory),
+                "history_enabled": directory is not None,
+            }
 
         # 高频只读日志不产生审计日志，避免轮询形成递归日志流。
         return await self.manage(request, read)

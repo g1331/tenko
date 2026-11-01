@@ -13,6 +13,12 @@ from dataclasses import dataclass
 from typing import Any
 
 from ..config import RegistryConfig
+from .contracts import (
+    CoreConfigField,
+    CoreConfigFieldInfo,
+    CoreConfigGroup,
+    CoreConfigKind,
+)
 
 LOG_LEVELS = ("TRACE", "DEBUG", "INFO", "SUCCESS", "WARNING", "ERROR")
 
@@ -20,16 +26,16 @@ LOG_LEVELS = ("TRACE", "DEBUG", "INFO", "SUCCESS", "WARNING", "ERROR")
 @dataclass(frozen=True, slots=True)
 class ConfigField:
     key: str
-    group: str
+    group: CoreConfigGroup
     label: str
-    kind: str  # boolean / integer / number / enum / identifier / urls
+    kind: CoreConfigKind
     default: Any
     help: str = ""
     options: tuple[tuple[Any, str], ...] = ()
     minimum: float | None = None
     maximum: float | None = None
 
-    def describe(self) -> dict[str, Any]:
+    def describe(self) -> CoreConfigFieldInfo:
         return {
             "key": self.key,
             "group": self.group,
@@ -263,8 +269,8 @@ def _has_placeholder(value: Any) -> bool:
     return isinstance(value, str) and "${" in value
 
 
-def read(raw: Mapping[str, Any]) -> list[dict[str, Any]]:
-    rows = []
+def read(raw: Mapping[str, Any]) -> list[CoreConfigField]:
+    rows: list[CoreConfigField] = []
     for field in FIELDS:
         value = _lookup(raw, _path(field, raw))
         rows.append(

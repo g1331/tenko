@@ -1056,3 +1056,85 @@ class UpgradeStartBody(TypedDict):
     confirm: Literal[True]
     plugins: NotRequired[dict[str, str]]
     """每个不兼容插件的处理："suspend" 或目标版本上要装的版本号。"""
+
+
+# ---------------------------------------------------------------- 宿主配置 /manage/config
+
+CoreConfigKind = TypeAliasType(
+    "CoreConfigKind",
+    Literal["boolean", "integer", "number", "enum", "identifier", "urls"],
+)
+CoreConfigGroup = TypeAliasType(
+    "CoreConfigGroup",
+    Literal[
+        "basic", "upgrade", "render", "ratelimit", "chat_log", "exception", "registry"
+    ],
+)
+
+
+class CoreConfigOption(TypedDict):
+    value: str | int
+    label: str
+
+
+class CoreConfigFieldInfo(TypedDict):
+    """宿主配置项的声明：键、分组、取值范围和默认值。"""
+
+    key: str
+    group: CoreConfigGroup
+    label: str
+    kind: CoreConfigKind
+    default: object
+    help: str
+    options: list[CoreConfigOption]
+    min: float | None
+    max: float | None
+
+
+class CoreConfigField(CoreConfigFieldInfo):
+    """宿主配置项及其当前值；value 的类型随 kind：boolean / 数字 / 选项值 / 字符串 / 字符串数组。"""
+
+    # object 字段不能带文档字符串：生成器会把“只有 description 的 schema”写成对象类型。
+    value: object
+    read_only: bool
+    """值引用了环境变量，只能在配置文件里改。"""
+
+
+class CoreConfigData(TypedDict):
+    fields: list[CoreConfigField]
+    writable: bool
+    restart_required: bool
+    restart_fields: list[str]
+    """已保存但要重启才生效的字段 key；"*" 表示整份配置。"""
+    can_restart: bool
+
+
+# ---------------------------------------------------------------- 日志 /manage/logs
+
+
+class LogRecord(TypedDict):
+    id: int
+    time: str
+    level: str
+    message: str
+
+
+class LogLiveData(TypedDict):
+    records: list[LogRecord]
+    cursor: int
+    reset: bool
+    truncated: bool
+    files: list[str]
+    history_enabled: bool
+
+
+class LogHistoryData(TypedDict):
+    lines: list[str]
+    truncated: bool
+    matched: int
+    scan_limit_bytes: int
+    files: list[str]
+    history_enabled: bool
+
+
+LogData = TypeAliasType("LogData", LogLiveData | LogHistoryData)
