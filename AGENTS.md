@@ -189,7 +189,9 @@ config/tenko.toml.example    # 配置模板
   （分发包版本）相比上次启动变化时，先把库备份到 `backups/<时间>-v<旧版本>.db`（保留最近 3 份）；
   上次版本记在 `db-version`。`/清除插件数据 <插件ID>`（Master，二次确认）
   删除整个数据目录，要求插件当前未加载（先停用并重启）；卸载默认保留数据。
-- 安装与管理（`tenko/host/plugins/manager.py`，命令在 `tenko/plugins/plugin_manager/`）：
+- 安装与管理（`tenko/host/plugins/manager.py`，命令在 `tenko/plugins/plugin_manager/`；
+  对插件环境的 uv 调用、锁编译与应用、入口列表和导入检查在 `environment.py` 的
+  `PluginEnvironment`，由 `PluginManager.env` 持有）：
   `.tenko/plugins/plugins.lock` 是以宿主 `uv.lock` 加宿主实际 `tenko-api` 版本为约束的
   `uv pip compile --generate-hashes` 输出，已排除宿主的包；插件记录（分发名、版本、来源、
   哈希或提交号、安装人和时间）在同目录 `state.json` 的 `plugins` 节。安装、更新、卸载、回滚走

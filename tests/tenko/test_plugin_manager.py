@@ -154,8 +154,8 @@ async def test_resolve_refreshes_index_cache_for_target(env) -> None:
     # uv 缓存的索引页会让刚发布的版本“不存在”，安装和更新都要刷新目标包。
     env.plugin("foo")
     manager = env.manager()
-    calls, real = [], manager._uv
-    manager._uv = lambda step, *args, **kw: (
+    calls, real = [], manager.env.run
+    manager.env.run = lambda step, *args, **kw: (
         calls.append(args) or real(step, *args, **kw)
     )
 
@@ -306,7 +306,7 @@ def test_drift_compares_git_sources_by_commit(env, tmp_path) -> None:
     lock.write_text(f"tenko-plugin-g @ git+https://h/o/r@{'a' * 40}\n")
     manager = env.manager()
     installed = {"tenko-plugin-g": f"@ git+https://h/o/r.git@{'a' * 40}"}
-    manager._freeze = lambda: installed
+    manager.env.freeze = lambda: installed
     assert manager.drift() == []
     installed["tenko-plugin-g"] = f"@ git+https://h/o/r@{'b' * 40}"
     assert manager.drift() == ["tenko-plugin-g"]
