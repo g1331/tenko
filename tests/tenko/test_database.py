@@ -15,13 +15,12 @@ from sqlalchemy import (
     Table,
     inspect,
     insert,
-    select,
 )
 from sqlalchemy.ext.asyncio import create_async_engine
 
 from tenko.config import TenkoConfig
 from tenko.db.bootstrap import _official_config
-from tenko.db.migration import LEGACY_SCHEMA_REVISION, run_database_migrations
+from tenko.db.migration import RETIRED_TABLES, run_database_migrations
 
 
 def _legacy_metadata() -> MetaData:
@@ -107,130 +106,54 @@ def test_runtime_state_bootstrap_creates_tables_before_state_load() -> None:
 
 
 @pytest.mark.asyncio
-async def test_official_database_plugin_preserves_legacy_schema_and_rows(
+async def test_migration_drops_retired_tables_and_builds_current_schema(
     tmp_path, monkeypatch
 ):
+    """旧库（含 #234 之前的状态记录）升级：退役表被删除，新表按当前模型建立。"""
+
     if not EntariConfig._inited:
         EntariConfig(Path("/tmp/tenko-database-test.yml"))
 
     database_path = tmp_path / "legacy.db"
-    legacy = await _create_legacy_database(database_path)
+    await _create_legacy_database(database_path)
     service = SqlalchemyService(
         f"sqlite+aiosqlite:///{database_path}",
         engine_options={"echo": False, "pool_pre_ping": True},
     )
-    from tenko.db.models import (
-        MODEL_CLASSES,
-        AccountPreference,
-        ChatMessage,
-        CommandStat,
-        WebUIAccount,
-        WebUISession,
-        WebUISetting,
-        AccountResponseState,
-        AccountRoute,
-        FeatureState,
-        GroupBlacklist,
-        GroupPerm,
-        GroupSetting,
-        MemberPerm,
-        PermissionGrant,
-        RateLimitEvent,
-        RateLimitSubjectState,
-        StartupTime,
-        UserBlacklist,
-        LegacyAccountResponseState,
-        LegacyAccountRoute,
-        LegacyFeatureState,
-        LegacyGroupSetting,
-        LegacyRateLimitEvent,
-        LegacyRateLimitSubjectState,
-    )
+    from tenko.db.models import MODEL_CLASSES
 
     await service.initialize()
-
-    async with service.engines[""].begin() as connection:
-        await connection.run_sync(
-            service.base_class.metadata.create_all,
-            checkfirst=True,
-        )
 
     from entari_plugin_database import migration as official_migration
 
     migration_state = tmp_path / "migrations_lock.json"
+    # #234 之前的状态：GroupSetting 由同名模型记录。若不先移除，官方迁移器会把它
+    # 当成新 GroupSetting 模型（表名 TenkoGroupSetting）的改名来源。
+    migration_state.write_text(
+        json.dumps(
+            {
+                "GroupSetting": {
+                    "module": "tenko.db.models",
+                    "name": "GroupSetting",
+                    "revision": "tenko-g1-legacy-schema-v1",
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
     monkeypatch.setattr(official_migration, "_STATE_FILE", migration_state)
     await run_database_migrations(service)
+
     state = json.loads(migration_state.read_text(encoding="utf-8"))
-    legacy_tables = {
-        "MemberPerm",
-        "GroupPerm",
-        "GroupSetting",
-    }
-    assert legacy_tables <= set(state)
-    assert all(
-        state[table]["revision"] == LEGACY_SCHEMA_REVISION for table in legacy_tables
-    )
-
-    async with service.get_session() as session:
-        permissions = (
-            await session.execute(
-                select(MemberPerm.group_id, MemberPerm.qq, MemberPerm.perm).order_by(
-                    MemberPerm.qq
-                )
-            )
-        ).all()
-        group = await session.scalar(select(GroupPerm).where(GroupPerm.group_id == 1))
-        setting = await session.scalar(
-            select(LegacyGroupSetting).where(LegacyGroupSetting.group_id == 1)
-        )
-
-    assert [row.perm for row in permissions] == [-1, 0, 16, 32, 64, 128, 256]
-    assert group is not None
-    assert (group.group_name, group.perm, group.active) == ("旧群", 2, True)
-    assert setting is not None
-    assert (
-        setting.frequency_limitation,
-        setting.response_type,
-        setting.permission_type,
-    ) == (False, "deterministic", "admin")
-
-    expected_models = {
-        "MemberPerm": MemberPerm,
-        "GroupPerm": GroupPerm,
-        "GroupSetting": LegacyGroupSetting,
-        "TenkoFeatureState": LegacyFeatureState,
-        "TenkoAccountRoute": LegacyAccountRoute,
-        "TenkoAccountResponseState": LegacyAccountResponseState,
-        "TenkoRateLimitEvent": LegacyRateLimitEvent,
-        "TenkoRateLimitSubjectState": LegacyRateLimitSubjectState,
-        "TenkoGroupSetting": GroupSetting,
-        "TenkoFeatureSwitch": FeatureState,
-        "TenkoGroupRoute": AccountRoute,
-        "TenkoGroupResponse": AccountResponseState,
-        "TenkoRateEvent": RateLimitEvent,
-        "TenkoRateSubject": RateLimitSubjectState,
-        "TenkoStartupTime": StartupTime,
-        "TenkoAccountPreference": AccountPreference,
-        "TenkoSetting": WebUISetting,
-        "TenkoWebUIAccount": WebUIAccount,
-        "TenkoWebUISession": WebUISession,
-        "TenkoChatMessage": ChatMessage,
-        "TenkoUserBlacklist": UserBlacklist,
-        "TenkoGroupBlacklist": GroupBlacklist,
-        "TenkoPermissionGrant": PermissionGrant,
-        "TenkoCommandStat": CommandStat,
-    }
-    assert {model.__tablename__ for model in MODEL_CLASSES} == set(expected_models)
-    assert set(expected_models) <= set(state)
-    assert all(
-        state[table]["revision"] for table in set(expected_models) - legacy_tables
-    )
+    current = {model.__tablename__: model for model in MODEL_CLASSES}
+    assert not RETIRED_TABLES & set(state)
+    assert set(current) <= set(state)
     async with service.engines[""].connect() as connection:
         table_names = await connection.run_sync(
             lambda sync_connection: set(inspect(sync_connection).get_table_names())
         )
-        assert table_names == set(expected_models)
-        for table_name, model in expected_models.items():
+        assert table_names == set(current)
+        for table_name, model in current.items():
             columns = await connection.run_sync(
                 lambda sync_connection, name=table_name: inspect(
                     sync_connection
@@ -239,15 +162,4 @@ async def test_official_database_plugin_preserves_legacy_schema_and_rows(
             assert [column["name"] for column in columns] == [
                 column.name for column in model.__table__.columns
             ]
-            if table_name in legacy_tables:
-                assert [column["name"] for column in columns] == [
-                    column.name for column in legacy.tables[table_name].columns
-                ]
-
-        member_pk = await connection.run_sync(
-            lambda sync_connection: inspect(sync_connection).get_pk_constraint(
-                "MemberPerm"
-            )["constrained_columns"]
-        )
-    assert set(member_pk) == {"group_id", "qq"}
     await service.engines[""].dispose()

@@ -186,6 +186,10 @@ def test_official_private_api_still_exists() -> None:
         "_execute_table_drops",
         "_normalize_alembic_ops",
         "_update_state_for_model",
+        "_run_migration",
+        "_load_state",
+        "_save_state",
+        "_resolve_engine",
         "run_migration",
     ):
         assert callable(getattr(official, name)), name

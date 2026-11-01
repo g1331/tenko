@@ -24,41 +24,6 @@ from sqlalchemy import (
     UniqueConstraint,
 )
 
-from .migration import LEGACY_SCHEMA_REVISION
-
-
-class MemberPerm(BaseOrm):
-    """已废弃（#234）：旧成员权限，不再读写；类保留是为了不触发删表。"""
-
-    __tablename__ = "MemberPerm"
-    __revision__ = LEGACY_SCHEMA_REVISION
-
-    group_id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    qq: Mapped[int] = mapped_column(Integer, primary_key=True)
-    perm: Mapped[int] = mapped_column(
-        Integer,
-        nullable=False,
-        info={"check": [-1, 0, 16, 32, 64, 128, 256]},
-        default=16,
-    )
-
-
-class GroupPerm(BaseOrm):
-    """已废弃（#234）：旧群等级，不再读写；类保留是为了不触发删表。"""
-
-    __tablename__ = "GroupPerm"
-    __revision__ = LEGACY_SCHEMA_REVISION
-
-    group_id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    group_name: Mapped[str] = mapped_column(String(length=60), nullable=False)
-    perm: Mapped[int] = mapped_column(
-        Integer,
-        nullable=False,
-        info={"check": [0, 1, 2, 3]},
-        default=1,
-    )
-    active: Mapped[bool] = mapped_column(Boolean, nullable=True, default=True)
-
 
 class GroupSetting(BaseOrm):
     """群级频率限制开关；没有记录的群按开启处理。"""
@@ -147,105 +112,6 @@ class RateLimitSubjectState(BaseOrm):
     __tablename__ = "TenkoRateSubject"
 
     platform: Mapped[str] = mapped_column(String(length=128), primary_key=True)
-    group_id: Mapped[str] = mapped_column(String(length=128), primary_key=True)
-    user_id: Mapped[str] = mapped_column(String(length=128), primary_key=True)
-    cooldown_until: Mapped[float | None] = mapped_column(Float, nullable=True)
-    blacklist_until: Mapped[float | None] = mapped_column(Float, nullable=True)
-
-
-# 以下是只按群号存储的旧表，#234 起由上面带平台主键的新表取代、不再读写。
-# 删表会被“只前进”保护拒绝并在每次启动时报错，所以模型原样保留。
-
-
-class LegacyGroupSetting(BaseOrm):
-    """已废弃（#234）。"""
-
-    __tablename__ = "GroupSetting"
-    __revision__ = LEGACY_SCHEMA_REVISION
-
-    group_id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    frequency_limitation: Mapped[bool] = mapped_column(
-        Boolean, nullable=True, default=True
-    )
-    response_type: Mapped[str] = mapped_column(
-        String,
-        nullable=True,
-        info={"check": ["random", "deterministic"]},
-        default="random",
-    )
-    permission_type: Mapped[str] = mapped_column(
-        String,
-        nullable=True,
-        info={"check": ["default", "admin"]},
-        default="default",
-    )
-
-
-class LegacyFeatureState(BaseOrm):
-    """已废弃（#234）。"""
-
-    __tablename__ = "TenkoFeatureState"
-
-    plugin_name: Mapped[str] = mapped_column(String(length=128), primary_key=True)
-    group_id: Mapped[str] = mapped_column(
-        String(length=128), primary_key=True, default=""
-    )
-    enabled: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
-    maintenance: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
-
-
-class LegacyAccountRoute(BaseOrm):
-    """已废弃（#234）。"""
-
-    __tablename__ = "TenkoAccountRoute"
-    __table_args__ = (
-        UniqueConstraint("group_id", "position", name="uq_tenko_route_position"),
-    )
-
-    group_id: Mapped[str] = mapped_column(String(length=128), primary_key=True)
-    account_id: Mapped[str] = mapped_column(String(length=128), primary_key=True)
-    position: Mapped[int] = mapped_column(Integer, nullable=False)
-
-
-class LegacyAccountResponseState(BaseOrm):
-    """已废弃（#234）。"""
-
-    __tablename__ = "TenkoAccountResponseState"
-
-    group_id: Mapped[str] = mapped_column(String(length=128), primary_key=True)
-    response_type: Mapped[str] = mapped_column(
-        String(length=32), nullable=False, default="random"
-    )
-    deterministic_account: Mapped[str | None] = mapped_column(
-        String(length=128), nullable=True
-    )
-
-
-class LegacyRateLimitEvent(BaseOrm):
-    """已废弃（#234）。"""
-
-    __tablename__ = "TenkoRateLimitEvent"
-    __table_args__ = (
-        Index(
-            "ix_tenko_rate_event_subject_time",
-            "group_id",
-            "user_id",
-            "occurred_at",
-        ),
-    )
-
-    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    group_id: Mapped[str] = mapped_column(String(length=128), nullable=False)
-    user_id: Mapped[str] = mapped_column(String(length=128), nullable=False)
-    occurred_at: Mapped[float] = mapped_column(Float, nullable=False)
-    weight: Mapped[int] = mapped_column(Integer, nullable=False)
-
-
-class LegacyRateLimitSubjectState(BaseOrm):
-    """已废弃（#234）。"""
-
-    __tablename__ = "TenkoRateLimitSubjectState"
-
     group_id: Mapped[str] = mapped_column(String(length=128), primary_key=True)
     user_id: Mapped[str] = mapped_column(String(length=128), primary_key=True)
     cooldown_until: Mapped[float | None] = mapped_column(Float, nullable=True)
@@ -416,8 +282,6 @@ class CommandStat(BaseOrm):
 
 
 MODEL_CLASSES = (
-    MemberPerm,
-    GroupPerm,
     GroupSetting,
     FeatureState,
     AccountRoute,
@@ -434,19 +298,12 @@ MODEL_CLASSES = (
     GroupBlacklist,
     PermissionGrant,
     CommandStat,
-    LegacyGroupSetting,
-    LegacyFeatureState,
-    LegacyAccountRoute,
-    LegacyAccountResponseState,
-    LegacyRateLimitEvent,
-    LegacyRateLimitSubjectState,
 )
 
 __all__ = [
     "ChatMessage",
     "CommandStat",
     "GroupBlacklist",
-    "GroupPerm",
     "GroupSetting",
     "PermissionGrant",
     "UserBlacklist",
@@ -461,11 +318,4 @@ __all__ = [
     "WebUISetting",
     "WebUIAccount",
     "WebUISession",
-    "MemberPerm",
-    "LegacyGroupSetting",
-    "LegacyFeatureState",
-    "LegacyAccountRoute",
-    "LegacyAccountResponseState",
-    "LegacyRateLimitEvent",
-    "LegacyRateLimitSubjectState",
 ]

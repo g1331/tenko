@@ -141,7 +141,7 @@ QQ 号的平台名是 `qq-client`，与 satori 1.3.10 起的命名一致，OneBo
 | exception.evidence_dir | 报告无法投递时的本地证据目录，默认 .tenko/exceptions |
 
 升级相关的 schema 变更遵循只前进纪律：禁止直接 `DROP` 或改型既有列；废弃列先保留并
-标记 `deprecated`，至少跨两个版本后再清理。使用文件型 SQLite 时，`/升级` 在写入
+标记 `deprecated`，至少跨两个版本后再清理（停用的整张表经 `RETIRED_TABLES` 在启动迁移时删除）。使用文件型 SQLite 时，`/升级` 在写入
 安装接管记录前会用 SQLite online backup API 生成
 `.tenko/tenko.db.bak-<version>-<timestamp>`，最近保留 3 份；备份失败会写入升级审计
 并记录 ERROR，但不会阻塞升级。
