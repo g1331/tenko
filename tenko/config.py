@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import ipaddress
 import re
+import tomllib
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -14,11 +15,6 @@ from arclet.entari.config.file import register_dumper, register_loader
 from arclet.entari.config.model import BasicConfig
 import tomli_w
 from loguru import logger
-
-try:
-    import tomllib
-except ModuleNotFoundError:  # pragma: no cover - 仅在 Python 3.10 中执行
-    import tomli as tomllib
 
 
 def _default_basic_config() -> BasicConfig:

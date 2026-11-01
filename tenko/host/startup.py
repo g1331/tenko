@@ -5,6 +5,7 @@ import importlib.metadata
 import json
 import math
 import time
+import tomllib
 from collections.abc import Awaitable, Callable, Mapping, Sequence
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -16,11 +17,6 @@ from tenko.host.features import feature_service as default_feature_service
 from tenko.host.accounts import account_registry
 from tenko.host.notify import NotifySettings, load_settings, notify
 from tenko.host.perm import PermissionChecker
-
-try:
-    import tomllib
-except ModuleNotFoundError:  # pragma: no cover - Python 3.10 回退路径
-    import tomli as tomllib
 
 
 STARTUP_NOTIFY_FEATURE = "startup_notify"

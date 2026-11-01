@@ -24,6 +24,7 @@ import sys
 import tarfile
 import tempfile
 import textwrap
+import tomllib
 import uuid
 import zipfile
 from collections.abc import Awaitable, Callable, Mapping, Sequence
@@ -42,11 +43,6 @@ from packaging.version import Version
 
 from .perm import PermissionChecker
 from .sandbox import refuse_in_sandbox
-
-try:
-    import tomllib
-except ModuleNotFoundError:  # pragma: no cover - 仅在 Python 3.10 中执行
-    import tomli as tomllib
 
 
 __all__ = [

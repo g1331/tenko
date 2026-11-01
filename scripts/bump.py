@@ -24,12 +24,8 @@ import re
 import shutil
 import subprocess
 import sys
+import tomllib
 from pathlib import Path
-
-try:
-    import tomllib
-except ModuleNotFoundError:  # pragma: no cover - Python 3.10 使用 tomli
-    import tomli as tomllib
 
 
 MANIFEST_PATH = Path("upgrade-manifest.json")

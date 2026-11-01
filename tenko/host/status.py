@@ -6,16 +6,12 @@ import importlib.metadata
 import os
 import subprocess
 import time
+import tomllib
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from functools import cache
 from pathlib import Path
 from typing import Any
-
-try:
-    import tomllib
-except ModuleNotFoundError:  # pragma: no cover - Python 3.10 回退路径
-    import tomli as tomllib
 
 from .accounts import AccountRegistry, account_registry
 from .metrics import MessageMetrics, message_metrics
