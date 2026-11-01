@@ -22,6 +22,7 @@ from tenko.host.guards import group_only, private_only, require
 from tenko.host.inbox import InboxItem, inbox
 from tenko.host.perm import Permission, PermissionChecker, permission_store
 from tenko.host.ratelimit import rate_limit_service
+from tenko.host.sandbox import refuse_in_sandbox
 from tenko.plugins._common import list_data, render_or_text
 from tenko.host.action_errors import action_errors, report_action_error
 from tenko.context import context_from_session
@@ -676,6 +677,8 @@ async def frequency_limit(
     from tenko.db.repositories import group_setting_repository
 
     enabled = str(state.result) == "开启"
+    # 沙盒只能改沙盒群；检查放在这里，db 层不依赖宿主的沙盒模块。
+    refuse_in_sandbox("修改群频率限制", group_id)
     try:
         await group_setting_repository.set_frequency_limitation(group_id, enabled)
     except DatabaseUnavailableError:
