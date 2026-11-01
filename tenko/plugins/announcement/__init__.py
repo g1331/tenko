@@ -323,6 +323,7 @@ async def push_handle(
     time: Match[int],
 ):
     context = context_from_session(session)
+    # 不是准入检查：只决定是否给 Master 额外发送推送诊断。
     is_master = await permission_checker.require_perm(context, Permission.Master)
 
     interval = time.result if time.available else 1

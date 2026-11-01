@@ -76,6 +76,7 @@ async def status(
     render_service: RenderService,
 ):
     context = context_from_session(session)
+    # 不是准入检查：只决定是否展示 Master 私聊才看得到的详细信息。
     is_master_private = (
         context.chat_type == "private"
         and await permission_checker.require_perm(context, Permission.Master)

@@ -288,6 +288,7 @@ async def permission_list(
     render_service: RenderService,
 ):
     context = context_from_session(session)
+    # 本群查询要群管理、跨群或私聊查询要 BotAdmin，随目标群而变，所以不用装饰器。
     if context.chat_type == "group" and not group.available:
         target_group = context.channel_id
         required = Permission.GroupAdmin
