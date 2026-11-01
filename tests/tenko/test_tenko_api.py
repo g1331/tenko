@@ -64,6 +64,13 @@ PUBLIC_API = {
     "features": {"feature_enabled", "declare", "feature_required"},
     "render": {"render_or_none", "try_render", "RenderService"},
     "messages": {"report_error", "action_error_message"},
+    "notify": {
+        "notify_master",
+        "master_reply",
+        "MasterNotice",
+        "MasterReply",
+        "NoticeError",
+    },
     "storage": {
         "data_dir",
         "Store",

@@ -21,7 +21,7 @@ import itertools
 import re
 import time
 from collections import deque
-from collections.abc import Iterator
+from collections.abc import Iterator, Sequence
 from contextlib import contextmanager
 from contextvars import ContextVar
 from datetime import datetime
@@ -320,11 +320,18 @@ class SandboxAdapter(Adapter):
         del request
         return self.login
 
-    def note(self, channel_id: str, text: str) -> None:
-        """在沙盒会话里记一条 bot 发出的说明，比如被拦截的真实动作。"""
+    def note(self, channel_id: str, text: str, elements: Sequence[Element] = ()) -> str:
+        """在沙盒会话里记一条 bot 发出的说明，比如被拦截的真实动作；返回消息 ID。
 
-        self._record(
-            channel_id, True, SANDBOX_BOT_ID, self.login.user.name or "", [Text(text)]
+        ``elements`` 接在说明后面，例如本应发给 Master 的通知原文，可以被引用回复。
+        """
+
+        return self._record(
+            channel_id,
+            True,
+            SANDBOX_BOT_ID,
+            self.login.user.name or "",
+            [Text(text), *elements],
         )
 
     def _user_name(self, user_id: str) -> str:

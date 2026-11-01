@@ -172,6 +172,12 @@ config/tenko.toml.example    # 配置模板
   version, migrate)` 是带版本号的 JSON 文件（原子写入，版本变化先备份再迁移，遇到更新
   版本的文件拒绝读写）。调用方按模块名归属到 `tenko.plugins` 入口，只能在插件自己的
   模块里调用（实现见 `tenko/host/plugins/storage.py`）。
+- 通知 Master：`tenko_api.notify.notify_master(content, *, key=None)` 经 `tenko/host/plugins/notices.py`
+  加上“来自插件「名称」（ID）”、按插件令牌桶限速（连发 5 条、每 3 分钟恢复一条，越线时私聊 Master 一次）后
+  走 `tenko.host.notify.deliver`，返回 `MasterNotice(delivered, reason, key)`。带 `key` 的通知把
+  `(平台, 账号, 消息 ID)` 和文字摘要记在插件数据目录的 `.master-notices.json`（30 天、200 条），
+  `master_reply(session)` 据此识别 Master 的引用回复（另一个自家账号收到时按作者账号加摘要兜底）。
+  沙盒里通知原文记进沙盒会话、账本写数据副本、不限速。
 - 插件 SQL 数据：`tenko_api.storage.Model` 是声明式基类，表建在插件自己的
   `.tenko/plugin-data/<id>/data.db`（绑定键 `plugin:<id>`，默认表名 `<id>_<类名小写>`，共用一份
   元数据所以显式表名要全局唯一），`get_session()` 取会话，操作 `Model` 子类自动路由到插件库
