@@ -264,3 +264,207 @@ class GroupResponseResult(TypedDict):
     group_id: str
     strategy: Literal["random", "deterministic"]
     deterministic_account: str | None
+
+
+# ---------------------------------------------------------------- 功能开关与插件启停
+
+
+class PluginIconRef(TypedDict):
+    """glyph 为单色 SVG（按主题着色），否则是目录里的 PNG 图标。"""
+
+    url: str
+    glyph: bool
+
+
+# builtin 内置；external 扩展插件（tenko.plugins 入口，默认关闭）；
+# unmanaged 是 Entari 里已注册命令、但未在 Tenko 登记的原生插件。
+FeatureSource = TypeAliasType(
+    "FeatureSource", Literal["builtin", "external", "unmanaged"]
+)
+
+
+class FeatureInfo(TypedDict):
+    plugin: str
+    """插件标识，用作 /manage/plugins|features/{plugin} 的路径参数。"""
+    name: str
+    """展示名。"""
+    description: str
+    icon: PluginIconRef | None
+    """未在插件目录登记的残留开关记录没有图标。"""
+    scope: str
+    """开关范围：group 按群开关，global 全局开关；其余值按“其他”展示。"""
+    source: FeatureSource
+    local: bool
+    """本地插件目录（.tenko/plugins/local/）里的扩展插件。"""
+    protected: bool
+    """控制平面插件，不能通过面板停用或改开关。"""
+    controlled: bool
+    """受控插件：默认关闭，群里需 BOT 管理员开启，私聊仅 BOT 管理员可用。"""
+    controlled_declared: bool
+    """插件自己声明的受控状态；与 controlled 不同时说明 Master 在面板改过。"""
+    loaded: bool
+    enabled: bool
+    maintenance: bool
+    global_enabled: bool | None
+    """全局覆盖：未设置为 null。"""
+    groups: dict[str, bool]
+    """群 ID → 该群当前生效的开关状态。"""
+
+
+class FeaturesData(TypedDict):
+    features: list[FeatureInfo]
+    group_names: dict[str, str]
+    """群 ID → 群名称；仅包含有可展示名称的群。"""
+
+
+class PluginToggleBody(TypedDict):
+    enabled: bool
+    confirm: Literal[True]
+
+
+class PluginToggleResult(TypedDict):
+    plugin: str
+    enabled: bool
+    restart_required: bool
+    """扩展插件已启用但尚未加载，需重启后生效。"""
+    restart_reason: str | None
+    """首次启用的扩展插件没能直接加载的原因。"""
+
+
+# POST /manage/features/{plugin} 的四种请求体：维护开关、受控覆盖、全局开关、群级开关。
+
+
+class FeatureMaintenanceBody(TypedDict):
+    maintenance: bool
+
+
+class FeatureControlledBody(TypedDict):
+    controlled: bool | None
+    """null 恢复插件声明的受控状态。"""
+
+
+class FeatureGlobalBody(TypedDict):
+    group_id: None
+    enabled: bool | None
+    """null 清除全局覆盖。"""
+
+
+class FeatureGroupBody(TypedDict):
+    group_id: str
+    enabled: bool
+
+
+FeatureToggleBody = TypeAliasType(
+    "FeatureToggleBody",
+    FeatureMaintenanceBody
+    | FeatureControlledBody
+    | FeatureGlobalBody
+    | FeatureGroupBody,
+)
+
+
+class FeatureState(TypedDict):
+    maintenance: NotRequired[bool]
+    global_enabled: NotRequired[bool]
+    groups: NotRequired[dict[str, bool]]
+
+
+class FeatureToggleResult(TypedDict):
+    plugin: str
+    state: NotRequired[FeatureState]
+    controlled: NotRequired[bool]
+
+
+# ---------------------------------------------------------------- 黑名单 /manage/blacklist
+
+BlacklistKind = TypeAliasType("BlacklistKind", Literal["user", "group"])
+
+
+class BlacklistEntry(TypedDict):
+    platform: str
+    id: str
+    name: str
+    """群名称（取自聊天记录），用户条目为空。"""
+    reason: str
+    operator_id: str
+    """命令操作人的用户 ID；面板操作为 webui。"""
+    created_at: str | None
+
+
+class BlacklistData(TypedDict):
+    ready: bool
+    """权限状态是否已从数据库加载；未就绪时不能修改。"""
+    users: list[BlacklistEntry]
+    groups: list[BlacklistEntry]
+    platforms: list[str]
+    """可选的平台：已知账号的平台和已有条目的平台。"""
+
+
+class BlacklistBody(TypedDict):
+    kind: BlacklistKind
+    platform: str
+    id: str
+    blacklisted: bool
+    reason: NotRequired[str]
+
+
+# ---------------------------------------------------------------- 全局设置 /manage/settings
+
+FriendRequestMode = TypeAliasType("FriendRequestMode", Literal["off", "admins", "all"])
+
+
+class NotifySettings(TypedDict):
+    """给 Master 的通知：发往私聊还是通知群，由哪个账号发送（null 表示任选在线账号）。"""
+
+    mode: Literal["private", "group"]
+    group: str | None
+    account: str | None
+
+
+class NotifySettingsChanges(TypedDict, total=False):
+    """通知设置的局部修改：只写要改的字段。"""
+
+    mode: Literal["private", "group"]
+    group: str | None
+    account: str | None
+
+
+class SettingsData(TypedDict):
+    default_enabled: bool
+    stored: bool
+    friend_request_mode: FriendRequestMode
+    notify: NotifySettings
+
+
+class SettingsBody(TypedDict):
+    default_enabled: NotRequired[bool]
+    friend_request_mode: NotRequired[FriendRequestMode]
+    notify: NotRequired[NotifySettingsChanges]
+
+
+# ---------------------------------------------------------------- 收件箱 /manage/inbox
+
+
+class InboxItem(TypedDict):
+    """待处理的好友申请和群邀请；时间为 ISO 8601 UTC。"""
+
+    id: str
+    kind: Literal["friend", "group"]
+    platform: str
+    account_id: str
+    """收到请求的 bot 账号。"""
+    user_id: str | None
+    user_name: str
+    comment: str
+    group_id: str | None
+    group_name: str | None
+    created_at: str
+    expires_at: str | None
+    """超时自动拒绝的时间；好友申请没有。"""
+
+
+class InboxData(TypedDict):
+    items: list[InboxItem]
+
+
+InboxAction = TypeAliasType("InboxAction", Literal["approve", "reject", "dismiss"])

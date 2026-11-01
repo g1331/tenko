@@ -9,7 +9,7 @@ import secrets
 from collections.abc import Awaitable, Callable, Mapping
 from pathlib import Path
 from types import SimpleNamespace
-from typing import Any, TypeVar, overload
+from typing import TYPE_CHECKING, Any, TypeVar, overload
 
 from launart import Launart, Service
 from loguru import logger
@@ -55,6 +55,10 @@ from ..host.accounts import AccountRegistry, account_registry
 from ..host.features import FeatureService, feature_service as default_feature_service
 from ..host.plugins.runtime import PluginRuntime
 from ..host.status import build_status_data
+
+if TYPE_CHECKING:
+    # repository 依赖官方 database 插件已加载，模块顶层不能导入它。
+    from ..db.repositories import ManagementRepository
 
 T = TypeVar("T")
 
@@ -337,6 +341,14 @@ class WebUIService(Service):
         ):
             raise RuntimeError("管理数据库尚未就绪")
         return self.management
+
+    def require_repository(self) -> ManagementRepository:
+        """管理数据库的 repository；与 ``require_management`` 同样的就绪检查。"""
+
+        repository = self.require_management().repository
+        if repository is None:  # require_management 已检查，这里只为收窄类型
+            raise RuntimeError("管理数据库尚未就绪")
+        return repository
 
     def _pairing_data(self) -> PairingInfo:
         if self.connection is None or self.tenko_config is None:

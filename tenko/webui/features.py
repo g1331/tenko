@@ -6,12 +6,20 @@ from collections.abc import Iterable, Mapping
 from typing import TYPE_CHECKING, Any
 
 from starlette.requests import Request
-from starlette.responses import JSONResponse
 
 from ..context import group_key, group_reference
 from ..host.plugins.runtime import PluginRuntime
 from ..host.sandbox import SANDBOX_GROUP_ID
-from .auth import read_json
+from .auth import ApiResponse, read_json
+from .contracts import (
+    FeatureInfo,
+    FeaturesData,
+    FeatureSource,
+    FeatureState,
+    FeatureToggleResult,
+    PluginIconRef,
+    PluginToggleResult,
+)
 
 if TYPE_CHECKING:
     from .service import WebUIService
@@ -84,10 +92,14 @@ class FeaturePanel:
         metadata = getattr(getattr(info, "native_plugin", None), "metadata", None)
         return str(getattr(metadata, "feature_scope", "group"))
 
-    def _plugin(self, name: str):
+    def _runtime(self) -> PluginRuntime:
         runtime = self.service.plugin_runtime
         if runtime is None:
             raise RuntimeError("插件运行时尚未就绪")
+        return runtime
+
+    def _plugin(self, name: str):
+        runtime = self._runtime()
         info = next((info for info in runtime.discover() if info.name == name), None)
         if info is None:
             raise KeyError(name)
@@ -95,7 +107,7 @@ class FeaturePanel:
             raise PermissionError("控制平面插件不能通过面板停用或修改开关")
         return info
 
-    async def data(self) -> dict[str, Any]:
+    async def data(self) -> FeaturesData:
         service = self.service
         feature_service = service.feature_service
         if service.feature_repository is None:
@@ -117,14 +129,14 @@ class FeaturePanel:
         default_enabled = bool(getattr(feature_service, "default_enabled", True))
         if not bool(getattr(feature_service, "ready", True)):
             default_enabled = False
-        features = []
+        features: list[FeatureInfo] = []
         for plugin_name in plugin_names:
             state = states.get(plugin_name, self._empty_feature_state())
             metadata_name = plugin_name
             scope = "group"
-            source = "builtin"
+            source: FeatureSource = "builtin"
             description = ""
-            icon = None
+            icon: PluginIconRef | None = None
             info = next(
                 (
                     candidate
@@ -136,7 +148,7 @@ class FeaturePanel:
             if info is not None:
                 metadata_name = str(getattr(info, "display_name", plugin_name))
                 scope = self._plugin_scope(info)
-                source = str(getattr(info, "source", "builtin"))
+                source = getattr(info, "source", "builtin")
                 metadata = getattr(
                     getattr(info, "native_plugin", None), "metadata", None
                 )
@@ -191,17 +203,17 @@ class FeaturePanel:
             )
         return {"features": features, "group_names": await service.group_names()}
 
-    async def features_view(self, request: Request) -> JSONResponse:
+    async def features_view(self, request: Request) -> ApiResponse[FeaturesData]:
         del request
         return await self.service.read("features", self.data)
 
-    async def manage_plugin(self, request: Request) -> JSONResponse:
+    async def manage_plugin(self, request: Request) -> ApiResponse[PluginToggleResult]:
         service = self.service
 
-        async def change():
-            repository = service.require_management().repository
+        async def change() -> PluginToggleResult:
+            repository = service.require_repository()
             info = self._plugin(request.path_params["plugin"])
-            runtime = service.plugin_runtime
+            runtime = self._runtime()
             body = await read_json(request)
             if (
                 set(body) != {"enabled", "confirm"}
@@ -245,11 +257,13 @@ class FeaturePanel:
 
         return await service.manage(request, change)
 
-    async def manage_feature(self, request: Request) -> JSONResponse:
+    async def manage_feature(
+        self, request: Request
+    ) -> ApiResponse[FeatureToggleResult]:
         service = self.service
         feature_service = service.feature_service
 
-        async def change():
+        async def change() -> FeatureToggleResult:
             service.require_management()
             if not feature_service.ready:
                 raise RuntimeError("功能状态尚未就绪")
@@ -265,7 +279,7 @@ class FeaturePanel:
                     overrides.pop(info.name, None)
                 else:
                     overrides[info.name] = value
-                await service.require_management().repository.save_setting(
+                await service.require_repository().save_setting(
                     "controlled-plugins", overrides
                 )
                 feature_service.controlled_overrides = overrides
@@ -301,10 +315,15 @@ class FeaturePanel:
                     raise RuntimeError("请先在插件页解除维护或全局覆盖，再修改群级开关")
                 feature_service.set_enabled(info.name, group_id, body["enabled"])
             await feature_service.persist_state()
-            return {
-                "plugin": info.name,
-                "state": dict(feature_service.state.get(info.name, {})),
-            }
+            snapshot = feature_service.state.get(info.name, {})
+            view: FeatureState = {}
+            if "maintenance" in snapshot:
+                view["maintenance"] = snapshot["maintenance"]
+            if "global_enabled" in snapshot:
+                view["global_enabled"] = snapshot["global_enabled"]
+            if "groups" in snapshot:
+                view["groups"] = dict(snapshot["groups"])
+            return {"plugin": info.name, "state": view}
 
         return await service.manage(request, change)
 

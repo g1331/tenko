@@ -5,9 +5,9 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any
 
 from starlette.requests import Request
-from starlette.responses import JSONResponse
 
-from .auth import read_json
+from .auth import ApiResponse, read_json
+from .contracts import InboxData
 
 if TYPE_CHECKING:
     from .service import WebUIService
@@ -23,7 +23,7 @@ class InboxPanel:
             ("/api/manage/inbox/{id}", ["POST"], self.inbox_action),
         )
 
-    def data(self) -> dict[str, Any]:
+    def data(self) -> InboxData:
         return {
             "items": [
                 {
@@ -45,14 +45,14 @@ class InboxPanel:
             ]
         }
 
-    async def inbox_view(self, request: Request) -> JSONResponse:
+    async def inbox_view(self, request: Request) -> ApiResponse[InboxData]:
         del request
         return await self.service.read("inbox", self.data)
 
-    async def inbox_action(self, request: Request) -> JSONResponse:
+    async def inbox_action(self, request: Request) -> ApiResponse[InboxData]:
         inbox = self.service.inbox
 
-        async def action():
+        async def action() -> InboxData:
             body = await read_json(request)
             decision = body.get("action")
             comment = body.get("comment", "")

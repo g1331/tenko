@@ -34,7 +34,7 @@ MODES = {"private": "私聊 Master", "group": "通知群"}
 
 @dataclass(frozen=True, slots=True)
 class NotifySettings:
-    mode: str = "private"
+    mode: Literal["private", "group"] = "private"
     group: str | None = None
     # 账号引用（QQ 为裸 ID）；None 表示任选一个在线账号。
     account: str | None = None

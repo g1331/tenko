@@ -7,10 +7,16 @@ export type AccountAction = 'preferences' | 'enable' | 'disable' | 'kick' | 'for
 export type AccountActionBody = AccountPreferencesBody | AccountConfirmBody
 export type SilentReason = 'blacklisted' | 'no_account' | 'target_unavailable'
 export type GroupAccountState = 'available' | 'muted' | 'offline' | 'disabled'
+export type BlacklistKind = 'user' | 'group'
 /**
  * 没有内容的成功响应。
  */
 export type Empty = Record<string, never>
+export type FeatureSource = 'builtin' | 'external' | 'unmanaged'
+export type FeatureToggleBody =
+  FeatureMaintenanceBody | FeatureControlledBody | FeatureGlobalBody | FeatureGroupBody
+export type FriendRequestMode = 'off' | 'admins' | 'all'
+export type InboxAction = 'approve' | 'reject' | 'dismiss'
 export type PairingActionBody = PairingRevealBody | PairingRotateBody
 
 /**
@@ -100,6 +106,136 @@ export interface AuthState {
   password_set: boolean
   expires_at: string | null
 }
+export interface BlacklistBody {
+  kind: BlacklistKind
+  platform: string
+  id: string
+  blacklisted: boolean
+  reason?: string
+}
+export interface BlacklistData {
+  /**
+   * 权限状态是否已从数据库加载；未就绪时不能修改。
+   */
+  ready: boolean
+  users: BlacklistEntry[]
+  groups: BlacklistEntry[]
+  /**
+   * 可选的平台：已知账号的平台和已有条目的平台。
+   */
+  platforms: string[]
+}
+export interface BlacklistEntry {
+  platform: string
+  id: string
+  /**
+   * 群名称（取自聊天记录），用户条目为空。
+   */
+  name: string
+  reason: string
+  /**
+   * 命令操作人的用户 ID；面板操作为 webui。
+   */
+  operator_id: string
+  created_at: string | null
+}
+export interface FeatureControlledBody {
+  /**
+   * null 恢复插件声明的受控状态。
+   */
+  controlled: boolean | null
+}
+export interface FeatureGlobalBody {
+  group_id: null
+  /**
+   * null 清除全局覆盖。
+   */
+  enabled: boolean | null
+}
+export interface FeatureGroupBody {
+  group_id: string
+  enabled: boolean
+}
+export interface FeatureInfo {
+  /**
+   * 插件标识，用作 /manage/plugins|features/{plugin} 的路径参数。
+   */
+  plugin: string
+  /**
+   * 展示名。
+   */
+  name: string
+  description: string
+  /**
+   * 未在插件目录登记的残留开关记录没有图标。
+   */
+  icon: PluginIconRef | null
+  /**
+   * 开关范围：group 按群开关，global 全局开关；其余值按“其他”展示。
+   */
+  scope: string
+  source: FeatureSource
+  /**
+   * 本地插件目录（.tenko/plugins/local/）里的扩展插件。
+   */
+  local: boolean
+  /**
+   * 控制平面插件，不能通过面板停用或改开关。
+   */
+  protected: boolean
+  /**
+   * 受控插件：默认关闭，群里需 BOT 管理员开启，私聊仅 BOT 管理员可用。
+   */
+  controlled: boolean
+  /**
+   * 插件自己声明的受控状态；与 controlled 不同时说明 Master 在面板改过。
+   */
+  controlled_declared: boolean
+  loaded: boolean
+  enabled: boolean
+  maintenance: boolean
+  /**
+   * 全局覆盖：未设置为 null。
+   */
+  global_enabled: boolean | null
+  /**
+   * 群 ID → 该群当前生效的开关状态。
+   */
+  groups: {
+    [k: string]: boolean
+  }
+}
+/**
+ * glyph 为单色 SVG（按主题着色），否则是目录里的 PNG 图标。
+ */
+export interface PluginIconRef {
+  url: string
+  glyph: boolean
+}
+export interface FeatureMaintenanceBody {
+  maintenance: boolean
+}
+export interface FeatureState {
+  maintenance?: boolean
+  global_enabled?: boolean
+  groups?: {
+    [k: string]: boolean
+  }
+}
+export interface FeatureToggleResult {
+  plugin: string
+  state?: FeatureState
+  controlled?: boolean
+}
+export interface FeaturesData {
+  features: FeatureInfo[]
+  /**
+   * 群 ID → 群名称；仅包含有可展示名称的群。
+   */
+  group_names: {
+    [k: string]: string
+  }
+}
 export interface GroupResponseBody {
   strategy: 'random' | 'deterministic'
   /**
@@ -122,6 +258,31 @@ export interface HostResources {
   disk_percent: number
   net_sent: number
   net_received: number
+}
+export interface InboxData {
+  items: InboxItem[]
+}
+/**
+ * 待处理的好友申请和群邀请；时间为 ISO 8601 UTC。
+ */
+export interface InboxItem {
+  id: string
+  kind: 'friend' | 'group'
+  platform: string
+  /**
+   * 收到请求的 bot 账号。
+   */
+  account_id: string
+  user_id: string | null
+  user_name: string
+  comment: string
+  group_id: string | null
+  group_name: string | null
+  created_at: string
+  /**
+   * 超时自动拒绝的时间；好友申请没有。
+   */
+  expires_at: string | null
 }
 export interface LoginBody {
   username: string
@@ -169,6 +330,22 @@ export interface MessageCounts {
    */
   received_rate: number
   sent_rate: number
+}
+/**
+ * 给 Master 的通知：发往私聊还是通知群，由哪个账号发送（null 表示任选在线账号）。
+ */
+export interface NotifySettings {
+  mode: 'private' | 'group'
+  group: string | null
+  account: string | null
+}
+/**
+ * 通知设置的局部修改：只写要改的字段。
+ */
+export interface NotifySettingsChanges {
+  mode?: 'private' | 'group'
+  group?: string | null
+  account?: string | null
 }
 export interface OverviewData {
   version: string
@@ -218,6 +395,22 @@ export interface PairingInfo {
    */
   access_token?: string
 }
+export interface PluginToggleBody {
+  enabled: boolean
+  confirm: true
+}
+export interface PluginToggleResult {
+  plugin: string
+  enabled: boolean
+  /**
+   * 扩展插件已启用但尚未加载，需重启后生效。
+   */
+  restart_required: boolean
+  /**
+   * 首次启用的扩展插件没能直接加载的原因。
+   */
+  restart_reason: string | null
+}
 export interface RevokeOthersResult {
   revoked: number
 }
@@ -232,4 +425,15 @@ export interface SessionInfo {
 }
 export interface SessionsData {
   sessions: SessionInfo[]
+}
+export interface SettingsBody {
+  default_enabled?: boolean
+  friend_request_mode?: FriendRequestMode
+  notify?: NotifySettingsChanges
+}
+export interface SettingsData {
+  default_enabled: boolean
+  stored: boolean
+  friend_request_mode: FriendRequestMode
+  notify: NotifySettings
 }

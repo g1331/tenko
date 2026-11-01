@@ -9,13 +9,13 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any
 
 from starlette.requests import Request
-from starlette.responses import JSONResponse
 
 from ..context import QQ_PLATFORM, normalize_platform
 from ..host.accounts import account_key
 from ..host.notify import load_settings
 from ..host.perm import GLOBAL_SCOPE, BlacklistKind, permission_store, superuser_ids
-from .auth import read_json
+from .auth import ApiResponse, read_json
+from .contracts import BlacklistData, BlacklistEntry
 
 if TYPE_CHECKING:
     from .service import WebUIService
@@ -37,7 +37,7 @@ class BlacklistPanel:
     def routes(self) -> tuple[tuple[str, list[str], Any], ...]:
         return (("/api/manage/blacklist", ["GET", "POST"], self.blacklist),)
 
-    async def _data(self) -> dict[str, Any]:
+    async def _data(self) -> BlacklistData:
         names = await self.service.group_names()
         platforms = {QQ_PLATFORM}
         platforms.update(
@@ -45,8 +45,8 @@ class BlacklistPanel:
             for account in self.service.accounts.accounts.values()
         )
 
-        def rows(kind: BlacklistKind) -> list[dict[str, Any]]:
-            result = []
+        def rows(kind: BlacklistKind) -> list[BlacklistEntry]:
+            result: list[BlacklistEntry] = []
             for record in permission_store.blacklist(kind):
                 platforms.add(record.platform)
                 result.append(
@@ -86,8 +86,8 @@ class BlacklistPanel:
                 return "这是通知群，不能拉黑"
         return None
 
-    async def blacklist(self, request: Request) -> JSONResponse:
-        async def action():
+    async def blacklist(self, request: Request) -> ApiResponse[BlacklistData]:
+        async def action() -> BlacklistData:
             if request.method == "POST":
                 if not permission_store.ready:
                     raise RuntimeError("权限状态尚未就绪")

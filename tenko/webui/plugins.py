@@ -42,6 +42,7 @@ from ..host.plugins.registry import (
 )
 from ..host.startup import _project_version
 from .auth import WEBUI_PATH, error_response, read_json
+from .contracts import PluginIconRef
 from .upgrade import HostUpgrade
 
 if TYPE_CHECKING:
@@ -309,7 +310,7 @@ class PluginMarket:
             return None
         return next((i for i in runtime.discover() if i.name == plugin_id), None)
 
-    def icon_of(self, name: str, source: str) -> dict[str, Any]:
+    def icon_of(self, name: str, source: str) -> PluginIconRef:
         """插件图标：内置的是单色 SVG（glyph，前端按主题着色），目录图标是 PNG。"""
 
         path = plugin_icon_path(name, source, self.registry)

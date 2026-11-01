@@ -4,6 +4,8 @@
  * 时间字段均为 ISO 8601 UTC 字符串，群 ID / 账号 ID 一律是字符串。
  */
 
+import type { FeatureInfo, PluginIconRef } from './generated'
+
 export * from './generated'
 
 export interface ApiErrorBody {
@@ -18,39 +20,6 @@ export type ApiEnvelope<T> = { ok: true; data: T } | { ok: false; error: ApiErro
 
 /** 已知策略为 random / deterministic，其余值按“其他”展示。 */
 export type ResponseStrategyName = 'random' | 'deterministic' | (string & {})
-export type FeatureScope = 'group' | 'global' | (string & {})
-export interface FeatureInfo {
-  /** 插件标识，用作 /manage/plugins|features/{plugin} 的路径参数。 */
-  plugin: string
-  /** 展示名。 */
-  name: string
-  description: string
-  /** 未在插件目录登记的残留开关记录没有图标。 */
-  icon: PluginIconRef | null
-  scope: FeatureScope
-  /** builtin 内置；external 扩展插件（tenko.plugins 入口，默认关闭）。 */
-  source: 'builtin' | 'external' | 'unmanaged'
-  /** 本地插件目录（.tenko/plugins/local/）里的扩展插件。 */
-  local?: boolean
-  /** 控制平面插件，不能通过面板停用或改开关。 */
-  protected: boolean
-  /** 受控插件：默认关闭，群里需 BOT 管理员开启，私聊仅 BOT 管理员可用。 */
-  controlled: boolean
-  /** 插件自己声明的受控状态；与 controlled 不同时说明 Master 在面板改过。 */
-  controlled_declared: boolean
-  loaded: boolean
-  enabled: boolean
-  maintenance: boolean
-  /** 全局覆盖：未设置为 null。 */
-  global_enabled: boolean | null
-  /** 群 ID → 该群当前生效的开关状态。 */
-  groups: Record<string, boolean>
-}
-/** glyph 为单色 SVG（按主题着色），否则是目录里的 PNG 图标。 */
-export interface PluginIconRef {
-  url: string
-  glyph: boolean
-}
 export interface PluginLink {
   kind: 'home' | 'repo' | 'pypi' | 'link'
   label: string
@@ -85,87 +54,9 @@ export interface PluginDetail {
   yanked: string | null
   blocked: string | null
 }
-export interface FeaturesData {
-  features: FeatureInfo[]
-  /** 群 ID → 群名称；仅包含有可展示名称的群。 */
-  group_names: Record<string, string>
-}
-
 // ---------------------------------------------------------------- 管理接口 /manage/*
 
-export interface PluginToggleBody {
-  enabled: boolean
-  confirm: true
-}
-export interface PluginToggleResult {
-  plugin: string
-  enabled: boolean
-  /** 扩展插件已启用但尚未加载，需重启后生效。 */
-  restart_required: boolean
-  /** 首次启用的扩展插件没能直接加载的原因。 */
-  restart_reason?: string | null
-}
-
-/** POST /manage/features/{plugin} 的三种请求体：维护开关、全局开关（null 表示清除）、群级开关。 */
-export type FeatureToggleBody =
-  | { maintenance: boolean }
-  /** null 恢复插件声明的受控状态。 */
-  | { controlled: boolean | null }
-  | { group_id: null; enabled: boolean | null }
-  | { group_id: string; enabled: boolean }
-export interface FeatureToggleResult {
-  plugin: string
-  state?: { maintenance?: boolean; global_enabled?: boolean; groups?: Record<string, boolean> }
-  controlled?: boolean
-}
-
 // ---------------------------------------------------------------- 黑名单 /manage/blacklist
-
-export type BlacklistKind = 'user' | 'group'
-export interface BlacklistEntry {
-  platform: string
-  id: string
-  /** 群名称（取自聊天记录），用户条目为空。 */
-  name: string
-  reason: string
-  /** 命令操作人的用户 ID；面板操作为 webui。 */
-  operator_id: string
-  created_at: string | null
-}
-export interface BlacklistData {
-  /** 权限状态是否已从数据库加载；未就绪时不能修改。 */
-  ready: boolean
-  users: BlacklistEntry[]
-  groups: BlacklistEntry[]
-  /** 可选的平台：已知账号的平台和已有条目的平台。 */
-  platforms: string[]
-}
-export interface BlacklistBody {
-  kind: BlacklistKind
-  platform: string
-  id: string
-  blacklisted: boolean
-  reason?: string
-}
-
-export type FriendRequestMode = 'off' | 'admins' | 'all'
-/** 给 Master 的通知：发往私聊还是通知群，由哪个账号发送（null 表示任选在线账号）。 */
-export interface NotifySettings {
-  mode: 'private' | 'group'
-  group: string | null
-  account: string | null
-}
-export interface SettingsData {
-  default_enabled: boolean
-  stored: boolean
-  friend_request_mode: FriendRequestMode
-  notify: NotifySettings
-}
-export interface SettingsBody {
-  default_enabled?: boolean
-  friend_request_mode?: FriendRequestMode
-  notify?: Partial<NotifySettings>
-}
 
 export type CoreConfigKind = 'boolean' | 'integer' | 'number' | 'enum' | 'identifier' | 'urls'
 export type CoreConfigGroup =
@@ -447,27 +338,6 @@ export interface UpgradeStartBody {
   /** 每个不兼容插件的处理："suspend" 或目标版本上要装的版本号。 */
   plugins?: Record<string, string>
 }
-
-/** 待处理的好友申请和群邀请；时间为 ISO 8601 UTC。 */
-export interface InboxItem {
-  id: string
-  kind: 'friend' | 'group'
-  platform: string
-  /** 收到请求的 bot 账号。 */
-  account_id: string
-  user_id: string | null
-  user_name: string
-  comment: string
-  group_id: string | null
-  group_name: string | null
-  created_at: string
-  /** 超时自动拒绝的时间；好友申请没有。 */
-  expires_at: string | null
-}
-export interface InboxData {
-  items: InboxItem[]
-}
-export type InboxAction = 'approve' | 'reject' | 'dismiss'
 
 /** 聊天消息段：后端把 Satori 元素归一化成这几种，未知元素是 other 占位。 */
 export type ChatSegment =

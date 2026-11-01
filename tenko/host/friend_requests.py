@@ -2,15 +2,16 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal
 
 from .sandbox import refuse_in_sandbox
 
 if TYPE_CHECKING:
     from ..db.repositories import ManagementRepository
 
+FriendRequestMode = Literal["off", "admins", "all"]
 SETTING_NAME = "friend-request-mode"
-DEFAULT_MODE = "admins"
+DEFAULT_MODE: FriendRequestMode = "admins"
 # 键是存库和 WebUI 使用的标识，值是 QQ 命令中的写法。
 MODE_LABELS = {"off": "关闭", "admins": "仅管理员", "all": "所有人"}
 
@@ -22,7 +23,7 @@ def default_repository() -> ManagementRepository:
     return ManagementRepository()
 
 
-async def get_mode(repository: ManagementRepository) -> str:
+async def get_mode(repository: ManagementRepository) -> FriendRequestMode:
     """读取当前策略；数据库不可用或存储值非法时抛错，由调用方按“不放行”处理。"""
 
     mode = await repository.setting(SETTING_NAME)
