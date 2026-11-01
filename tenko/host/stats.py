@@ -221,25 +221,6 @@ class Summary:
     def avg_render_ms(self) -> int | None:
         return self.render_ms // self.ran if self.ran and self.render_ms else None
 
-    def to_dict(self) -> dict[str, Any]:
-        return {
-            "key": self.key,
-            "calls": self.calls,
-            "ok": self.ok,
-            "errors": self.errors,
-            "denied": self.denied,
-            "success_rate": self.success_rate,
-            "avg_ms": self.avg_ms,
-            "max_ms": self.max_ms,
-            "avg_render_ms": self.avg_render_ms,
-            "replies": self.replies,
-            "reasons": [
-                {"reason": r, "label": REASON_LABELS.get(r, r), "count": n}
-                for r, n in self.reasons.most_common()
-            ],
-            "actions": dict(self.actions.most_common()),
-        }
-
 
 def summarize(records: Any, key: Any) -> list[Summary]:
     """按 ``key(record)`` 分组汇总，调用多的在前。"""

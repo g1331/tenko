@@ -16,7 +16,14 @@ from tenko.host.guards import require
 from tenko.host.perm import Permission
 from tenko.host.plugins.runtime import PluginRuntime
 from tenko.host.render import RenderService
-from tenko.host.stats import RETENTION, call_stats, hourly, load, summarize
+from tenko.host.stats import (
+    REASON_LABELS,
+    RETENTION,
+    call_stats,
+    hourly,
+    load,
+    summarize,
+)
 from tenko.plugins._common import render_or_text
 
 plugin.metadata(
@@ -72,7 +79,7 @@ def rows(summaries, labels: dict[str, str]) -> list[dict[str, object]]:
     total = max((s.calls for s in summaries), default=0) or 1
     result = []
     for s in summaries:
-        reason = s.to_dict()["reasons"][:1]
+        reason = s.reasons.most_common(1)
         actions = " / ".join(f"{k} {v}" for k, v in s.actions.most_common(3))
         result.append(
             {
@@ -84,7 +91,9 @@ def rows(summaries, labels: dict[str, str]) -> list[dict[str, object]]:
                 "avg": _ms(s.avg_ms),
                 "render": _ms(s.avg_render_ms),
                 "denied": s.denied,
-                "reason": reason[0]["label"] if reason else "",
+                "reason": REASON_LABELS.get(reason[0][0], reason[0][0])
+                if reason
+                else "",
                 "errors": s.errors,
                 "actions": actions,
             }
