@@ -20,6 +20,7 @@ from tenko.host import startup as startup_module
 from tenko.host.render import RenderService
 from tenko.runtime import TenkoRuntime
 from tenko.webui import WebUIService
+from tenko.webui.middleware import WebUIAuthMiddleware
 
 
 @pytest.mark.asyncio
@@ -263,7 +264,9 @@ async def test_run_async_registers_webui_only_when_enabled(monkeypatch) -> None:
     assert isinstance(render_service, RenderService)
     assert isinstance(webui_service, WebUIService)
     assert runtime.webui_service is webui_service
-    connection.server.app.add_middleware.assert_called_once()
+    # 认证中间件最先挂；conftest 的契约检查 fixture 会在它之后再挂一个。
+    middlewares = connection.server.app.add_middleware.call_args_list
+    assert middlewares[0].args[0] is WebUIAuthMiddleware
     paths = {call.args[0] for call in connection.server.asgi_route.call_args_list}
     assert {
         "/webui",
