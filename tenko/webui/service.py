@@ -5,10 +5,8 @@ import inspect
 import json
 import os
 import tempfile
-import ipaddress
 import secrets
-from collections.abc import Callable, Iterable, Mapping
-from datetime import UTC
+from collections.abc import Callable, Mapping
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
@@ -16,7 +14,6 @@ from typing import Any
 from launart import Launart, Service
 from loguru import logger
 from satori.server import Server
-from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
 from starlette.responses import (
     FileResponse,
@@ -24,16 +21,10 @@ from starlette.responses import (
     Response,
     StreamingResponse,
 )
-from starlette.staticfiles import StaticFiles
 
 from ..config import WebUIConfig, TenkoConfig
 from ..db.errors import DatabaseError
 from ..host.account_management import AccountManagement
-from ..host.friend_requests import (
-    MODE_LABELS,
-    get_mode as get_friend_request_mode,
-    set_mode as set_friend_request_mode,
-)
 from .auth import (
     WEBUI_PATH,
     WebUIAuth,
@@ -41,26 +32,24 @@ from .auth import (
     read_json,
     success_response as _success_response,
 )
-from .chat import ChatPanel
-from .sandbox import SandboxPanel
+from .accounts import AccountPanel
 from .blacklist import BlacklistPanel
-from .stats import StatsPanel
+from .chat import ChatPanel
+from .features import FeaturePanel
+from .inbox import InboxPanel
 from .logs import LogReader
+from .middleware import ASSETS_PATH, HashedAssets, WebUIAuthMiddleware
 from .plugins import PluginMarket
+from .sandbox import SandboxPanel
+from .settings import SettingsPanel
+from .stats import StatsPanel
 from ..host.chat_log import chat_log
 from ..host import sandbox as sandbox_module
-from ..host.perm import Permission, permission_store
-from ..host.sandbox import SANDBOX_GROUP_ID
 from ..host.metrics import MessageMetrics, message_metrics
 from . import core_config
 from .live import MAX_STREAMS, TOPICS, LiveStreams
 from ..host.inbox import Inbox, inbox as default_inbox
-from ..host.notify import (
-    load_settings as load_notify_settings,
-    save_settings as save_notify_settings,
-)
-from ..context import QQ_PLATFORM, group_key, group_reference
-from ..host.accounts import AccountRegistry, account_reference, account_registry
+from ..host.accounts import AccountRegistry, account_registry
 from ..host.features import FeatureService, feature_service as default_feature_service
 from ..host.plugins.runtime import PluginRuntime
 from ..host.status import build_status_data
@@ -68,117 +57,6 @@ from ..host.status import build_status_data
 _STATIC_DIR = Path(__file__).parent / "static"
 _STATIC_INDEX = _STATIC_DIR / "index.html"
 _STATIC_ASSETS = _STATIC_DIR / "assets"
-_ASSETS_PATH = f"{WEBUI_PATH}/assets"
-_ASSET_CACHE = "public, max-age=31536000, immutable"
-
-
-class _HashedAssets(StaticFiles):
-    """前端构建产物：文件名带内容哈希，可长期缓存；路径穿越由 StaticFiles 拒绝。"""
-
-    async def get_response(self, path: str, scope: Any) -> Response:
-        response = await super().get_response(path, scope)
-        if response.status_code in {200, 304}:
-            response.headers["Cache-Control"] = _ASSET_CACHE
-        return response
-
-
-def _is_webui_path(path: str) -> bool:
-    return path == WEBUI_PATH or path.startswith(f"{WEBUI_PATH}/")
-
-
-class WebUIAuthMiddleware(BaseHTTPMiddleware):
-    """仅保护 `/webui` 路径：来源 IP 白名单、会话 cookie 和写请求的同源校验。"""
-
-    def __init__(self, app: Any, *, config: WebUIConfig, auth: WebUIAuth) -> None:
-        super().__init__(app)
-        self.config = config
-        self.auth = auth
-
-    def _allowed_ip(self, request: Request) -> bool:
-        client = request.client
-        if client is None:
-            return False
-        try:
-            client_ip = ipaddress.ip_address(client.host)
-        except ValueError:
-            return False
-        return any(
-            client_ip in ipaddress.ip_network(item) for item in self.config.allowed_ips
-        )
-
-    @staticmethod
-    def _is_public(request: Request) -> bool:
-        path = request.url.path
-        # 静态资源不含数据，登录页也需要加载；来源 IP 仍由上游校验。
-        if request.method in {"GET", "HEAD"} and path.startswith(f"{_ASSETS_PATH}/"):
-            return True
-        if request.method == "GET":
-            return path in {
-                WEBUI_PATH,
-                f"{WEBUI_PATH}/",
-                f"{WEBUI_PATH}/api/auth/state",
-            }
-        return request.method == "POST" and path == f"{WEBUI_PATH}/api/auth/login"
-
-    async def dispatch(self, request: Request, call_next: Callable) -> Response:
-        response = await self._dispatch(request, call_next)
-        if _is_webui_path(request.url.path) and request.method not in {"GET", "HEAD"}:
-            logger.info(
-                "WebUI audit: method={} target={} action={} source={} status={}",
-                request.method,
-                json.dumps(request.url.path[:300], ensure_ascii=False),
-                getattr(request.state, "webui_action", "request"),
-                request.client.host if request.client else "unknown",
-                response.status_code,
-            )
-        return response
-
-    async def _dispatch(self, request: Request, call_next: Callable) -> Response:
-        path = request.url.path
-        if not _is_webui_path(path):
-            return await call_next(request)
-        if not self.config.enabled:
-            return _error_response("not_found", "Not Found", 404)
-        if not self._allowed_ip(request):
-            return _error_response("unauthorized", "Unauthorized", 401)
-        if not self._is_public(request):
-            try:
-                session = await self.auth.resolve(request)
-            except DatabaseError:
-                logger.error("WebUI session lookup failed: database unavailable")
-                return _error_response(
-                    "database_unavailable", "数据库暂不可用，无法校验登录状态", 503
-                )
-            if session is None:
-                return _error_response("unauthorized", "Unauthorized", 401)
-        if request.method not in {"GET", "HEAD"}:
-            origin = request.headers.get("origin")
-            expected = f"{request.url.scheme}://{request.url.netloc}"
-            if origin is not None and origin != expected:
-                return _error_response("forbidden", "不允许跨来源操作", 403)
-            if (
-                request.headers.get("content-type", "").split(";")[0].strip()
-                != "application/json"
-            ):
-                return _error_response("invalid_request", "请使用 JSON 请求体", 415)
-        if path in {WEBUI_PATH, f"{WEBUI_PATH}/"} or path.startswith(
-            f"{_ASSETS_PATH}/"
-        ):
-            # 入口页和静态资源由各自的处理器设置缓存头。
-            return await call_next(request)
-        try:
-            response = await call_next(request)
-        except DatabaseError:
-            logger.error("WebUI auth operation failed: database unavailable")
-            return _error_response(
-                "database_unavailable", "数据库暂不可用，未确认操作成功", 503
-            )
-        response.headers["Cache-Control"] = "no-store"
-        response.headers["Referrer-Policy"] = "no-referrer"
-        refreshed = getattr(request.state, "webui_refresh_token", None)
-        if refreshed and response.status_code < 400:
-            self.auth.set_cookie(response, request, refreshed)
-        return response
 
 
 class WebUIService(Service):
@@ -240,6 +118,10 @@ class WebUIService(Service):
         self.server.app.add_middleware(
             WebUIAuthMiddleware, config=self.config, auth=self.auth
         )
+        self.account_panel = AccountPanel(self)
+        self.feature_panel = FeaturePanel(self)
+        self.inbox_panel = InboxPanel(self)
+        self.settings_panel = SettingsPanel(self)
         self.server.asgi_route(
             f"{WEBUI_PATH}/api/overview",
             methods=["GET"],
@@ -249,12 +131,12 @@ class WebUIService(Service):
             f"{WEBUI_PATH}/api/accounts",
             methods=["GET"],
             name="webui-api-accounts",
-        )(self.accounts_view)
+        )(self.account_panel.accounts_view)
         self.server.asgi_route(
             f"{WEBUI_PATH}/api/features",
             methods=["GET"],
             name="webui-api-features",
-        )(self.features_view)
+        )(self.feature_panel.features_view)
         for index_path in (WEBUI_PATH, f"{WEBUI_PATH}/"):
             self.server.asgi_route(
                 index_path,
@@ -262,8 +144,8 @@ class WebUIService(Service):
                 name="webui-index" if index_path == WEBUI_PATH else None,
             )(self.index)
         self.server.app.mount(
-            _ASSETS_PATH,
-            _HashedAssets(directory=_STATIC_ASSETS, check_dir=False),
+            ASSETS_PATH,
+            HashedAssets(directory=_STATIC_ASSETS, check_dir=False),
             name="webui-assets",
         )
         routes = (
@@ -274,21 +156,13 @@ class WebUIService(Service):
             ("/api/auth/sessions/revoke-others", ["POST"], self.auth.revoke_others),
             ("/api/auth/sessions/{id}/revoke", ["POST"], self.auth.revoke),
             ("/api/auth/account", ["POST"], self.auth.account),
-            ("/api/manage/accounts", ["GET"], self.managed_accounts),
-            (
-                "/api/manage/accounts/{platform}/{account_id}/{action}",
-                ["POST"],
-                self.manage_account,
-            ),
-            ("/api/manage/groups/{group_id}/response", ["POST"], self.manage_response),
+            *self.account_panel.routes(),
             ("/api/manage/pairing", ["GET", "POST"], self.pairing),
-            ("/api/manage/plugins/{plugin}", ["POST"], self.manage_plugin),
-            ("/api/manage/features/{plugin}", ["POST"], self.manage_feature),
-            ("/api/manage/settings", ["GET", "POST"], self.settings),
+            *self.feature_panel.routes(),
+            *self.settings_panel.routes(),
             ("/api/manage/config", ["GET", "POST"], self.core_config),
             ("/api/manage/logs", ["GET"], self.log_view),
-            ("/api/manage/inbox", ["GET"], self.inbox_view),
-            ("/api/manage/inbox/{id}", ["POST"], self.inbox_action),
+            *self.inbox_panel.routes(),
             ("/api/events", ["GET"], self.live_events),
         )
         self.market = PluginMarket(self)
@@ -376,226 +250,6 @@ class WebUIService(Service):
         del request
         return await self.read("overview", self._overview_data)
 
-    @staticmethod
-    def _account_name(account: object) -> str | None:
-        user = getattr(getattr(account, "self_info", None), "user", None)
-        return str(user.name) if user is not None and user.name else None
-
-    def _account_state(self, key: tuple[str, str], group_id: str) -> str:
-        """账号在群内的状态，优先级与选路一致：停用 > 离线 > 禁言。"""
-
-        if not self.accounts.is_enabled(key):
-            return "disabled"
-        if not self.accounts.is_online(key):
-            return "offline"
-        if self.accounts.is_muted(key, group_id):
-            return "muted"
-        return "available"
-
-    def _group_role(self, key: tuple[str, str], group_id: str) -> str | None:
-        # 身份只在执行管理动作时查询过才知道。
-        level = self.accounts.group_permission(key, group_id)
-        if level is None:
-            return None
-        if level >= Permission.GroupOwner:
-            return "owner"
-        return "admin" if level >= Permission.GroupAdmin else "member"
-
-    def _accounts_data(self) -> dict[str, Any]:
-        groups = []
-        for group_id in self.accounts.group_ids:
-            strategy = self.accounts.response_type_for_group(group_id)
-            target = self.accounts.deterministic_account_for_group(group_id)
-            members = []
-            for key in self.accounts.group_members(group_id):
-                ref = account_reference(key)
-                until = self.accounts.mute_until(key, group_id)
-                members.append(
-                    {
-                        "ref": ref,
-                        "id": key[1],
-                        "platform": key[0],
-                        "name": self._account_name(self.accounts.get(key)),
-                        "state": self._account_state(key, group_id),
-                        "role": self._group_role(key, group_id),
-                        "muted_until": until.astimezone(UTC).isoformat()
-                        if until
-                        else None,
-                    }
-                )
-            groups.append(
-                {
-                    "group_id": group_id,
-                    "strategy": strategy,
-                    "deterministic_account": target,
-                    "silent_reason": "blacklisted"
-                    if permission_store.blacklisted("group", *group_key(group_id))
-                    else self.accounts.silent_reason(group_id),
-                    "accounts": members,
-                }
-            )
-        accounts = []
-        for account_id, account in self.accounts.accounts.items():
-            platform = getattr(account, "platform", None)
-            if not platform:
-                platform = getattr(
-                    getattr(account, "self_info", None), "platform", None
-                )
-            accounts.append(
-                {
-                    "id": str(account.self_id),
-                    "ref": str(account_id),
-                    "platform": str(platform or "unknown"),
-                    "name": self._account_name(account),
-                    "online": bool(self.accounts.is_available(account_id)),
-                    "group_count": len(self.accounts.groups_for_account(account_id)),
-                }
-            )
-        return {"accounts": accounts, "groups": groups}
-
-    async def accounts_view(self, request: Request) -> JSONResponse:
-        del request
-        return await self.read("accounts", self._accounts_data)
-
-    def _plugin_infos(self) -> tuple[Any, ...]:
-        runtime = self.plugin_runtime or PluginRuntime()
-        return tuple(runtime.discover())
-
-    @staticmethod
-    def _empty_feature_state() -> dict[str, Any]:
-        return {"maintenance": False, "groups": {}}
-
-    def _feature_states_from_records(
-        self, records: Iterable[Any]
-    ) -> dict[str, dict[str, Any]]:
-        states: dict[str, dict[str, Any]] = {}
-        for record in records:
-            plugin_name = str(record.plugin_name)
-            state = states.setdefault(plugin_name, self._empty_feature_state())
-            group_id = record.group_id
-            if group_id is None:
-                state["maintenance"] = bool(record.maintenance)
-                if record.enabled is not None:
-                    state["global_enabled"] = bool(record.enabled)
-            elif record.enabled is not None:
-                key = group_key((record.platform, group_id))
-                state["groups"][group_reference(key)] = bool(record.enabled)
-        return states
-
-    def _feature_states_from_service(self) -> dict[str, dict[str, Any]]:
-        states: dict[str, dict[str, Any]] = {}
-        for plugin_name, value in self.feature_service.state.items():
-            state = self._empty_feature_state()
-            state["maintenance"] = bool(value.get("maintenance", False))
-            state["groups"] = {
-                str(group_id): bool(enabled)
-                for group_id, enabled in value.get("groups", {}).items()
-            }
-            if "global_enabled" in value:
-                state["global_enabled"] = bool(value["global_enabled"])
-            states[str(plugin_name)] = state
-        return states
-
-    async def _features_data(self) -> dict[str, Any]:
-        if self.feature_repository is None:
-            states = self._feature_states_from_service()
-        else:
-            records = await self.feature_repository.list_states()
-            states = self._feature_states_from_records(records)
-
-        infos = self._plugin_infos()
-        plugin_names = [str(getattr(info, "name", info)) for info in infos]
-        plugin_names.extend(name for name in states if name not in plugin_names)
-        group_ids = list(self.accounts.group_ids)
-        for state in states.values():
-            for group_id in state["groups"]:
-                # 沙盒群的开关在沙盒里用 /开启、/关闭 调整，不出现在开关页。
-                if group_id not in group_ids and group_id != SANDBOX_GROUP_ID:
-                    group_ids.append(group_id)
-
-        default_enabled = bool(getattr(self.feature_service, "default_enabled", True))
-        if not bool(getattr(self.feature_service, "ready", True)):
-            default_enabled = False
-        features = []
-        for plugin_name in plugin_names:
-            state = states.get(plugin_name, self._empty_feature_state())
-            metadata_name = plugin_name
-            scope = "group"
-            source = "builtin"
-            description = ""
-            icon = None
-            info = next(
-                (
-                    candidate
-                    for candidate in infos
-                    if str(getattr(candidate, "name", candidate)) == plugin_name
-                ),
-                None,
-            )
-            if info is not None:
-                metadata_name = str(getattr(info, "display_name", plugin_name))
-                scope = self._plugin_scope(info)
-                source = str(getattr(info, "source", "builtin"))
-                metadata = getattr(
-                    getattr(info, "native_plugin", None), "metadata", None
-                )
-                description = str(getattr(metadata, "description", None) or "")
-                icon = self.market.icon_of(plugin_name, source)
-
-            # 插件可以声明“新群默认关闭”（declare(default_enabled=False)）；受控插件
-            # 也默认关闭（#234）。
-            controlled = self.feature_service.is_controlled(plugin_name)
-            plugin_default = (
-                default_enabled
-                and not controlled
-                and getattr(self.feature_service, "plugin_defaults", {}).get(
-                    plugin_name, True
-                )
-            )
-            groups = {
-                group_id: self._effective_enabled(state, group_id, plugin_default)
-                for group_id in group_ids
-            }
-            features.append(
-                {
-                    "plugin": plugin_name,
-                    "name": metadata_name,
-                    "description": description,
-                    "icon": icon,
-                    "scope": scope,
-                    "source": source,
-                    "local": bool(getattr(info, "is_local", False)),
-                    "controlled": controlled,
-                    "controlled_declared": plugin_name
-                    in self.feature_service.controlled,
-                    "protected": bool(
-                        info is not None
-                        and self.plugin_runtime is not None
-                        and getattr(
-                            self.plugin_runtime, "is_protected", lambda _: False
-                        )(info)
-                    ),
-                    "loaded": bool(
-                        info is not None
-                        and self.plugin_runtime is not None
-                        and getattr(self.plugin_runtime, "is_loaded", lambda _: False)(
-                            info
-                        )
-                    ),
-                    "enabled": bool(
-                        info is not None
-                        and self.plugin_runtime is not None
-                        and getattr(self.plugin_runtime, "is_enabled", lambda _: False)(
-                            info
-                        )
-                    ),
-                    "maintenance": bool(state["maintenance"]),
-                    "global_enabled": state.get("global_enabled"),
-                    "groups": groups,
-                }
-            )
-        return {"features": features, "group_names": await self.group_names()}
-
     async def group_names(self) -> dict[str, str]:
         """群名称取聊天记录里最近记下的名字，仅用于展示；读取失败不影响调用方。"""
 
@@ -606,28 +260,6 @@ class WebUIService(Service):
         except Exception as error:
             logger.debug("WebUI group names unavailable: {}", type(error).__name__)
             return {}
-
-    @staticmethod
-    def _effective_enabled(
-        state: Mapping[str, Any], group_id: str, default_enabled: bool
-    ) -> bool:
-        if state.get("maintenance"):
-            return False
-        global_enabled = state.get("global_enabled")
-        if global_enabled is not None:
-            return bool(global_enabled)
-        if group_id in state.get("groups", {}):
-            return bool(state["groups"][group_id])
-        return default_enabled
-
-    @staticmethod
-    def _plugin_scope(info: object) -> str:
-        metadata = getattr(getattr(info, "native_plugin", None), "metadata", None)
-        return str(getattr(metadata, "feature_scope", "group"))
-
-    async def features_view(self, request: Request) -> JSONResponse:
-        del request
-        return await self.read("features", self._features_data)
 
     def _stamp(self):
         if self._config_path is None or not self._config_path.is_file():
@@ -680,7 +312,7 @@ class WebUIService(Service):
             )
         return _success_response(value)
 
-    def _management(self) -> AccountManagement:
+    def require_management(self) -> AccountManagement:
         if (
             self.management is None
             or not self.management.ready
@@ -688,88 +320,6 @@ class WebUIService(Service):
         ):
             raise RuntimeError("管理数据库尚未就绪")
         return self.management
-
-    async def managed_accounts(self, request: Request) -> JSONResponse:
-        async def read():
-            management = self._management()
-            rows = management.list_accounts()
-            for row in rows:
-                key = (row["platform"], row["id"])
-                account = self.accounts.get(key)
-                row.update(
-                    online=self.accounts.is_online(key),
-                    available=self.accounts.is_available(key),
-                    group_count=len(self.accounts.groups_for_account(key)),
-                    groups=list(self.accounts.groups_for_account(key)),
-                    connected=bool(
-                        self.connection
-                        and key[0] == QQ_PLATFORM
-                        and key[1] in self.connection.adapter.connections
-                    ),
-                    name=str(
-                        getattr(getattr(account, "self_info", None), "user", None).name
-                        or row["id"]
-                    )
-                    if getattr(getattr(account, "self_info", None), "user", None)
-                    else row["id"],
-                    manageable=key[0] == QQ_PLATFORM,
-                )
-            from ..host.actions import ActionCapability
-
-            return {
-                "accounts": rows,
-                "capabilities": [item.value for item in ActionCapability],
-            }
-
-        return await self.manage(request, read)
-
-    async def manage_account(self, request: Request) -> JSONResponse:
-        async def change():
-            management = self._management()
-            platform, identifier, action = (
-                request.path_params[name]
-                for name in ("platform", "account_id", "action")
-            )
-            if any(
-                not value or len(value) > 128 or any(ord(c) < 32 for c in value)
-                for value in (platform, identifier)
-            ):
-                raise ValueError("平台和账户 ID 必须是 1–128 字的有效标识")
-            key = (platform, identifier)
-            if not management.contains(key):
-                raise KeyError(key)
-            # shortcut: QQ 号目前只经 OneBot 反向连接接入；接入 Milky 等协议端时改为按 adapter 判断。
-            if platform != QQ_PLATFORM or self.connection is None:
-                raise RuntimeError("当前协议适配器尚未提供账户管理能力")
-            body = await read_json(request)
-            if action == "preferences":
-                if set(body) - {"alias", "capabilities"}:
-                    raise ValueError("仅支持别名和能力覆盖")
-                await management.update(key, body)
-            elif action in {"enable", "disable", "kick", "forget"}:
-                if set(body) != {"confirm"} or body["confirm"] is not True:
-                    raise ValueError("请确认账户操作")
-                if action == "forget":
-                    if (
-                        identifier in self.connection.adapter.connections
-                        or self.accounts.is_online(key)
-                    ):
-                        raise RuntimeError(
-                            "账户仍连接中，请先停用或在协议端断开，再移除记录"
-                        )
-                    await management.forget(key)
-                elif action == "kick":
-                    if not await self.connection.adapter.disconnect(identifier):
-                        raise RuntimeError("账户当前没有连接")
-                else:
-                    await management.update(key, {"enabled": action == "enable"})
-                    if action == "disable":
-                        await self.connection.adapter.disconnect(identifier)
-            else:
-                raise ValueError("未知账户操作")
-            return {"action": action, "platform": platform, "id": identifier}
-
-        return await self.manage(request, change)
 
     def _pairing_data(self) -> dict[str, Any]:
         if self.connection is None or self.tenko_config is None:
@@ -885,254 +435,6 @@ class WebUIService(Service):
 
         return await self.manage(request, action)
 
-    def _plugin(self, name: str):
-        if self.plugin_runtime is None:
-            raise RuntimeError("插件运行时尚未就绪")
-        info = next(
-            (info for info in self.plugin_runtime.discover() if info.name == name), None
-        )
-        if info is None:
-            raise KeyError(name)
-        if self.plugin_runtime.is_protected(info):
-            raise PermissionError("控制平面插件不能通过面板停用或修改开关")
-        return info
-
-    async def manage_plugin(self, request: Request) -> JSONResponse:
-        async def change():
-            repository = self._management().repository
-            info = self._plugin(request.path_params["plugin"])
-            body = await read_json(request)
-            if (
-                set(body) != {"enabled", "confirm"}
-                or type(body["enabled"]) is not bool
-                or body["confirm"] is not True
-            ):
-                raise ValueError("请确认插件启停操作")
-            before = self.plugin_runtime.is_enabled(info)
-            enabled = body["enabled"]
-            restart_reason = None
-            request.state.webui_action = "enable" if enabled else "disable"
-            if info.source == "external":
-                if enabled and (reason := self.market.blocked_reason(info.name)):
-                    raise PermissionError(f"插件已被插件目录封禁：{reason}")
-                # 扩展插件默认关闭，状态由 PluginRuntime 写入状态文件。
-                if not await self.plugin_runtime.set_enabled(info, enabled):
-                    raise RuntimeError("插件当前未能切换状态")
-                if enabled:
-                    restart_reason = await self.market.manager.load_now(
-                        self.plugin_runtime, info
-                    )
-            else:
-                disabled = set(await repository.setting("disabled-plugins") or [])
-                if enabled:
-                    disabled.discard(info.name)
-                else:
-                    disabled.add(info.name)
-                if not await self.plugin_runtime.set_enabled(info, enabled):
-                    raise RuntimeError("插件当前未加载，无法切换状态")
-                try:
-                    await repository.save_setting("disabled-plugins", sorted(disabled))
-                except Exception:
-                    await self.plugin_runtime.set_enabled(info, before)
-                    raise
-            return {
-                "plugin": info.name,
-                "enabled": enabled,
-                "restart_required": self.plugin_runtime.restart_required(info),
-                "restart_reason": restart_reason,
-            }
-
-        return await self.manage(request, change)
-
-    async def manage_response(self, request: Request) -> JSONResponse:
-        """设置群响应策略；定向时 account 为 null 表示按绑定顺序的默认账号。"""
-
-        async def change():
-            group_id = request.path_params["group_id"]
-            if group_id not in self.accounts.group_ids:
-                raise ValueError("群 ID 不在已知路由中")
-            body = await read_json(request)
-            strategy, account = body.get("strategy"), body.get("account")
-            if set(body) != {"strategy", "account"} or strategy not in (
-                "random",
-                "deterministic",
-            ):
-                raise ValueError("strategy 必须是 random 或 deterministic")
-            if account is not None and (
-                strategy != "deterministic" or not isinstance(account, str)
-            ):
-                raise ValueError("只有定向策略可以指定账号")
-            if strategy == "deterministic":
-                if account is None:
-                    self.accounts.clear_deterministic_account(group_id)
-                else:
-                    # 先于改策略执行：账号未绑定到该群时抛 KeyError（404），不留半改状态。
-                    self.accounts.set_deterministic_account(group_id, account)
-            self.accounts.set_response_type(group_id, strategy)
-            await self.accounts.persist_state()
-            return {
-                "group_id": group_id,
-                "strategy": strategy,
-                "deterministic_account": (
-                    self.accounts.deterministic_account_for_group(group_id)
-                ),
-            }
-
-        return await self.manage(request, change)
-
-    async def manage_feature(self, request: Request) -> JSONResponse:
-        async def change():
-            self._management()
-            if not self.feature_service.ready:
-                raise RuntimeError("功能状态尚未就绪")
-            info = self._plugin(request.path_params["plugin"])
-            body = await read_json(request)
-            if set(body) == {"controlled"}:
-                # Master 覆盖插件声明的受控状态；null 恢复插件声明。
-                value = body["controlled"]
-                if value is not None and type(value) is not bool:
-                    raise ValueError("controlled 必须是布尔值或 null")
-                overrides = dict(self.feature_service.controlled_overrides)
-                if value is None:
-                    overrides.pop(info.name, None)
-                else:
-                    overrides[info.name] = value
-                await self._management().repository.save_setting(
-                    "controlled-plugins", overrides
-                )
-                self.feature_service.controlled_overrides = overrides
-                return {
-                    "plugin": info.name,
-                    "controlled": self.feature_service.is_controlled(info.name),
-                }
-            if set(body) == {"maintenance"} and type(body["maintenance"]) is bool:
-                self.feature_service.set_maintenance(info.name, body["maintenance"])
-            elif set(body) == {"group_id", "enabled"} and body["group_id"] is None:
-                if body["enabled"] is None:
-                    self.feature_service.reset_global(info.name)
-                elif type(body["enabled"]) is bool:
-                    self.feature_service.set_global_enabled(info.name, body["enabled"])
-                else:
-                    raise ValueError("全局开关必须为布尔值或 null")
-            else:
-                if (
-                    set(body) != {"group_id", "enabled"}
-                    or type(body["enabled"]) is not bool
-                ):
-                    raise ValueError("必须指定群 ID 与布尔开关值")
-                if self._plugin_scope(info) == "global":
-                    raise ValueError("此插件使用全局开关")
-                group_id = body["group_id"]
-                if (
-                    not isinstance(group_id, str)
-                    or group_id not in self.accounts.group_ids
-                ):
-                    raise ValueError("群 ID 不在已知路由中")
-                state = self.feature_service.state.get(info.name, {})
-                if state.get("maintenance") or "global_enabled" in state:
-                    raise RuntimeError("请先在插件页解除维护或全局覆盖，再修改群级开关")
-                self.feature_service.set_enabled(info.name, group_id, body["enabled"])
-            await self.feature_service.persist_state()
-            return {
-                "plugin": info.name,
-                "state": dict(self.feature_service.state.get(info.name, {})),
-            }
-
-        return await self.manage(request, change)
-
-    def _inbox_data(self) -> dict[str, Any]:
-        return {
-            "items": [
-                {
-                    "id": item.id,
-                    "kind": item.kind,
-                    "platform": item.platform,
-                    "account_id": item.account_id,
-                    "user_id": item.user_id,
-                    "user_name": item.user_name,
-                    "comment": item.comment,
-                    "group_id": item.group_id,
-                    "group_name": item.group_name,
-                    "created_at": item.created_at.isoformat(),
-                    "expires_at": item.expires_at.isoformat()
-                    if item.expires_at
-                    else None,
-                }
-                for item in self.inbox.items()
-            ]
-        }
-
-    async def inbox_view(self, request: Request) -> JSONResponse:
-        del request
-        return await self.read("inbox", self._inbox_data)
-
-    async def inbox_action(self, request: Request) -> JSONResponse:
-        async def action():
-            body = await read_json(request)
-            decision = body.get("action")
-            comment = body.get("comment", "")
-            if (
-                set(body) - {"action", "confirm", "comment"}
-                or decision not in {"approve", "reject", "dismiss"}
-                or body.get("confirm") is not True
-            ):
-                raise ValueError("请确认要执行的操作")
-            if not isinstance(comment, str) or len(comment) > 100:
-                raise ValueError("理由必须是 100 字以内的文本")
-            item = self.inbox.get(request.path_params["id"])
-            request.state.webui_action = f"inbox-{decision}"
-            # 忽略只从列表移除，平台上的请求保持原样。
-            if decision != "dismiss":
-                await item.decide(decision == "approve", comment.strip())
-            self.inbox.discard(item.kind, item.account_id, item.request_id)
-            return self._inbox_data()
-
-        return await self.manage(request, action)
-
-    async def settings(self, request: Request) -> JSONResponse:
-        async def action():
-            repository = self._management().repository
-            if request.method == "POST":
-                request.state.webui_action = "settings"
-                body = await read_json(request)
-                if not body or not set(body) <= {
-                    "default_enabled",
-                    "friend_request_mode",
-                    "notify",
-                }:
-                    raise ValueError(
-                        "只能设置 default_enabled、friend_request_mode 或 notify"
-                    )
-                if (
-                    "default_enabled" in body
-                    and type(body["default_enabled"]) is not bool
-                ):
-                    raise ValueError("default_enabled 必须是布尔值")
-                mode = body.get("friend_request_mode", "admins")
-                if not isinstance(mode, str) or mode not in MODE_LABELS:
-                    raise ValueError("friend_request_mode 必须是 off、admins 或 all")
-                if not isinstance(body.get("notify", {}), dict):
-                    raise ValueError("notify 必须是对象")
-                if "notify" in body:
-                    await save_notify_settings(body["notify"], repository)
-                if "default_enabled" in body:
-                    await repository.save_setting(
-                        "feature-default", body["default_enabled"]
-                    )
-                    self.feature_service.default_enabled = body["default_enabled"]
-                if "friend_request_mode" in body:
-                    await set_friend_request_mode(
-                        repository, body["friend_request_mode"]
-                    )
-            return {
-                "default_enabled": self.feature_service.default_enabled,
-                "stored": await repository.setting("feature-default") is not None,
-                "friend_request_mode": await get_friend_request_mode(repository),
-                "notify": (await load_notify_settings(repository)).to_dict(),
-            }
-
-        return await self.manage(request, action)
-
     async def core_config(self, request: Request) -> JSONResponse:
         async def action():
             writable = self._config_path is not None and self._config_stamp is not None
@@ -1203,7 +505,7 @@ class WebUIService(Service):
 
         features = (self.feature_service.default_enabled, self.feature_service.state)
         return {
-            "accounts": hash(json.dumps(self._accounts_data(), sort_keys=True)),
+            "accounts": hash(json.dumps(self.account_panel.data(), sort_keys=True)),
             "features": hash(json.dumps(features, sort_keys=True, default=str)),
             "chat": chat_log.sequence,
             "sandbox": sandbox_module.sandbox.sequence if sandbox_module.sandbox else 0,
@@ -1253,8 +555,4 @@ class WebUIService(Service):
                 self._log_sink = None
 
 
-__all__ = [
-    "WEBUI_PATH",
-    "WebUIAuthMiddleware",
-    "WebUIService",
-]
+__all__ = ["WEBUI_PATH", "WebUIService"]
