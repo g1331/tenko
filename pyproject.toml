@@ -221,11 +221,33 @@ docstring-code-format = true # 启用 docstring 代码片段格式化
 
 [dependency-groups]
 dev = [
+    "mypy>=2.4.1",
     "pre-commit>=4.2.0",
     "pytest>=8.4.0",
     "pytest-asyncio>=1.0.0",
     "ruff>=0.17.3",
 ]
+
+# mypy 类型检查（只覆盖 tenko 包，不检查 tests/）
+[tool.mypy]
+python_version = "3.11"
+files = ["tenko"]
+warn_unused_ignores = true
+warn_redundant_casts = true
+
+# 以下第三方包没有类型声明（缺 py.typed 或 stubs），按模块忽略，不全局放宽。
+[[tool.mypy.overrides]]
+module = [
+    "launart",
+    "launart.*",
+    "entari_plugin_database",
+    "entari_plugin_database.*",
+    "graia.*",
+    "psutil",
+    "pygments",
+    "pygments.*",
+]
+ignore_missing_imports = true
 
 # 配置 Ruff 的 PyUpgrade 功能（Python 版本兼容性优化）
 [tool.ruff.lint.pyupgrade]
