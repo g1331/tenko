@@ -19,7 +19,11 @@ import type {
   ChatMessagesData,
   ChatSendBody,
   SandboxChat,
+  SandboxClearResult,
   SandboxData,
+  SandboxResetResult,
+  SentResult,
+  StatsReplayResult,
   SandboxSendBody,
   CoreConfigData,
   Empty,
@@ -130,16 +134,15 @@ export const api = {
       request<ChatMessagesData>('/manage/chat/messages', {
         query: { platform, account, channel, ...cursor },
       }),
-    chatSend: (body: ChatSendBody) => request<{ sent: boolean }>('/manage/chat/send', { body }),
+    chatSend: (body: ChatSendBody) => request<SentResult>('/manage/chat/send', { body }),
     sandbox: (chat: SandboxChat) => request<SandboxData>('/manage/sandbox', { query: { chat } }),
-    sandboxSend: (body: SandboxSendBody) =>
-      request<{ sent: boolean }>('/manage/sandbox/send', { body }),
-    sandboxClear: () => request<{ cleared: boolean }>('/manage/sandbox/clear', { body: {} }),
-    sandboxResetData: () => request<{ reset: boolean }>('/manage/sandbox/reset-data', { body: {} }),
+    sandboxSend: (body: SandboxSendBody) => request<SentResult>('/manage/sandbox/send', { body }),
+    sandboxClear: () => request<SandboxClearResult>('/manage/sandbox/clear', { body: {} }),
+    sandboxResetData: () => request<SandboxResetResult>('/manage/sandbox/reset-data', { body: {} }),
     blacklist: () => request<BlacklistData>('/manage/blacklist'),
     setBlacklist: (body: BlacklistBody) => request<BlacklistData>('/manage/blacklist', { body }),
     stats: (days: StatsDays) => request<StatsData>('/manage/stats', { query: { days } }),
     statsReplay: (id: number) =>
-      request<{ chat: SandboxChat }>('/manage/stats/replay', { body: { id } }),
+      request<StatsReplayResult>('/manage/stats/replay', { body: { id } }),
   },
 }

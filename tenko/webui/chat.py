@@ -11,17 +11,24 @@ import base64
 import binascii
 import json
 import re
+from collections.abc import Mapping
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
 from satori.element import At, Element, Image, Quote, Text
 from starlette.requests import Request
-from starlette.responses import JSONResponse
 
 from ..host.accounts import account_reference
 from ..host.actions import ActionServiceError, action_service
 from ..host.chat_log import chat_log, preview
-from .auth import read_json
+from .auth import ApiResponse, read_json
+from .contracts import (
+    ChatConversation,
+    ChatConversationsData,
+    ChatMessage,
+    ChatMessagesData,
+    SentResult,
+)
 
 if TYPE_CHECKING:
     from .service import WebUIService
@@ -59,7 +66,7 @@ def _iso(timestamp: float) -> str:
     return datetime.fromtimestamp(timestamp, UTC).isoformat()
 
 
-def _message(record: Any) -> dict[str, Any]:
+def _message(record: Any) -> ChatMessage:
     return {
         "id": record.id,
         "message_id": record.message_id,
@@ -68,6 +75,20 @@ def _message(record: Any) -> dict[str, Any]:
         "user_name": record.user_name,
         "content": json.loads(record.content),
         "created_at": _iso(record.created_at),
+    }
+
+
+def history_message(item: Mapping[str, Any]) -> ChatMessage:
+    """沙盒内存记录（``SandboxAdapter.history`` 里的字典）转成面板的消息。"""
+
+    return {
+        "id": item["id"],
+        "message_id": item["message_id"],
+        "outgoing": item["outgoing"],
+        "user_id": item["user_id"],
+        "user_name": item["user_name"],
+        "content": item["content"],
+        "created_at": item["created_at"],
     }
 
 
@@ -148,8 +169,10 @@ class ChatPanel:
             raise KeyError(key)
         return key
 
-    async def conversations(self, request: Request) -> JSONResponse:
-        async def read() -> dict[str, Any]:
+    async def conversations(
+        self, request: Request
+    ) -> ApiResponse[ChatConversationsData]:
+        async def read() -> ChatConversationsData:
             key = self._account(request.query_params)
             accounts = self.service.accounts
             names = await self.service.group_names()
@@ -159,13 +182,14 @@ class ChatPanel:
                 if chat_log.enabled and repository is not None
                 else ()
             )
-            rows: dict[str, dict[str, Any]] = {}
+            rows: dict[str, ChatConversation] = {}
             for record in latest:
                 group = record.chat_type == "group"
                 content = json.loads(record.content)
                 rows[record.channel_id] = {
                     "channel_id": record.channel_id,
-                    "chat_type": record.chat_type,
+                    # 聊天记录只存群聊和私聊。
+                    "chat_type": "group" if group else "private",
                     "peer_id": record.channel_id
                     if group
                     else record.channel_id.removeprefix("private:"),
@@ -177,6 +201,7 @@ class ChatPanel:
                         "outgoing": record.outgoing,
                         "created_at": _iso(record.created_at),
                     },
+                    "muted": group and accounts.is_muted(key, record.channel_id),
                 }
             for group_id in accounts.groups_for_account(key):
                 rows.setdefault(
@@ -187,11 +212,8 @@ class ChatPanel:
                         "peer_id": group_id,
                         "name": names.get(group_id, ""),
                         "last": None,
+                        "muted": accounts.is_muted(key, group_id),
                     },
-                )
-            for row in rows.values():
-                row["muted"] = row["chat_type"] == "group" and accounts.is_muted(
-                    key, row["channel_id"]
                 )
             return {
                 "enabled": chat_log.enabled,
@@ -202,16 +224,17 @@ class ChatPanel:
 
         return await self.service.manage(request, read, lock=False)
 
-    async def messages(self, request: Request) -> JSONResponse:
-        async def read():
+    async def messages(self, request: Request) -> ApiResponse[ChatMessagesData]:
+        async def read() -> ChatMessagesData:
             params = request.query_params
             key = self._account(params)
             channel = _identifier(params.get("channel"), "会话")
             before = _cursor(params.get("before"))
             after = _cursor(params.get("after"))
-            if not chat_log.enabled:
+            repository = chat_log.repository
+            if not chat_log.enabled or repository is None:
                 return {"messages": [], "has_more": False}
-            records = await chat_log.repository.messages(
+            records = await repository.messages(
                 *key, channel, before=before, after=after, limit=PAGE_SIZE + 1
             )
             has_more = len(records) > PAGE_SIZE
@@ -225,16 +248,14 @@ class ChatPanel:
         return await self.service.manage(request, read, lock=False)
 
     async def _fill_quotes(
-        self, key: tuple[str, str], channel: str, messages: list[dict[str, Any]]
+        self, key: tuple[str, str], channel: str, messages: list[ChatMessage]
     ) -> None:
         # bot 发出的回复只带被引用消息的 ID；从同一会话的记录里补上作者和摘要。
         quotes = [
             segment
             for message in messages
             for segment in message["content"]
-            if segment.get("type") == "quote"
-            and segment.get("id")
-            and not segment.get("text")
+            if segment["type"] == "quote" and segment["id"] and not segment["text"]
         ]
         repository = chat_log.repository
         if not quotes or repository is None:
@@ -252,8 +273,8 @@ class ChatPanel:
                 segment["name"] = record.user_name
                 segment["text"] = preview(json.loads(record.content), 60)
 
-    async def send(self, request: Request) -> JSONResponse:
-        async def action():
+    async def send(self, request: Request) -> ApiResponse[SentResult]:
+        async def action() -> SentResult:
             body = await read_json(request, limit=6 * 1024 * 1024)
             if set(body) - {"platform", "account", "channel", "content"}:
                 raise ValueError("未知的发送参数")

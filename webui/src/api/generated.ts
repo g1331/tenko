@@ -8,6 +8,16 @@ export type AccountActionBody = AccountPreferencesBody | AccountConfirmBody
 export type SilentReason = 'blacklisted' | 'no_account' | 'target_unavailable'
 export type GroupAccountState = 'available' | 'muted' | 'offline' | 'disabled'
 export type BlacklistKind = 'user' | 'group'
+export type ChatType = 'group' | 'private'
+export type ChatSegment =
+  | ChatTextSegment
+  | ChatAtSegment
+  | ChatFaceSegment
+  | ChatImageSegment
+  | ChatQuoteSegment
+  | ChatOtherSegment
+export type ChatSendSegment =
+  ChatSendTextSegment | ChatSendAtSegment | ChatSendImageSegment | ChatSendQuoteSegment
 /**
  * 没有内容的成功响应。
  */
@@ -18,6 +28,9 @@ export type FeatureToggleBody =
 export type FriendRequestMode = 'off' | 'admins' | 'all'
 export type InboxAction = 'approve' | 'reject' | 'dismiss'
 export type PairingActionBody = PairingRevealBody | PairingRotateBody
+export type SandboxChat = 'group' | 'private'
+export type SandboxIdentity = 'member' | 'admin' | 'owner' | 'master'
+export type StatsDays = 1 | 7 | 30
 
 /**
  * ``preferences`` 动作的请求体：别名和能力覆盖。
@@ -138,6 +151,109 @@ export interface BlacklistEntry {
    */
   operator_id: string
   created_at: string | null
+}
+export interface ChatAtSegment {
+  type: 'at'
+  id: string
+  name: string
+}
+export interface ChatConversation {
+  /**
+   * 群号，或 private:<QQ号>。
+   */
+  channel_id: string
+  chat_type: ChatType
+  /**
+   * 群号或私聊对方的 QQ 号。
+   */
+  peer_id: string
+  name: string
+  last: ChatConversationLast | null
+  muted: boolean
+}
+export interface ChatConversationLast {
+  preview: string
+  user_name: string
+  outgoing: boolean
+  created_at: string
+}
+export interface ChatConversationsData {
+  /**
+   * 消息记录是否开启；关闭时仍可发送，但看不到历史。
+   */
+  enabled: boolean
+  retention_days: number
+  online: boolean
+  conversations: ChatConversation[]
+}
+export interface ChatFaceSegment {
+  type: 'face'
+  id: string
+  name: string
+}
+export interface ChatImageSegment {
+  type: 'image'
+  /**
+   * 为空表示图片没有可用地址（例如渲染出的内嵌图片不入库）。
+   */
+  src: string
+}
+export interface ChatMessage {
+  /**
+   * 记录编号，用作翻页和增量读取的游标。
+   */
+  id: number
+  /**
+   * 平台消息 ID，回复时引用它。
+   */
+  message_id: string | null
+  outgoing: boolean
+  user_id: string
+  user_name: string
+  content: ChatSegment[]
+  created_at: string
+}
+export interface ChatTextSegment {
+  type: 'text'
+  text: string
+}
+export interface ChatQuoteSegment {
+  type: 'quote'
+  id: string
+  user_id: string
+  name: string
+  text: string
+}
+export interface ChatOtherSegment {
+  type: 'other'
+  name: string
+}
+export interface ChatMessagesData {
+  messages: ChatMessage[]
+  has_more: boolean
+}
+export interface ChatSendAtSegment {
+  type: 'at'
+  id: string
+  name?: string
+}
+export interface ChatSendBody {
+  platform: string
+  account: string
+  channel: string
+  content: ChatSendSegment[]
+}
+export interface ChatSendTextSegment {
+  type: 'text'
+  text: string
+}
+export interface ChatSendImageSegment {
+  type: 'image'
+  src: string
+}
+export interface ChatSendQuoteSegment {
+  type: 'quote'
+  id: string
 }
 export interface FeatureControlledBody {
   /**
@@ -414,6 +530,43 @@ export interface PluginToggleResult {
 export interface RevokeOthersResult {
   revoked: number
 }
+export interface SandboxBot {
+  id: string
+  name: string
+}
+export interface SandboxClearResult {
+  cleared: boolean
+}
+/**
+ * 命令沙盒：面板扮演用户和 bot 对话，记录只在内存里。
+ */
+export interface SandboxData {
+  ready: boolean
+  bot: SandboxBot
+  group: SandboxGroup
+  identities: SandboxIdentityInfo[]
+  messages: ChatMessage[]
+}
+export interface SandboxGroup {
+  id: string
+  name: string
+}
+export interface SandboxIdentityInfo {
+  value: SandboxIdentity
+  user_id: string
+  name: string
+}
+export interface SandboxResetResult {
+  reset: boolean
+}
+export interface SandboxSendBody {
+  chat: SandboxChat
+  identity: SandboxIdentity
+  content: ChatSendSegment[]
+}
+export interface SentResult {
+  sent: boolean
+}
 export interface SessionInfo {
   id: string
   created_at: string
@@ -436,4 +589,98 @@ export interface SettingsData {
   stored: boolean
   friend_request_mode: FriendRequestMode
   notify: NotifySettings
+}
+export interface StatsData {
+  days: StatsDays
+  since: string
+  total: StatsSummary | null
+  trend: number[]
+  trend_unit: 'hour' | 'day'
+  plugins: StatsPlugin[]
+  idle: string[]
+  errors: StatsError[]
+}
+export interface StatsSummary {
+  key: string
+  calls: number
+  ok: number
+  errors: number
+  denied: number
+  success_rate: number | null
+  avg_ms: number | null
+  max_ms: number
+  avg_render_ms: number | null
+  replies: number
+  reasons: StatsReason[]
+  actions: {
+    [k: string]: number
+  }
+}
+export interface StatsReason {
+  reason: string
+  label: string
+  count: number
+}
+export interface StatsPlugin {
+  key: string
+  calls: number
+  ok: number
+  errors: number
+  denied: number
+  success_rate: number | null
+  avg_ms: number | null
+  max_ms: number
+  avg_render_ms: number | null
+  replies: number
+  reasons: StatsReason[]
+  actions: {
+    [k: string]: number
+  }
+  label: string
+  commands: StatsSummary[]
+  groups: StatsGroup[]
+}
+export interface StatsGroup {
+  key: string
+  calls: number
+  ok: number
+  errors: number
+  denied: number
+  success_rate: number | null
+  avg_ms: number | null
+  max_ms: number
+  avg_render_ms: number | null
+  replies: number
+  reasons: StatsReason[]
+  actions: {
+    [k: string]: number
+  }
+  name: string
+}
+export interface StatsError {
+  fingerprint: string
+  kind: string
+  location: string
+  message: string
+  traceback: string
+  first_seen: string
+  last_seen: string
+  total: number
+  groups: string[]
+  failures: StatsFailure[]
+}
+export interface StatsFailure {
+  id: number
+  at: string
+  /**
+   * group / private；非消息会话（other）也会出现。
+   */
+  chat: string
+  group_id: string
+  group_name: string
+  user_id: string
+  preview: string
+}
+export interface StatsReplayResult {
+  chat: SandboxChat
 }

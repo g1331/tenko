@@ -468,3 +468,263 @@ class InboxData(TypedDict):
 
 
 InboxAction = TypeAliasType("InboxAction", Literal["approve", "reject", "dismiss"])
+
+
+# ---------------------------------------------------------------- 聊天与命令沙盒
+
+
+class ChatTextSegment(TypedDict):
+    type: Literal["text"]
+    text: str
+
+
+class ChatAtSegment(TypedDict):
+    type: Literal["at"]
+    id: str
+    name: str
+
+
+class ChatFaceSegment(TypedDict):
+    type: Literal["face"]
+    id: str
+    name: str
+
+
+class ChatImageSegment(TypedDict):
+    type: Literal["image"]
+    src: str
+    """为空表示图片没有可用地址（例如渲染出的内嵌图片不入库）。"""
+
+
+class ChatQuoteSegment(TypedDict):
+    type: Literal["quote"]
+    id: str
+    user_id: str
+    name: str
+    text: str
+
+
+class ChatOtherSegment(TypedDict):
+    type: Literal["other"]
+    name: str
+
+
+# 聊天消息段：后端把 Satori 元素归一化成这几种，未知元素是 other 占位。
+ChatSegment = TypeAliasType(
+    "ChatSegment",
+    ChatTextSegment
+    | ChatAtSegment
+    | ChatFaceSegment
+    | ChatImageSegment
+    | ChatQuoteSegment
+    | ChatOtherSegment,
+)
+
+
+class ChatMessage(TypedDict):
+    id: int
+    """记录编号，用作翻页和增量读取的游标。"""
+    message_id: str | None
+    """平台消息 ID，回复时引用它。"""
+    outgoing: bool
+    user_id: str
+    user_name: str
+    content: list[ChatSegment]
+    created_at: str
+
+
+ChatType = TypeAliasType("ChatType", Literal["group", "private"])
+
+
+class ChatConversationLast(TypedDict):
+    preview: str
+    user_name: str
+    outgoing: bool
+    created_at: str
+
+
+class ChatConversation(TypedDict):
+    channel_id: str
+    """群号，或 private:<QQ号>。"""
+    chat_type: ChatType
+    peer_id: str
+    """群号或私聊对方的 QQ 号。"""
+    name: str
+    last: ChatConversationLast | None
+    muted: bool
+
+
+class ChatConversationsData(TypedDict):
+    enabled: bool
+    """消息记录是否开启；关闭时仍可发送，但看不到历史。"""
+    retention_days: int
+    online: bool
+    conversations: list[ChatConversation]
+
+
+class ChatMessagesData(TypedDict):
+    messages: list[ChatMessage]
+    has_more: bool
+
+
+class ChatSendTextSegment(TypedDict):
+    type: Literal["text"]
+    text: str
+
+
+class ChatSendAtSegment(TypedDict):
+    type: Literal["at"]
+    id: str
+    name: NotRequired[str]
+
+
+class ChatSendImageSegment(TypedDict):
+    type: Literal["image"]
+    src: str
+
+
+class ChatSendQuoteSegment(TypedDict):
+    type: Literal["quote"]
+    id: str
+
+
+# 发送时可用的消息段；回复只能在最前面。
+ChatSendSegment = TypeAliasType(
+    "ChatSendSegment",
+    ChatSendTextSegment
+    | ChatSendAtSegment
+    | ChatSendImageSegment
+    | ChatSendQuoteSegment,
+)
+
+
+class ChatSendBody(TypedDict):
+    platform: str
+    account: str
+    channel: str
+    content: list[ChatSendSegment]
+
+
+class SentResult(TypedDict):
+    sent: bool
+
+
+SandboxChat = TypeAliasType("SandboxChat", Literal["group", "private"])
+SandboxIdentity = TypeAliasType(
+    "SandboxIdentity", Literal["member", "admin", "owner", "master"]
+)
+
+
+class SandboxBot(TypedDict):
+    id: str
+    name: str
+
+
+class SandboxGroup(TypedDict):
+    id: str
+    name: str
+
+
+class SandboxIdentityInfo(TypedDict):
+    value: SandboxIdentity
+    user_id: str
+    name: str
+
+
+class SandboxData(TypedDict):
+    """命令沙盒：面板扮演用户和 bot 对话，记录只在内存里。"""
+
+    ready: bool
+    bot: SandboxBot
+    group: SandboxGroup
+    identities: list[SandboxIdentityInfo]
+    messages: list[ChatMessage]
+
+
+class SandboxSendBody(TypedDict):
+    chat: SandboxChat
+    identity: SandboxIdentity
+    content: list[ChatSendSegment]
+
+
+class SandboxClearResult(TypedDict):
+    cleared: bool
+
+
+class SandboxResetResult(TypedDict):
+    reset: bool
+
+
+# ---------------------------------------------------------------- 调用统计 /manage/stats
+
+StatsDays = TypeAliasType("StatsDays", Literal[1, 7, 30])
+
+
+class StatsReason(TypedDict):
+    reason: str
+    label: str
+    count: int
+
+
+class StatsSummary(TypedDict):
+    key: str
+    calls: int
+    ok: int
+    errors: int
+    denied: int
+    success_rate: float | None
+    avg_ms: int | None
+    max_ms: int
+    avg_render_ms: int | None
+    replies: int
+    reasons: list[StatsReason]
+    actions: dict[str, int]
+
+
+class StatsGroup(StatsSummary):
+    name: str
+
+
+class StatsPlugin(StatsSummary):
+    label: str
+    commands: list[StatsSummary]
+    groups: list[StatsGroup]
+
+
+class StatsFailure(TypedDict):
+    id: int
+    at: str
+    chat: str
+    """group / private；非消息会话（other）也会出现。"""
+    group_id: str
+    group_name: str
+    user_id: str
+    preview: str
+
+
+class StatsError(TypedDict):
+    fingerprint: str
+    kind: str
+    location: str
+    message: str
+    traceback: str
+    first_seen: str
+    last_seen: str
+    total: int
+    groups: list[str]
+    failures: list[StatsFailure]
+
+
+class StatsData(TypedDict):
+    days: StatsDays
+    since: str
+    total: StatsSummary | None
+    trend: list[int]
+    trend_unit: Literal["hour", "day"]
+    plugins: list[StatsPlugin]
+    idle: list[str]
+    errors: list[StatsError]
+
+
+class StatsReplayResult(TypedDict):
+    chat: SandboxChat

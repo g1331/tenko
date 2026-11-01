@@ -8,7 +8,6 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any
 
 from starlette.requests import Request
-from starlette.responses import JSONResponse
 
 from ..host import sandbox as sandbox_module
 from ..host.plugins.storage import reset_sandbox_data
@@ -19,8 +18,15 @@ from ..host.sandbox import (
     SANDBOX_GROUP_NAME,
     SANDBOX_PRIVATE_CHANNEL,
 )
-from .auth import read_json
-from .chat import build_message
+from .auth import ApiResponse, read_json
+from .chat import build_message, history_message
+from .contracts import (
+    SandboxClearResult,
+    SandboxData,
+    SandboxIdentityInfo,
+    SandboxResetResult,
+    SentResult,
+)
 
 if TYPE_CHECKING:
     from .service import WebUIService
@@ -53,31 +59,35 @@ class SandboxPanel:
             ("/api/manage/sandbox/reset-data", ["POST"], self.reset_data),
         )
 
-    async def state(self, request: Request) -> JSONResponse:
-        async def read():
+    async def state(self, request: Request) -> ApiResponse[SandboxData]:
+        async def read() -> SandboxData:
             params = request.query_params
             chat = _chat(params.get("chat", "group"))
             after = params.get("after")
             if after is not None and not after.isdigit():
                 raise ValueError("after 必须是消息序号")
             adapter = _adapter()
+            identities: list[SandboxIdentityInfo] = [
+                {"value": key, "user_id": user_id, "name": name}
+                for key, (user_id, name, _role) in IDENTITIES.items()
+            ]
             return {
                 "ready": adapter.ready,
                 "bot": {"id": SANDBOX_BOT_ID, "name": adapter.login.user.name or ""},
                 "group": {"id": SANDBOX_GROUP_ID, "name": SANDBOX_GROUP_NAME},
-                "identities": [
-                    {"value": key, "user_id": user_id, "name": name}
-                    for key, (user_id, name, _role) in IDENTITIES.items()
+                "identities": identities,
+                "messages": [
+                    history_message(item)
+                    for item in adapter.messages(
+                        CHATS[chat], None if after is None else int(after)
+                    )
                 ],
-                "messages": adapter.messages(
-                    CHATS[chat], None if after is None else int(after)
-                ),
             }
 
         return await self.service.manage(request, read, lock=False)
 
-    async def send(self, request: Request) -> JSONResponse:
-        async def action():
+    async def send(self, request: Request) -> ApiResponse[SentResult]:
+        async def action() -> SentResult:
             body = await read_json(request, limit=6 * 1024 * 1024)
             if set(body) - {"chat", "identity", "content"}:
                 raise ValueError("未知的发送参数")
@@ -92,16 +102,16 @@ class SandboxPanel:
 
         return await self.service.manage(request, action, lock=False)
 
-    async def clear(self, request: Request) -> JSONResponse:
-        async def action():
+    async def clear(self, request: Request) -> ApiResponse[SandboxClearResult]:
+        async def action() -> SandboxClearResult:
             request.state.webui_action = "sandbox-clear"
             _adapter().clear()
             return {"cleared": True}
 
         return await self.service.manage(request, action, lock=False)
 
-    async def reset_data(self, request: Request) -> JSONResponse:
-        async def action():
+    async def reset_data(self, request: Request) -> ApiResponse[SandboxResetResult]:
+        async def action() -> SandboxResetResult:
             request.state.webui_action = "sandbox-reset-data"
             return {"reset": await reset_sandbox_data()}
 

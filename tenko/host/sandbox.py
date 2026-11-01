@@ -25,7 +25,7 @@ from collections.abc import Iterator, Sequence
 from contextlib import contextmanager
 from contextvars import ContextVar
 from datetime import datetime
-from typing import Any
+from typing import Any, Literal
 
 from arclet.entari.session import EntariProtocol
 from launart import Launart
@@ -56,7 +56,8 @@ SANDBOX_PRIVATE_CHANNEL = f"private:{SANDBOX_USER_ID}"
 HISTORY_LIMIT = 200
 
 # 身份 -> (用户 ID, 显示名, 群角色)。Master 用单独的 ID，权限由 superuser_ids 给出。
-IDENTITIES: dict[str, tuple[str, str, str]] = {
+Identity = Literal["member", "admin", "owner", "master"]
+IDENTITIES: dict[Identity, tuple[str, str, str]] = {
     "member": (SANDBOX_USER_ID, "测试成员", "member"),
     "admin": (SANDBOX_USER_ID, "测试管理员", "admin"),
     "owner": (SANDBOX_USER_ID, "测试群主", "owner"),
@@ -163,7 +164,7 @@ class SandboxAdapter(Adapter):
         self.sequence += 1
 
     async def send(
-        self, chat_type: str, identity: str, elements: list[Element]
+        self, chat_type: str, identity: Identity, elements: list[Element]
     ) -> None:
         """以指定身份发一条消息给 bot；引用会补上被引用的作者和内容。"""
 

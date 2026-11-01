@@ -8,19 +8,48 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any
 
 from starlette.requests import Request
-from starlette.responses import JSONResponse
 
 from ..host import sandbox as sandbox_module
 from ..host.errors import error_book
 from ..host.plugins.runtime import PluginRuntime
-from ..host.stats import hourly, load, summarize
-from .auth import error_response, read_json, success_response
+from ..host.stats import REASON_LABELS, Summary, hourly, load, summarize
+from .auth import ApiResponse, error_response, read_json, success_response
+from .contracts import (
+    StatsData,
+    StatsDays,
+    StatsError,
+    StatsFailure,
+    StatsGroup,
+    StatsPlugin,
+    StatsReplayResult,
+    StatsSummary,
+)
 
 if TYPE_CHECKING:
     from .service import WebUIService
 
-PERIODS = (1, 7, 30)
+PERIODS: dict[int, StatsDays] = {1: 1, 7: 7, 30: 30}
 TOP_GROUPS = 10
+
+
+def _summary(item: Summary) -> StatsSummary:
+    return {
+        "key": item.key,
+        "calls": item.calls,
+        "ok": item.ok,
+        "errors": item.errors,
+        "denied": item.denied,
+        "success_rate": item.success_rate,
+        "avg_ms": item.avg_ms,
+        "max_ms": item.max_ms,
+        "avg_render_ms": item.avg_render_ms,
+        "replies": item.replies,
+        "reasons": [
+            {"reason": r, "label": REASON_LABELS.get(r, r), "count": n}
+            for r, n in item.reasons.most_common()
+        ],
+        "actions": dict(item.actions.most_common()),
+    }
 
 
 class StatsPanel:
@@ -33,10 +62,10 @@ class StatsPanel:
             ("/api/manage/stats/replay", ["POST"], self.replay),
         )
 
-    async def replay(self, request: Request) -> JSONResponse:
+    async def replay(self, request: Request) -> ApiResponse[StatsReplayResult]:
         """把一次失败调用的原始输入以 Master 身份在沙盒里重放。"""
 
-        async def action():
+        async def action() -> StatsReplayResult:
             body = await read_json(request)
             failure_id = body.get("id")
             failure = (
@@ -56,12 +85,13 @@ class StatsPanel:
 
         return await self.service.manage(request, action, lock=False)
 
-    async def stats(self, request: Request) -> JSONResponse:
+    async def stats(self, request: Request) -> ApiResponse[StatsData]:
         try:
-            days = int(request.query_params.get("days", "1"))
+            requested = int(request.query_params.get("days", "1"))
         except ValueError:
-            days = 0
-        if days not in PERIODS:
+            requested = 0
+        days = PERIODS.get(requested)
+        if days is None:
             return error_response("invalid_days", "时间范围只能是 1、7 或 30 天", 400)
         # repository 依赖官方 database 插件已加载：模块顶层导入会让它以默认配置初始化。
         from ..db.repositories import CommandStatRepository
@@ -71,25 +101,57 @@ class StatsPanel:
         infos = PluginRuntime().discover()
         labels = {info.name: info.display_name for info in infos}
 
-        def group_rows(rows: list[Any]) -> list[dict[str, Any]]:
+        def group_rows(rows: list[Any]) -> list[StatsGroup]:
             return [
-                {**s.to_dict(), "name": names.get(s.key, "") if s.key else "私聊"}
+                {**_summary(s), "name": names.get(s.key, "") if s.key else "私聊"}
                 for s in summarize(rows, lambda r: r.group_id)[:TOP_GROUPS]
             ]
 
-        plugins = []
+        plugins: list[StatsPlugin] = []
         for item in summarize(records, lambda r: r.plugin):
             rows = [r for r in records if r.plugin == item.key]
             plugins.append(
                 {
-                    **item.to_dict(),
+                    **_summary(item),
                     "label": labels.get(item.key, item.key),
                     "commands": [
-                        s.to_dict() for s in summarize(rows, lambda r: r.handler)
+                        _summary(s) for s in summarize(rows, lambda r: r.handler)
                     ],
                     "groups": group_rows(rows),
                 }
             )
+
+        def failures(fingerprint: str) -> list[StatsFailure]:
+            rows: list[StatsFailure] = [
+                {
+                    "id": f.id,
+                    "at": f.at.isoformat(),
+                    "chat": f.chat,
+                    "group_id": f.group_id,
+                    "group_name": names.get(f.group_id, ""),
+                    "user_id": f.user_id,
+                    "preview": f.preview,
+                }
+                for f in reversed(error_book.failures)
+                if f.fingerprint == fingerprint
+            ]
+            return rows[:5]
+
+        errors: list[StatsError] = [
+            {
+                "fingerprint": r.fingerprint,
+                "kind": r.kind,
+                "location": r.location,
+                "message": r.message,
+                "traceback": r.traceback,
+                "first_seen": r.first_seen.isoformat(),
+                "last_seen": r.last_seen.isoformat(),
+                "total": r.total,
+                "groups": sorted(names.get(g) or g for g in r.seen_groups),
+                "failures": failures(r.fingerprint),
+            }
+            for r in error_book.records()
+        ]
         used = {item["key"] for item in plugins}
         counts = hourly(records, since)
         total = next(iter(summarize(records, lambda r: "")), None)
@@ -97,7 +159,7 @@ class StatsPanel:
             {
                 "days": days,
                 "since": since.isoformat(),
-                "total": total.to_dict() if total else None,
+                "total": _summary(total) if total else None,
                 # 一天内按小时，更长按天。
                 "trend": counts
                 if days == 1
@@ -109,32 +171,6 @@ class StatsPanel:
                     for info in infos
                     if info.native_plugin is not None and info.name not in used
                 ),
-                "errors": [
-                    {
-                        "fingerprint": r.fingerprint,
-                        "kind": r.kind,
-                        "location": r.location,
-                        "message": r.message,
-                        "traceback": r.traceback,
-                        "first_seen": r.first_seen.isoformat(),
-                        "last_seen": r.last_seen.isoformat(),
-                        "total": r.total,
-                        "groups": sorted(names.get(g) or g for g in r.seen_groups),
-                        "failures": [
-                            {
-                                "id": f.id,
-                                "at": f.at.isoformat(),
-                                "chat": f.chat,
-                                "group_id": f.group_id,
-                                "group_name": names.get(f.group_id, ""),
-                                "user_id": f.user_id,
-                                "preview": f.preview,
-                            }
-                            for f in reversed(error_book.failures)
-                            if f.fingerprint == r.fingerprint
-                        ][:5],
-                    }
-                    for r in error_book.records()
-                ],
+                "errors": errors,
             }
         )
