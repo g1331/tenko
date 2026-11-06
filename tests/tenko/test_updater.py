@@ -1027,7 +1027,8 @@ def test_upgrade_manager_leaves_restart_to_systemd(monkeypatch, tmp_path: Path) 
         raise AssertionError("systemd 管理时不能再起 watcher")
 
     monkeypatch.setattr(manager_module, "spawn_restart_watcher", fail_spawn)
-    monkeypatch.setenv("TENKO_SYSTEMD", "1")
+    monkeypatch.setenv("INVOCATION_ID", "test")
+    monkeypatch.setenv("SYSTEMD_EXEC_PID", str(os.getppid()))
     manager = UpgradeManager(
         Version("1.0.0"),
         project_root=tmp_path,

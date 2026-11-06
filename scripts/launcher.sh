@@ -8,20 +8,10 @@ UV="${UV:-uv}"
 
 cd -- "${STABLE_ROOT}"
 
-# systemd 直接以本脚本为 ExecStart 时（SYSTEMD_EXEC_PID 就是本进程），退出后由
-# systemd 拉起，启动失败回滚也在这里做。只看 INVOCATION_ID 会误判：任何 systemd
-# 服务里打开的 shell 都会继承它。
-if [[ -n "${INVOCATION_ID:-}" && "${SYSTEMD_EXEC_PID:-}" == "$$" ]]; then
-    export TENKO_SYSTEMD=1
-else
-    unset TENKO_SYSTEMD
-fi
-
 exec "${UV}" run --project "${STABLE_ROOT}" --no-sync python -c '
 import json
 import os
 import runpy
-import subprocess
 import sys
 import tomllib
 from pathlib import Path
@@ -66,31 +56,7 @@ configured_root = os.environ.get("TENKO_UPGRADE_ROOT") or install_value
 upgrade_root = Path(configured_root).expanduser()
 if not upgrade_root.is_absolute():
     upgrade_root = stable_root / upgrade_root
-upgrade_root = upgrade_root.resolve()
-if os.environ.get("TENKO_SYSTEMD") == "1" and any(
-    (upgrade_root / name).is_file()
-    for name in ("handoff.json", "startup-probation.json")
-):
-    # 用稳定根目录的代码在独立进程里统计启动次数，不让候选版本的 tenko 包
-    # 提前进入本进程的 sys.modules。
-    tracker = subprocess.run(
-        [
-            sys.executable,
-            "-c",
-            "from tenko.host.updater.recovery import main;"
-            "raise SystemExit(main())",
-            str(upgrade_root),
-        ],
-        cwd=stable_root,
-        env={**os.environ, "PYTHONPATH": str(stable_root)},
-        check=False,
-    )
-    if tracker.returncode != 0:
-        print(
-            f"Tenko 启动观察失败（returncode={tracker.returncode}），照常启动",
-            file=sys.stderr,
-        )
-active_file = upgrade_root / "active.json"
+active_file = upgrade_root.resolve() / "active.json"
 release_root = stable_root
 stable_version = None
 try:

@@ -301,7 +301,7 @@ async def _run_policy() -> CheckResult | PrepareResult | HandoffResult:
 
 @plugin.listen(Ready)
 async def on_ready():
-    # 撑过启动宽限期才算启动成功；systemd 部署的 launcher 据此判断是否要回滚。
+    # 撑过启动宽限期才算启动成功；systemd 部署下次启动时据此判断是否要回滚。
     asyncio.get_running_loop().call_later(
         updater.startup_grace_period, updater.confirm_startup
     )

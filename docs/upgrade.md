@@ -57,9 +57,9 @@ journalctl --user -u tenko -f
 
 几项配置决定升级和重启能否正常工作：
 
-- `ExecStart` 必须直接是 `scripts/launcher.sh`（或用 `exec` 转到它的脚本）。启动器靠
-  `SYSTEMD_EXEC_PID` 等于自己的 PID 判断由 systemd 管理，需要 systemd 248 或更新版本；
-  判断不成立时退回 watcher 模式，而 watcher 会随主进程一起被 systemd 结束。
+- `ExecStart` 直接写 `scripts/launcher.sh`（或用 `exec` 转到它的脚本）。Tenko 靠
+  systemd 提供的 `SYSTEMD_EXEC_PID` 认出自己由 systemd 管理，需要 systemd 248 或更新版本；
+  认不出时退回 watcher 模式，而 watcher 会随主进程一起被 systemd 结束。
 - `Restart=always`：`/重启`、`/升级`、`/回滚` 和面板重启在 systemd 下都只让 Tenko
   正常退出，由 systemd 重新拉起，退出码为 0。`Restart=on-failure` 不会拉起正常退出的进程。
 - `KillSignal=SIGINT` 走与 Ctrl+C 相同的优雅退出；`TimeoutStopSec` 要大于实际的退出耗时
@@ -67,11 +67,13 @@ journalctl --user -u tenko -f
 - `StartLimitBurst`：升级到一个启动就崩溃的版本时，从升级退出到回滚成功共需 3 次启动，
   在 `StartLimitIntervalSec` 内的上限至少要留出这么多。
 
-启动失败回滚在 systemd 下由启动器完成：看到 activate handoff 时开始观察候选版本，
-Tenko 就绪后持续运行满 60 秒即结束观察。候选版本连续 2 次没撑过这段时间，启动器写入
-自动回滚 handoff，本次启动切回 `previous.json` 指向的版本，审计记录和“已自动回滚至 X
+启动失败回滚在 systemd 下由 Tenko 启动早期的引导流程完成：看到 activate handoff 时
+开始观察候选版本，Tenko 就绪后持续运行满 60 秒即结束观察。候选版本连续 2 次没撑过这段
+时间，引导流程写入自动回滚 handoff，本次启动切回 `previous.json` 指向的版本，审计记录和“已自动回滚至 X
 版本”的播报与 watcher 模式相同。回滚版本也起不来时，systemd 达到 `StartLimitBurst`
 后停止服务，需要人工处理。升级后 60 秒内手动重启也会计为一次启动失败。
+
+这些逻辑都在 Tenko 代码里，随 `/升级` 一起更新，部署目录中的启动器和服务文件不用改。
 
 ## 升级命令
 
@@ -168,7 +170,7 @@ remote（例如 `origin`），会在加载配置时用 `git remote get-url` 将�
 `./scripts/launcher.sh`。如果依赖同步或切换后的健康检查失败，升级器会恢复原 active
 指针、把依赖重新同步回原版本的锁文件，并清理本次接管记录，避免失败 handoff 在后续
 启动中反复执行；失败原因写入日志、审计和 `recovery-notice.json`，运行版本不变。启动器拉起后续进程仍在
-宽限期内退出时，watcher（systemd 部署下是启动器）会把 `active.json` 切回 `previous.json`
+宽限期内退出时，watcher（systemd 部署下是启动引导）会把 `active.json` 切回 `previous.json`
 指向的制品并重新拉起；
 回滚成功后，新进程启动通知会播报“已自动回滚至 X 版本”。如果回滚制品也无法存活，
 watcher 停止尝试、隔离失败 handoff 并保留审计记录，等待人工处理，不会继续循环拉起。

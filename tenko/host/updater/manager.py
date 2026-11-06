@@ -223,7 +223,7 @@ class UpgradeManager:
         """安排当前进程退出后重新拉起，返回退出后是否会自动启动。
 
         systemd 管理时由 systemd 按 ``Restart=always`` 拉起，启动失败回滚由
-        launcher 负责；这里不再起 watcher，否则两边会各拉起一个 Tenko。
+        启动引导负责；这里不再起 watcher，否则两边会各拉起一个 Tenko。
         其他部署 arm 一次 detached watcher。
         """
 

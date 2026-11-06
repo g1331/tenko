@@ -1,14 +1,12 @@
-"""外部启动链路调用的启动失败观察与自动回滚函数。
+"""启动失败观察与自动回滚函数。
 
-非 systemd 部署由 detached watcher 观察新进程；systemd 部署由
-``scripts/launcher.sh`` 在每次启动前调用 :func:`track_systemd_startup`。
-两条路径都在稳定根目录的独立 Python 进程中运行，不加载候选版本的代码。
+非 systemd 部署由 detached watcher 在独立进程中观察新进程；systemd 部署由
+Tenko 启动引导在应用 handoff 之前调用 :func:`track_systemd_startup`。
 """
 
 from __future__ import annotations
 
 import os
-import sys
 from collections.abc import Mapping
 from datetime import datetime, UTC
 from pathlib import Path
@@ -28,15 +26,21 @@ from .models import (
 )
 
 
-# launcher 确认自己就是 systemd 服务的 ExecStart 进程后设置，Tenko 继承。
-# 只看 INVOCATION_ID 不够：在任何 systemd 服务里开的 shell 都会继承它。
-SYSTEMD_ENVIRONMENT_VARIABLE = "TENKO_SYSTEMD"
-
-
 def systemd_managed(environ: Mapping[str, str] = os.environ) -> bool:
-    """当前进程是否由 systemd 服务经标准启动器拉起，退出后由 systemd 重启。"""
+    """当前进程是否就是 systemd 服务启动的进程（或经 ``uv run`` 拉起的子进程）。
 
-    return environ.get(SYSTEMD_ENVIRONMENT_VARIABLE) == "1"
+    只看 ``INVOCATION_ID`` 会误判：任何 systemd 服务里打开的 shell 都继承它。
+    ``SYSTEMD_EXEC_PID`` 是 ExecStart 进程的 PID；``launcher.sh`` exec 到 uv，
+    uv 再以子进程运行 Python，所以 Tenko 的父进程就是它。需要 systemd 248+。
+    """
+
+    if not environ.get("INVOCATION_ID"):
+        return False
+    try:
+        exec_pid = int(environ.get("SYSTEMD_EXEC_PID", ""))
+    except ValueError:
+        return False
+    return exec_pid in (os.getpid(), os.getppid())
 
 
 def _best_effort_external_audit(
@@ -309,14 +313,3 @@ def track_systemd_startup(
             reason="无法写入自动回滚 handoff",
             failed_attempts=attempts,
         )
-
-
-def main(argv: list[str] | None = None) -> int:
-    """``scripts/launcher.sh`` 的入口：``python -c ... <upgrade_root>``。"""
-
-    arguments = sys.argv[1:] if argv is None else argv
-    if len(arguments) != 1:
-        print("用法: track_systemd_startup <upgrade_root>", file=sys.stderr)
-        return 2
-    track_systemd_startup(arguments[0])
-    return 0

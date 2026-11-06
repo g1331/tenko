@@ -23,7 +23,12 @@ from .models import (
 
 
 # uv run 和 ``tenko.__main__`` 每启动一次都会在这些变量上再叠一层。
-_LAUNCH_LAYER_VARIABLES = ("UV_RUN_RECURSION_DEPTH", "VIRTUAL_ENV", "PYTHONPATH")
+_LAUNCH_LAYER_VARIABLES = (
+    "UV_RUN_RECURSION_DEPTH",
+    "VIRTUAL_ENV",
+    "PYTHONPATH",
+    "TENKO_REEXEC",
+)
 
 
 def restart_environment(environ: Mapping[str, str] = os.environ) -> dict[str, str]:

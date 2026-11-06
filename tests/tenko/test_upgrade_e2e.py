@@ -771,10 +771,10 @@ def test_real_watcher_rolls_back_crashing_candidate_and_records_recovery(
 
 
 @pytest.mark.skipif(os.name != "posix", reason="POSIX launcher semantics")
-def test_systemd_launcher_rolls_back_crashing_candidate_and_records_recovery(
+def test_systemd_restarts_roll_back_crashing_candidate_and_record_recovery(
     tmp_path: Path,
 ) -> None:
-    """#241：systemd 反复拉起 launcher，连续两次崩溃后由 launcher 回滚到上一版本。"""
+    """#241：systemd 反复拉起 launcher，候选版本连续两次崩溃后自动回滚到上一版本。"""
 
     fixture = _make_fixture(tmp_path)
     manager = _make_manager(fixture)

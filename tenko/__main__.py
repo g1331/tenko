@@ -47,6 +47,10 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+# 引导流程重执行 active 版本时设置；一次启动只统计一次，不把重执行算成新的启动。
+_REEXEC_ENVIRONMENT_VARIABLE = "TENKO_REEXEC"
+
+
 def _current_code_root() -> Path:
     """返回当前已加载 Tenko 包的代码根目录。"""
 
@@ -66,6 +70,7 @@ def _exec_release_root(
         "runpy.run_module('tenko',run_name='__main__')"
     )
     environment = os.environ.copy()
+    environment[_REEXEC_ENVIRONMENT_VARIABLE] = "1"
     # 补同步依赖后会对同一目录再重执行一次，去重以免 PYTHONPATH 叠出重复项。
     existing = [
         value
@@ -90,10 +95,22 @@ def _exec_release_root(
 def _run_startup_bootstrap(config: TenkoConfig, arguments: Sequence[str]) -> bool:
     """消费 handoff，并在 active 代码不是当前代码时重新执行。"""
 
-    from .host.updater import UpgradeConfigError, UpgradeManager, read_project_version
+    from .host.updater import (
+        UpgradeConfigError,
+        UpgradeManager,
+        read_project_version,
+        systemd_managed,
+        track_systemd_startup,
+    )
 
     stable_root = Path.cwd().resolve()
     manager = UpgradeManager.from_config(config.upgrade, project_root=stable_root)
+    if systemd_managed() and os.environ.get(_REEXEC_ENVIRONMENT_VARIABLE) != "1":
+        # systemd 下没有 watcher，切换后的启动失败回滚在这里判断。
+        try:
+            track_systemd_startup(manager.layout.root)
+        except OSError as error:
+            logger.error("Tenko 启动观察记录写入失败，照常启动: {}", error)
     if manager.layout.handoff_file.is_file():
         handoff_action = None
         try:
