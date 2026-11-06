@@ -85,6 +85,12 @@ class UpgradeLayout:
         return self.restart_watchers_dir / f"{old_pid}.json"
 
     @property
+    def startup_probation_file(self) -> Path:
+        """systemd 部署下记录切换后候选版本已启动几次、尚未确认存活。"""
+
+        return self.root / "startup-probation.json"
+
+    @property
     def audit_file(self) -> Path:
         return self.root / "audit.jsonl"
 
@@ -223,6 +229,45 @@ class UpgradeLayout:
 
     def clear_previous(self) -> None:
         self.previous_file.unlink(missing_ok=True)
+
+    def read_startup_probation(self) -> tuple[ReleasePointer, int] | None:
+        """返回观察中的候选版本和已启动次数；记录损坏时按不存在处理。"""
+
+        if not self.startup_probation_file.is_file():
+            return None
+        try:
+            data = json.loads(self.startup_probation_file.read_text(encoding="utf-8"))
+            pointer = ReleasePointer(
+                parse_version(data["version"]),
+                Path(data["path"]).expanduser().resolve(),
+            )
+            attempts = data["attempts"]
+        except (
+            OSError,
+            UnicodeDecodeError,
+            KeyError,
+            TypeError,
+            json.JSONDecodeError,
+            InvalidVersionError,
+        ):
+            return None
+        if type(attempts) is not int or attempts <= 0:
+            return None
+        return pointer, attempts
+
+    def write_startup_probation(self, pointer: ReleasePointer, attempts: int) -> None:
+        _atomic_write_json(
+            self.startup_probation_file,
+            {
+                "version": str(pointer.version),
+                "path": str(pointer.path),
+                "attempts": attempts,
+                "updated_at": datetime.now(UTC).isoformat(),
+            },
+        )
+
+    def clear_startup_probation(self) -> None:
+        self.startup_probation_file.unlink(missing_ok=True)
 
     def write_recovery_notice(
         self,

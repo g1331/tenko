@@ -126,7 +126,7 @@ cp config/tenko.toml.example config/tenko.toml
 启动：
 
 ```bash
-uv run python -m tenko        # 生产部署可用 ./scripts/launcher.sh，见升级与部署
+uv run python -m tenko        # 生产部署可用 ./scripts/launcher.sh 或 systemd，见升级与部署
 ```
 
 可选步骤：
@@ -141,7 +141,7 @@ uv run python -m tenko        # 生产部署可用 ./scripts/launcher.sh，见�
 | 文档 | 内容 |
 | --- | --- |
 | [配置参考](docs/configuration.md) | `config/tenko.toml` 的全部配置项和默认值 |
-| [升级与部署](docs/upgrade.md) | 标准启动器、更新通道、`/升级` 流程、兼容性清单和目录结构 |
+| [升级与部署](docs/upgrade.md) | 标准启动器、systemd 部署、更新通道、`/升级` 流程、兼容性清单和目录结构 |
 | [扩展插件](docs/plugins.md) | 编写插件、插件目录、安装与管理命令 |
 | [WebUI 管理面板](docs/webui.md) | 开启与登录、反向代理、各页面功能、前端开发 |
 | [开发指南](docs/development.md) | 开发环境、代码约定、测试和架构 |

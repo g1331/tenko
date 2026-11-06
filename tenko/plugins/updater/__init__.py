@@ -7,6 +7,7 @@ watcher，随后安排当前运行时优雅退出，避免当前事件处理器�
 
 from __future__ import annotations
 
+import asyncio
 import time
 from datetime import UTC, datetime, timedelta
 from typing import Any
@@ -300,6 +301,10 @@ async def _run_policy() -> CheckResult | PrepareResult | HandoffResult:
 
 @plugin.listen(Ready)
 async def on_ready():
+    # 撑过启动宽限期才算启动成功；systemd 部署的 launcher 据此判断是否要回滚。
+    asyncio.get_running_loop().call_later(
+        updater.startup_grace_period, updater.confirm_startup
+    )
     try:
         await _run_policy()
     except UpdaterError as exc:

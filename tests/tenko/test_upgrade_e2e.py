@@ -770,6 +770,80 @@ def test_real_watcher_rolls_back_crashing_candidate_and_records_recovery(
                 pass
 
 
+@pytest.mark.skipif(os.name != "posix", reason="POSIX launcher semantics")
+def test_systemd_launcher_rolls_back_crashing_candidate_and_records_recovery(
+    tmp_path: Path,
+) -> None:
+    """#241：systemd 反复拉起 launcher，连续两次崩溃后由 launcher 回滚到上一版本。"""
+
+    fixture = _make_fixture(tmp_path)
+    manager = _make_manager(fixture)
+    prepared = asyncio.run(manager.prepare(E2E_RELEASE))
+    asyncio.run(manager.request_install())
+    failure_log = fixture.stable_root / "candidate-startup-failures.log"
+    server_pid_path = fixture.stable_root / "candidate-server.pid"
+    notification_path = fixture.stable_root / "recovery-notification.txt"
+    environment = _subprocess_environment(fixture)
+    environment["INVOCATION_ID"] = "e2e"
+    # 模拟 systemd 以 launcher 为 ExecStart：SYSTEMD_EXEC_PID 就是 launcher 的 PID。
+    systemd_start = [
+        "/bin/sh",
+        "-c",
+        'SYSTEMD_EXEC_PID=$$ exec "$0" --e2e-watchdog',
+        str(fixture.launcher),
+    ]
+
+    for _attempt in range(2):
+        crashed = subprocess.run(
+            systemd_start,
+            cwd=fixture.stable_root.parent,
+            env=environment,
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=WAIT_DEADLINE,
+        )
+        assert crashed.returncode == 31, crashed.stderr
+    recovered = subprocess.Popen(
+        systemd_start, cwd=fixture.stable_root.parent, env=environment
+    )
+    try:
+        _wait_for(notification_path)
+        _wait_for(server_pid_path)
+        assert recovered.poll() is None
+
+        assert failure_log.read_text(encoding="utf-8").splitlines() == [
+            CANDIDATE_MARKER,
+            CANDIDATE_MARKER,
+        ]
+        layout = UpgradeLayout(fixture.upgrade_root)
+        active = layout.read_active()
+        assert active is not None and active.version == Version("1.0.0")
+        assert active.path != prepared.path
+        assert not layout.handoff_file.exists()
+        assert not layout.startup_probation_file.exists()
+        assert notification_path.read_text(encoding="utf-8") == (
+            "已自动回滚至 1.0.0 版本"
+        )
+        audit = _read_audit(fixture)
+        assert (
+            sum(
+                entry["action"] == "startup" and entry["result"] == "failed"
+                for entry in audit
+            )
+            == 2
+        )
+        assert any(
+            entry["action"] == "rollback"
+            and entry["result"] == "success"
+            and entry["automatic"] is True
+            for entry in audit
+        )
+    finally:
+        recovered.terminate()
+        recovered.wait(timeout=10)
+
+
 @pytest.mark.skipif(os.name != "posix", reason="POSIX detached watcher semantics")
 def test_real_watcher_keeps_live_candidate_after_startup_grace(
     monkeypatch, tmp_path: Path

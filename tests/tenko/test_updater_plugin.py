@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from datetime import datetime
 from pathlib import Path
 from types import SimpleNamespace
@@ -418,3 +419,25 @@ async def test_restart_command_releases_cooldown_when_watcher_arm_fails(
     assert fake.shutdown_calls == 0
     assert fake.audit.records[-1]["result"] == "watcher_failed"
     assert loaded_plugin._restart_cooldown_until == 0.0
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("loaded_plugin", ["updater"], indirect=True)
+async def test_ready_clears_startup_probation_only_after_grace_period(
+    loaded_plugin, tmp_path
+):
+    """systemd 部署靠这条记录判断上次启动是否存活；不清除会把好版本当崩溃回滚。"""
+
+    manager, *_ = make_manager(tmp_path)
+    manager.startup_grace_period = 0.05
+    manager.run_policy = AsyncMock()
+    probation = manager.layout.startup_probation_file
+    probation.parent.mkdir(parents=True, exist_ok=True)
+    probation.write_text("{}", encoding="utf-8")
+    loaded_plugin.updater = manager
+
+    await loaded_plugin.on_ready()
+    assert probation.exists()
+    await asyncio.sleep(0.2)
+
+    assert not probation.exists()

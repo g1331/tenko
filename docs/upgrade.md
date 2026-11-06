@@ -15,7 +15,63 @@ Master 可以用聊天命令操作，也可以在 WebUI 的「版本与升级」
 代码源。启动器不消费 `handoff.json`，handoff 由 `tenko.__main__` 在正常启动时一次性
 应用，应用成功后会在 fresh Python 进程中重执行 active 版本。升级命令 arm 的 detached
 watcher 会等待当前进程退出，再调用这个启动器；升级切换时还会观察新进程的启动存活，
-因此 Ctrl+C 仍是正常的优雅退出路径。
+因此 Ctrl+C 仍是正常的优雅退出路径。watcher 拉起启动器时会去掉上一轮启动叠加的
+`PATH`、`PYTHONPATH`、`VIRTUAL_ENV` 和 `UV_RUN_RECURSION_DEPTH`，重启多少次都与第一次
+手动启动的环境一致。由 systemd 管理进程时不使用 watcher，见下一节。
+
+## 用 systemd 管理进程
+
+需要崩溃后自动拉起、开机自启和 journald 日志时，可以把标准启动器交给 systemd。
+下面是一个用户服务示例，路径按实际部署修改：
+
+```ini
+# ~/.config/systemd/user/tenko.service
+[Unit]
+Description=Tenko chat group bot
+After=network-online.target
+StartLimitIntervalSec=300
+StartLimitBurst=5
+
+[Service]
+WorkingDirectory=/srv/tenko
+# systemd 的 PATH 不含 ~/.local/bin，用 UV 指明 uv 的位置
+Environment=UV=%h/.local/bin/uv
+ExecStart=/srv/tenko/scripts/launcher.sh
+KillSignal=SIGINT
+TimeoutStopSec=90
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=default.target
+```
+
+启用并查看日志：
+
+```bash
+systemctl --user daemon-reload
+systemctl --user enable --now tenko
+loginctl enable-linger "$USER"   # 未登录时也保持运行、开机自启
+journalctl --user -u tenko -f
+```
+
+几项配置决定升级和重启能否正常工作：
+
+- `ExecStart` 必须直接是 `scripts/launcher.sh`（或用 `exec` 转到它的脚本）。启动器靠
+  `SYSTEMD_EXEC_PID` 等于自己的 PID 判断由 systemd 管理，需要 systemd 248 或更新版本；
+  判断不成立时退回 watcher 模式，而 watcher 会随主进程一起被 systemd 结束。
+- `Restart=always`：`/重启`、`/升级`、`/回滚` 和面板重启在 systemd 下都只让 Tenko
+  正常退出，由 systemd 重新拉起，退出码为 0。`Restart=on-failure` 不会拉起正常退出的进程。
+- `KillSignal=SIGINT` 走与 Ctrl+C 相同的优雅退出；`TimeoutStopSec` 要大于实际的退出耗时
+  （需要关闭 Web 服务和全部 OneBot 连接，账号多时可能要几十秒），否则 systemd 会强杀。
+- `StartLimitBurst`：升级到一个启动就崩溃的版本时，从升级退出到回滚成功共需 3 次启动，
+  在 `StartLimitIntervalSec` 内的上限至少要留出这么多。
+
+启动失败回滚在 systemd 下由启动器完成：看到 activate handoff 时开始观察候选版本，
+Tenko 就绪后持续运行满 60 秒即结束观察。候选版本连续 2 次没撑过这段时间，启动器写入
+自动回滚 handoff，本次启动切回 `previous.json` 指向的版本，审计记录和“已自动回滚至 X
+版本”的播报与 watcher 模式相同。回滚版本也起不来时，systemd 达到 `StartLimitBurst`
+后停止服务，需要人工处理。升级后 60 秒内手动重启也会计为一次启动失败。
 
 ## 升级命令
 
@@ -112,7 +168,8 @@ remote（例如 `origin`），会在加载配置时用 `git remote get-url` 将�
 `./scripts/launcher.sh`。如果依赖同步或切换后的健康检查失败，升级器会恢复原 active
 指针、把依赖重新同步回原版本的锁文件，并清理本次接管记录，避免失败 handoff 在后续
 启动中反复执行；失败原因写入日志、审计和 `recovery-notice.json`，运行版本不变。启动器拉起后续进程仍在
-宽限期内退出时，watcher 会把 `active.json` 切回 `previous.json` 指向的制品并重新拉起；
+宽限期内退出时，watcher（systemd 部署下是启动器）会把 `active.json` 切回 `previous.json`
+指向的制品并重新拉起；
 回滚成功后，新进程启动通知会播报“已自动回滚至 X 版本”。如果回滚制品也无法存活，
 watcher 停止尝试、隔离失败 handoff 并保留审计记录，等待人工处理，不会继续循环拉起。
 

@@ -1,7 +1,15 @@
-"""detached watcher 调用的自动回滚状态记录函数。"""
+"""外部启动链路调用的启动失败观察与自动回滚函数。
+
+非 systemd 部署由 detached watcher 观察新进程；systemd 部署由
+``scripts/launcher.sh`` 在每次启动前调用 :func:`track_systemd_startup`。
+两条路径都在稳定根目录的独立 Python 进程中运行，不加载候选版本的代码。
+"""
 
 from __future__ import annotations
 
+import os
+import sys
+from collections.abc import Mapping
 from datetime import datetime, UTC
 from pathlib import Path
 from typing import Any
@@ -11,7 +19,24 @@ from packaging.version import Version
 
 from .audit import AuditLogger
 from .layout import ReleasePointer, UpgradeLayout
-from .models import InvalidVersionError, UpgradeConfigError, _redact_text, parse_version
+from .models import (
+    _STARTUP_FAILURE_THRESHOLD,
+    InvalidVersionError,
+    UpgradeConfigError,
+    _redact_text,
+    parse_version,
+)
+
+
+# launcher 确认自己就是 systemd 服务的 ExecStart 进程后设置，Tenko 继承。
+# 只看 INVOCATION_ID 不够：在任何 systemd 服务里开的 shell 都会继承它。
+SYSTEMD_ENVIRONMENT_VARIABLE = "TENKO_SYSTEMD"
+
+
+def systemd_managed(environ: Mapping[str, str] = os.environ) -> bool:
+    """当前进程是否由 systemd 服务经标准启动器拉起，退出后由 systemd 重启。"""
+
+    return environ.get(SYSTEMD_ENVIRONMENT_VARIABLE) == "1"
 
 
 def _best_effort_external_audit(
@@ -216,3 +241,82 @@ def record_automatic_rollback_failure(
     logger.error(
         "Tenko automatic rollback failed; manual recovery required: {}", reason
     )
+
+
+def track_systemd_startup(
+    upgrade_root: str | Path,
+    *,
+    threshold: int = _STARTUP_FAILURE_THRESHOLD,
+) -> None:
+    """systemd 部署下每次启动 Tenko 前调用，统计切换后候选版本的启动次数。
+
+    看到 activate handoff 时开始观察，本次启动记为第 1 次。Tenko 在启动宽限期后
+    仍在运行就清除观察记录；下次启动时记录还在，说明上一次没有撑过宽限期。
+    连续 ``threshold`` 次都是这样时写入自动回滚 handoff，由本次启动的引导流程
+    切回上一版本，并沿用回滚审计和“已自动回滚”播报。
+    """
+
+    layout = UpgradeLayout(Path(upgrade_root))
+    try:
+        handoff = layout.read_handoff()
+    except UpgradeConfigError:
+        # 损坏的 handoff 交给启动引导隔离，这里不据此开始观察。
+        handoff = None
+    if handoff is not None:
+        if handoff.get("action") == "activate":
+            try:
+                target = ReleasePointer(
+                    parse_version(handoff["version"]),
+                    Path(str(handoff["path"])).expanduser().resolve(),
+                )
+            except (KeyError, InvalidVersionError):
+                layout.clear_startup_probation()
+                return
+            layout.write_startup_probation(target, 1)
+        else:
+            layout.clear_startup_probation()
+        return
+
+    probation = layout.read_startup_probation()
+    if probation is None:
+        layout.clear_startup_probation()
+        return
+    candidate, attempts = probation
+    active = _external_layout_pointer(layout, "read_active")
+    if active is None or active.path != candidate.path:
+        # 切换没有生效（例如切换后健康检查失败已恢复）或已被人工改动。
+        layout.clear_startup_probation()
+        return
+
+    record_automatic_startup_failure(
+        layout.root,
+        target_version=candidate.version,
+        reason="进程在启动宽限期内退出",
+        failed_attempts=attempts,
+    )
+    if attempts < threshold:
+        layout.write_startup_probation(candidate, attempts + 1)
+        return
+    layout.clear_startup_probation()
+    reason = f"候选版本在启动宽限期内连续 {attempts} 次退出"
+    if not request_automatic_rollback(
+        layout.root, reason=reason, failed_attempts=attempts
+    ):
+        previous = _external_layout_pointer(layout, "read_previous")
+        record_automatic_rollback_failure(
+            layout.root,
+            target_version=previous.version if previous else None,
+            reason="无法写入自动回滚 handoff",
+            failed_attempts=attempts,
+        )
+
+
+def main(argv: list[str] | None = None) -> int:
+    """``scripts/launcher.sh`` 的入口：``python -c ... <upgrade_root>``。"""
+
+    arguments = sys.argv[1:] if argv is None else argv
+    if len(arguments) != 1:
+        print("用法: track_systemd_startup <upgrade_root>", file=sys.stderr)
+        return 2
+    track_systemd_startup(arguments[0])
+    return 0

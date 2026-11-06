@@ -76,6 +76,8 @@ from .recovery import (
     record_automatic_rollback_failure as record_automatic_rollback_failure,
     record_automatic_startup_failure as record_automatic_startup_failure,
     request_automatic_rollback as request_automatic_rollback,
+    systemd_managed as systemd_managed,
+    track_systemd_startup as track_systemd_startup,
 )
 from .sources import (
     GitHubReleaseSource as GitHubReleaseSource,
@@ -136,4 +138,6 @@ __all__ = [
     "resolve_sqlite_database_path",
     "select_release",
     "spawn_restart_watcher",
+    "systemd_managed",
+    "track_systemd_startup",
 ]

@@ -66,10 +66,13 @@ def _exec_release_root(
         "runpy.run_module('tenko',run_name='__main__')"
     )
     environment = os.environ.copy()
-    existing_pythonpath = environment.get("PYTHONPATH")
-    environment["PYTHONPATH"] = os.pathsep.join(
-        value for value in (str(release_root), existing_pythonpath) if value
-    )
+    # 补同步依赖后会对同一目录再重执行一次，去重以免 PYTHONPATH 叠出重复项。
+    existing = [
+        value
+        for value in environment.get("PYTHONPATH", "").split(os.pathsep)
+        if value and value != str(release_root)
+    ]
+    environment["PYTHONPATH"] = os.pathsep.join([str(release_root), *existing])
     os.chdir(stable_root)
     command = [sys.executable, "-c", bootstrap, str(release_root), *arguments]
     if os.name == "nt":

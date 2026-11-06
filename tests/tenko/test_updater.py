@@ -39,6 +39,7 @@ from tenko.host.updater import (
     UpdatePolicy,
     UpdateRelation,
     UpdateSourceError,
+    ReleasePointer,
     UpgradeLayout,
     UpgradeManager,
     UpgradeConfigError,
@@ -49,6 +50,7 @@ from tenko.host.updater import (
     parse_version,
     select_release,
     spawn_restart_watcher,
+    track_systemd_startup,
 )
 
 
@@ -1016,6 +1018,126 @@ def test_restart_watcher_restarts_once_after_old_pid_exits(tmp_path: Path) -> No
         if old_process.poll() is None:
             old_process.terminate()
             old_process.wait(timeout=5)
+
+
+def test_upgrade_manager_leaves_restart_to_systemd(monkeypatch, tmp_path: Path) -> None:
+    import tenko.host.updater.manager as manager_module
+
+    def fail_spawn(*_args, **_kwargs):
+        raise AssertionError("systemd 管理时不能再起 watcher")
+
+    monkeypatch.setattr(manager_module, "spawn_restart_watcher", fail_spawn)
+    monkeypatch.setenv("TENKO_SYSTEMD", "1")
+    manager = UpgradeManager(
+        Version("1.0.0"),
+        project_root=tmp_path,
+        layout=UpgradeLayout(tmp_path / ".tenko" / "upgrades"),
+    )
+
+    assert manager.spawn_restart_watcher(old_pid=12345) is True
+
+
+@pytest.mark.skipif(os.name != "posix", reason="POSIX detached watcher semantics")
+def test_restart_watcher_launches_without_inherited_launch_layers(
+    monkeypatch, tmp_path: Path
+) -> None:
+    """#240：每次重启都叠一层 uv/PYTHONPATH，约 100 次后 uv run 拒绝启动。"""
+
+    venv_bin = os.path.join(sys.prefix, "bin")
+    monkeypatch.setenv("UV_RUN_RECURSION_DEPTH", "67")
+    monkeypatch.setenv("VIRTUAL_ENV", sys.prefix)
+    monkeypatch.setenv("PYTHONPATH", f"{tmp_path / 'v2'}{os.pathsep}{tmp_path / 'v1'}")
+    monkeypatch.setenv(
+        "PATH", os.pathsep.join([venv_bin, venv_bin, "/usr/bin", "/bin"])
+    )
+    marker = tmp_path / "environment.json"
+    old_process = subprocess.Popen(
+        [sys.executable, "-c", "import time; time.sleep(0.2)"]
+    )
+    command = (
+        sys.executable,
+        "-c",
+        "import json, os, sys; "
+        "open(sys.argv[1], 'w').write(json.dumps(dict(os.environ)))",
+        str(marker),
+    )
+    try:
+        assert spawn_restart_watcher(
+            old_process.pid,
+            command,
+            stable_root=tmp_path,
+            watcher_dir=tmp_path / "restart-watchers",
+            timeout=5,
+            poll_interval=0.05,
+        )
+        assert old_process.wait(timeout=5) == 0
+        deadline = time.monotonic() + 5
+        while not marker.exists() and time.monotonic() < deadline:
+            time.sleep(0.05)
+        deadline = time.monotonic() + 5
+        while time.monotonic() < deadline:
+            try:
+                environment = json.loads(marker.read_text(encoding="utf-8"))
+                break
+            except (OSError, json.JSONDecodeError):
+                time.sleep(0.05)
+    finally:
+        if old_process.poll() is None:
+            old_process.terminate()
+            old_process.wait(timeout=5)
+
+    for name in ("UV_RUN_RECURSION_DEPTH", "VIRTUAL_ENV", "PYTHONPATH"):
+        assert name not in environment
+    assert environment["PATH"].split(os.pathsep) == ["/usr/bin", "/bin"]
+
+
+def _probation_layout(tmp_path: Path) -> tuple[UpgradeLayout, Path, Path]:
+    layout = UpgradeLayout(tmp_path / "upgrades")
+    old = layout.versions_dir / "1.0.0-a"
+    new = layout.versions_dir / "1.1.0-b"
+    old.mkdir(parents=True)
+    new.mkdir()
+    layout.write_pointer(new, Version("1.1.0"))
+    layout.write_pointer(old, Version("1.0.0"), previous=True)
+    return layout, old, new
+
+
+def test_systemd_startup_tracking_requests_rollback_after_repeated_crashes(
+    tmp_path: Path,
+) -> None:
+    layout, old, new = _probation_layout(tmp_path)
+    layout.write_handoff({"action": "activate", "version": "1.1.0", "path": str(new)})
+
+    # 第 1 次启动由引导流程应用 handoff；之后每次启动前都没有清除观察记录。
+    track_systemd_startup(layout.root, threshold=2)
+    layout.clear_handoff()
+    track_systemd_startup(layout.root, threshold=2)
+    assert layout.read_startup_probation() == (
+        ReleasePointer(Version("1.1.0"), new),
+        2,
+    )
+    track_systemd_startup(layout.root, threshold=2)
+
+    handoff = layout.read_handoff()
+    assert handoff is not None
+    assert handoff["action"] == "rollback"
+    assert handoff["automatic_rollback"] is True
+    assert handoff["path"] == str(old)
+    assert not layout.startup_probation_file.exists()
+
+
+def test_systemd_startup_tracking_drops_probation_when_switch_did_not_stick(
+    tmp_path: Path,
+) -> None:
+    layout, old, new = _probation_layout(tmp_path)
+    layout.write_startup_probation(ReleasePointer(Version("1.1.0"), new), 2)
+    # 切换后健康检查失败，引导流程已把 active 恢复到旧版本。
+    layout.write_pointer(old, Version("1.0.0"))
+
+    track_systemd_startup(layout.root, threshold=2)
+
+    assert layout.read_handoff() is None
+    assert not layout.startup_probation_file.exists()
 
 
 @pytest.mark.skipif(os.name != "posix", reason="POSIX detached watcher semantics")

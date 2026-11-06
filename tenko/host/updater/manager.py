@@ -59,6 +59,7 @@ from .sources import (
     UrlManifestSource,
     _normalize_git_repository,
 )
+from .recovery import systemd_managed
 from .watcher import spawn_restart_watcher
 
 
@@ -219,8 +220,15 @@ class UpgradeManager:
         return (sys.executable, "-m", "tenko", *arguments)
 
     def spawn_restart_watcher(self, *, old_pid: int | None = None) -> bool:
-        """为当前进程 arm 一次退出后重启的 detached watcher。"""
+        """安排当前进程退出后重新拉起，返回退出后是否会自动启动。
 
+        systemd 管理时由 systemd 按 ``Restart=always`` 拉起，启动失败回滚由
+        launcher 负责；这里不再起 watcher，否则两边会各拉起一个 Tenko。
+        其他部署 arm 一次 detached watcher。
+        """
+
+        if systemd_managed():
+            return True
         return spawn_restart_watcher(
             old_pid if old_pid is not None else os.getpid(),
             self.restart_command(),
@@ -231,6 +239,14 @@ class UpgradeManager:
             startup_grace_period=self.startup_grace_period,
             startup_failure_threshold=self.startup_failure_threshold,
         )
+
+    def confirm_startup(self) -> None:
+        """启动宽限期过后仍在运行：结束 systemd 部署下的候选版本启动观察。"""
+
+        try:
+            self.layout.clear_startup_probation()
+        except OSError as exc:
+            logger.error("Tenko startup probation cleanup failed: {}", exc)
 
     def request_graceful_shutdown(self) -> bool:
         """请求运行时沿 Launart 生命周期退出，返回是否已提交请求。"""

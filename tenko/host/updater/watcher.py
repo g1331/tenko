@@ -7,7 +7,7 @@ import os
 import subprocess
 import sys
 import textwrap
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from datetime import datetime, UTC
 from pathlib import Path
 from typing import Any
@@ -20,6 +20,41 @@ from .models import (
     _STARTUP_FAILURE_THRESHOLD,
     _STARTUP_GRACE_PERIOD,
 )
+
+
+# uv run 和 ``tenko.__main__`` 每启动一次都会在这些变量上再叠一层。
+_LAUNCH_LAYER_VARIABLES = ("UV_RUN_RECURSION_DEPTH", "VIRTUAL_ENV", "PYTHONPATH")
+
+
+def restart_environment(environ: Mapping[str, str] = os.environ) -> dict[str, str]:
+    """返回重启链路使用的环境：去掉上一轮启动叠加的部分，回到手动启动时的状态。
+
+    watcher 继承运行中 Tenko 的环境；不清理的话，每次重启 ``PATH`` 多一份
+    ``.venv/bin``、``UV_RUN_RECURSION_DEPTH`` 加一（超过 100 后 ``uv run`` 拒绝启动），
+    ``PYTHONPATH`` 也会累积历史版本目录。launcher 会重新加上各自的一层。
+    """
+
+    environment = {
+        key: value
+        for key, value in environ.items()
+        if key not in _LAUNCH_LAYER_VARIABLES
+    }
+    script_dir = "Scripts" if os.name == "nt" else "bin"
+    venv_roots = [environ.get("VIRTUAL_ENV")]
+    if sys.prefix != sys.base_prefix:
+        venv_roots.append(sys.prefix)
+    venv_bins = {
+        os.path.normcase(os.path.abspath(os.path.join(root, script_dir)))
+        for root in venv_roots
+        if root
+    }
+    if "PATH" in environment:
+        environment["PATH"] = os.pathsep.join(
+            entry
+            for entry in environment["PATH"].split(os.pathsep)
+            if entry and os.path.normcase(os.path.abspath(entry)) not in venv_bins
+        )
+    return environment
 
 
 def spawn_restart_watcher(
@@ -416,6 +451,8 @@ def spawn_restart_watcher(
     popen_kwargs: dict[str, Any] = {
         "cwd": str(stable_root),
         "stdin": subprocess.DEVNULL,
+        # watcher、它拉起的 launcher 和自动回滚都从这份干净环境出发。
+        "env": restart_environment(),
     }
     if os.name == "posix":
         popen_kwargs["start_new_session"] = True
