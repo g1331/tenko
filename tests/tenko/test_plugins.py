@@ -508,6 +508,60 @@ async def test_apply_config_reloads_running_plugin_and_keeps_it_on_failure(
         sys.modules.pop("tenko_t_cfg4", None)
 
 
+LIVE_CONFIG_PLUGIN = (
+    CONFIG_PLUGIN
+    + """
+from arclet.entari.event.config import ConfigReload
+
+received = []
+
+@plugin.listen(ConfigReload)
+async def on_config(event: ConfigReload):
+    if event.value.get("live"):
+        received.append(event.value["limit"])
+        return True
+"""
+)
+
+
+@pytest.mark.asyncio
+async def test_plugin_still_handles_its_config_reload_after_an_atomic_reload(
+    entari_plugin_host, monkeypatch, tmp_path: Path
+) -> None:
+    """原子重载后插件的事件作用域要换回正式 ID；找不到作用域时事件会广播给所有插件。"""
+
+    import asyncio
+
+    from arclet.entari.plugin import unload_plugin
+    from arclet.letoderea.utils import _EventSystem
+
+    monkeypatch.setattr(_EventSystem, "loop", asyncio.get_running_loop())
+    for name in ("cfg5", "cfg6"):
+        (tmp_path / f"tenko_t_{name}.py").write_text(LIVE_CONFIG_PLUGIN, "utf-8")
+    monkeypatch.syspath_prepend(tmp_path)
+    patch_entry_points(
+        monkeypatch,
+        tenko=[_entry("cfg5", "tenko_t_cfg5"), _entry("cfg6", "tenko_t_cfg6")],
+    )
+    state_file = tmp_path / "state.json"
+    state_file.write_text(json.dumps({"enabled": ["cfg5", "cfg6"]}), "utf-8")
+    runtime = PluginRuntime(tmp_path / "no_builtin", state_file=state_file)
+    try:
+        await runtime.load_all(external_configs={"cfg5": {"limit": 1}})
+        await runtime.apply_config("cfg5", {"limit": 7})  # 插件不处理：原子重载
+        module = runtime.loaded_plugins["cfg5"].module
+
+        await runtime.apply_config("cfg5", {"limit": 8, "live": True})
+
+        assert module.received == [8]
+        assert runtime.loaded_plugins["cfg5"].module is module  # 没有再次重载
+        assert runtime.loaded_plugins["cfg6"].module.received == []
+    finally:
+        for name in ("tenko_t_cfg5", "tenko_t_cfg6"):
+            unload_plugin(name)
+            sys.modules.pop(name, None)
+
+
 @pytest.mark.asyncio
 async def test_external_plugin_without_config_table_uses_model_defaults(
     entari_plugin_host, monkeypatch, tmp_path: Path

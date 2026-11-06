@@ -655,7 +655,7 @@ class PluginRuntime:
             old = dict(_external_configs.get(info.name, {}))
             # 只发给这个插件自己的作用域，别的插件不必等各自的依赖就绪。
             event = ConfigReload("plugin", info.qualified_name, new, old)
-            handled = await post(event, scope=info.native_plugin._scope)
+            handled = await post(event, scope=info.qualified_name)
             if not (handled and handled.value):
                 async with _db_reload(info.name):
                     result = await reload_plugin(info.qualified_name, dict(new))

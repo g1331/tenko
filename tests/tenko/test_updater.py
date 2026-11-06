@@ -1143,7 +1143,10 @@ def test_systemd_startup_tracking_drops_probation_when_switch_did_not_stick(
 
 @pytest.mark.skipif(os.name != "posix", reason="POSIX detached watcher semantics")
 def test_restart_watcher_records_timeout_without_restarting(tmp_path: Path) -> None:
-    old_process = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(5)"])
+    # 旧进程要远比 watcher 的 1 秒超时活得久；机器繁忙时 watcher 自身启动就要几秒。
+    old_process = subprocess.Popen(
+        [sys.executable, "-c", "import time; time.sleep(60)"]
+    )
     watcher_dir = tmp_path / "restart-watchers"
     timeout_log = tmp_path / f"watcher-timeout-{old_process.pid}.log"
     restart_marker = tmp_path / "restarted.txt"
@@ -1165,17 +1168,19 @@ def test_restart_watcher_records_timeout_without_restarting(tmp_path: Path) -> N
             poll_interval=0.05,
         )
 
-        deadline = time.monotonic() + 5
-        while not timeout_log.exists() and time.monotonic() < deadline:
+        # 等整行写完再读：文件出现时内容可能还没写入。
+        deadline = time.monotonic() + 30
+        while time.monotonic() < deadline and not (
+            timeout_log.is_file() and timeout_log.read_text("utf-8").endswith("\n")
+        ):
             time.sleep(0.05)
-        assert timeout_log.is_file()
         entry = json.loads(timeout_log.read_text(encoding="utf-8").splitlines()[0])
         assert entry["event"] == "watcher-timeout"
         assert entry["old_pid"] == old_process.pid
         assert entry["command"] == list(command)
         assert not restart_marker.exists()
 
-        deadline = time.monotonic() + 5
+        deadline = time.monotonic() + 30
         while record.exists() and time.monotonic() < deadline:
             time.sleep(0.05)
         assert not record.exists()

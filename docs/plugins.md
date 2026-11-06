@@ -10,6 +10,23 @@ template” 后运行 `scripts/rename.py` 改名），它与 [examples/tenko-plu
 [tenko-plugins](https://github.com/g1331/tenko-plugins)，可作为更完整的参考。
 开发约定见 [AGENTS.md](../AGENTS.md)「扩展插件（外部包）」一节。
 
+### 用 Entari 还是 tenko_api
+
+Entari 自带的能力能直接用，但凡涉及权限、限流、数据和平台动作，就走 `tenko_api`：宿主的黑名单、
+面板设置、命令沙盒和审计都挂在这些接口上，绕开它们的插件在面板里管不住，沙盒里也拦不下来。
+
+| 需求 | 用这个 | 避免 | 原因 |
+| --- | --- | --- | --- |
+| 定时任务 | `arclet.entari.scheduler` 的 `cron`、`every`、`invoke` | 自己开 `asyncio` 循环任务 | 插件卸载或重载时自动停掉 |
+| 多轮对话 | `session.prompt(...)` | 自建会话状态机 | 已处理超时（默认 120 秒） |
+| HTTP 请求 | `Entari.current().http`，每次请求设 `timeout` | 新建 `aiohttp.ClientSession` | 复用连接池；这个会话默认不超时 |
+| 数据存储 | `tenko_api.storage` 的 `data_dir()`、`Store`、`Model` | `local_data`、自定路径 | 命令沙盒的写时复制和插件数据清理依赖宿主管理的路径 |
+| 权限 | `tenko_api.perm` 的 `@require`、`require_perm` | `filter.superusers`、`filter.admins` | 宿主按实时群身份、手动授予和黑名单判断 |
+| 限流 | `declare(rate_weight=...)`、`@rate_limit` | `filter.interval` | 按群和人统一计数，权重可在面板调整 |
+| 禁言、踢人、发消息等平台动作 | `tenko_api.actions` | 直接调 `session` 或协议 API | 统一做能力判断、错误提示、审计和沙盒拦截 |
+| 按群开关 | `declare(default_enabled=...)`，非命令监听器加 `@feature_required()` | Entari 的 `::control` | 面板可管理并持久化，热加载的插件也覆盖 |
+| 出错 | 直接抛异常；需要继续处理时用 `tenko_api.messages.report_error` | 自己 `try/except` 后吞掉 | 宿主合并同类错误后报告给 Master，记入面板的错误列表，修复后可在沙盒重放触发它的输入 |
+
 ## 安装与管理
 
 除了下面的聊天命令，Master 也可以在 WebUI 的「插件」页浏览插件市场、安装和管理插件，

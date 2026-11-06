@@ -183,7 +183,8 @@ def collect_process_info() -> ProcessInfo:
             process = psutil.Process()
             start_timestamp = float(process.create_time())
             rss = int(process.memory_info().rss)
-        except Exception:
+        except (psutil.Error, OSError):
+            # 受限容器里读不到自身进程信息时，沿用导入时记下的启动时间。
             pass
     now = time.time()
     return ProcessInfo(
