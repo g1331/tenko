@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
 import secrets
 from collections.abc import Callable
@@ -21,7 +22,7 @@ from satori.client import Account, ApiInfo, App
 from satori.exception import ActionFailed
 from satori.model import Event, Login, User
 from satori.server import Server
-from starlette.websockets import WebSocket, WebSocketState
+from starlette.websockets import WebSocket, WebSocketDisconnect, WebSocketState
 
 from .config import OneBotConfig
 from .context import QQ_PLATFORM
@@ -242,7 +243,9 @@ class ManagedOneBotAdapter(OneBot11ReverseAdapter):
                     Event(EventType.LOGIN_REMOVED, datetime.now(), login)
                 )
             if ws.application_state != WebSocketState.DISCONNECTED:
-                await ws.close()
+                # 关停时对端常常已先断开，此时发送 close 会抛 1006，不是错误。
+                with contextlib.suppress(WebSocketDisconnect):
+                    await ws.close()
 
     async def disconnect(self, account_id: str) -> bool:
         connection = self.connections.get(account_id)

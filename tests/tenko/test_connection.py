@@ -93,3 +93,33 @@ async def test_back_to_back_events_each_reach_the_server_once() -> None:
     await asyncio.sleep(0.01)
 
     assert sorted(posted) == ["first", "second"]
+
+
+@pytest.mark.asyncio
+async def test_closing_a_connection_the_peer_already_dropped_is_not_an_error() -> None:
+    """关停时 OneBot 端常先断开；之前每个账号都会打一段 ASGI 异常堆栈。"""
+
+    from starlette.websockets import WebSocket
+
+    adapter = OneBotConnection(OneBotConfig()).adapter
+    messages = [{"type": "websocket.connect"}]
+
+    async def receive():
+        if messages:
+            return messages.pop(0)
+        await asyncio.Event().wait()
+
+    async def send(message):
+        if message["type"] == "websocket.close":
+            raise OSError("peer gone")  # uvicorn 的 ClientDisconnected 是 OSError
+
+    headers = [(b"x-self-id", b"10001")]
+    if adapter.access_token:
+        headers.append((b"authorization", f"Bearer {adapter.access_token}".encode()))
+    ws = WebSocket({"type": "websocket", "headers": headers}, receive, send)
+    handler = asyncio.create_task(adapter.websocket_server_handler(ws))
+    await asyncio.sleep(0.01)
+
+    assert await adapter.disconnect("10001")
+    await asyncio.wait_for(handler, 1)
+    assert "10001" not in adapter.connections
